@@ -68,6 +68,47 @@ tools/poseidon-corpus/    corpus generator, excluded from the workspace
 contracts/                Foundry
 ```
 
+### Sponsor integrations — verified 2026-10-29
+
+Both non-TEE externals were proved end to end before anything was built on
+them. Three published facts turned out to be wrong, and we will second-guess
+them later if they are not written down.
+
+**HCS.** A `SPEND` written to a keyless topic and read back from the mirror,
+byte-identical, in three seconds. The Rust SDK's default request timeout is too
+short for topic creation — the first attempt dies with `TimedOut(Cancelled)`
+while the consensus nodes are plainly reachable, so the adapter must raise it.
+
+**0G.** A real inference on `qwen/qwen3.8-omni-flash`, its TEE signature
+recovered against the **on-chain** `teeSignerAddress`. The whole path runs with
+no SDK — direct contract calls plus a hand-rolled `Bearer app-sk-…` session
+token — which matters because the enclave is Rust with no network and could
+never have run the TypeScript one.
+
+```
+ledger minimum   0.1 0G on testnet, not the 3 the SDK hardcodes (that is mainnet's)
+1 0G reserve     enforced by the provider's broker, not by any contract
+signed payload   requestHash:responseHash:providerType:providerIdentity:tlsCertFingerprint
+```
+
+That last line corrects this document: 0G signs the **request hash too**, not
+only the response. It still binds nothing of ours, so an identical prompt in a
+second session yields a byte-identical, replayable signature — which is exactly
+what our `escrowId` binding prevents, and the reason it is load-bearing rather
+than belt-and-braces.
+
+**Provider rule.** Accept a node only when `verifiability == TeeML`, its signer
+is acknowledged, and the SDK's override would not fire — that is, not
+(`TargetSeparated && !centralized && TargetTeeAddress`). Applied to all 29 live
+nodes: 3 of 9 usable on testnet, 15 of 20 on mainnet. Two mainnet nodes serve
+the same `glm-5.3` and only one is safe. `claude-opus-5` is `standard`, so a
+reroute there would leave nothing to gate the escrow on.
+
+The buyer supplies the node's `teeSignerAddress` in the handover rather than the
+enclave baking an allowlist: the buyer is the party harmed by a wrong one, it
+already has an RPC, and nothing has to be re-pinned when 0G adds a node. PCR0
+commits to the rule, the handover carries the data.
+
 ### Circuit facts
 
 ```
@@ -560,7 +601,7 @@ recording and polish (2h).
 
 | # | Risk | State |
 |---|---|---|
-| R1 | **0G SDK R14** — fee computed from unauthenticated provider token counts, signature checked *after* billing, skipped entirely without `chatID`. Open upstream, High | Mitigate in Phase 6: per-request ceiling, mandatory `chatID`, verify-before-bill, provider allowlist |
+| R1 | **0G SDK R14** — fee computed from unauthenticated provider token counts, signature checked *after* billing, skipped entirely without `chatID`. Open upstream, High | Mitigate in P4: per-request ceiling, mandatory `chatID`, verify-before-bill, and the allowlist rule below. The override vector is confirmed live, not theoretical |
 | R2 | **x402 eligibility.** Hedera ships the `exact` scheme with `@x402/hedera` and Blocky402; the track says "via an approved facilitator". We build `escrow`, an open proposal | Parked by decision. Insurance is ~half a day: add `exact` for compliance, keep escrow as the differentiator |
 | R3 | Relay reliability | Resolved — QuickNode `hedera-testnet`. Shared team app, so a vendor-side key change is still a single point of failure |
 | R4 | Same-entity binding across two proofs is weak — pool proof and mandate proof could come from different parties. Threat is collusion inside one company | Documented; a merged circuit is the real fix |
