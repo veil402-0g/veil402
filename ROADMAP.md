@@ -371,17 +371,59 @@ Deferred: 2.10. The pool reports `max_automatic_token_associations: -1`, so it
 takes any HTS token with no `associate` call, but that is unproven against a
 real one until a token reaches the account. Nothing depends on it.
 
-### Phase 3 — mandates (5h)
+## Plan from here
 
-Shared Semaphore group across companies with per-company write ACL — a
-per-company group would name the company in every lock proof. Revocation is a
-leaf removal and a new root. Already-issued capability survives until expiry;
-token TTL is the dial.
+Phase numbers stay as they are; execution order does not follow them, because
+settlement moved into the enclave and the enclave is now on the critical path
+for fund safety rather than for attestation.
 
-Reuse ERC-7710 delegation structs and caveat semantics as the mandate vocabulary
-rather than inventing a format; the hash becomes the Semaphore leaf, and the
-object stays publicly enforceable through the real Delegation Manager in a
-dispute.
+| # | task | why here | est |
+|---|---|---|---:|
+| **4.4** | ephemeral session notes — one seed per session, `split` mints under it | prerequisite for handing over one note's authority; closes the loose end 4.3 left | 1.5h |
+| **5.1** | handover channel — X25519 published and signed by the registered signer, HPKE, seed verified against the escrow | the trust boundary, worth reviewing alone | 2.5h |
+| **5.2** | enclave settlement — note derivation, witness, worker client, calldata | the 17× surface growth, worth reviewing alone | 4h |
+| **4.5** | session manager — derived state, the deadline obligation, both settle paths | needs 5.2 to have something to call | 3.5h |
+| **5.3** | **envelope end to end on anvil** — lock, N calls, one settlement, change placed | the milestone: a working private metered payment, no Nitro | 2h |
+| **4.6** | OpenAI-compatible API | needs sessions underneath it | 3h |
+| **3.1** | mandates — ERC-7710 vocabulary, daemon policy over `open` | gates API requests, so the API comes first | 2h |
+| **4.7** | receipts | the `block` columns 4.1 captured exist for this | 2h |
+| **5.4** | Nitro image — vsock, entropy self-check, reproducible EIF, PCR0 | needs EC2; nothing before it does | 6h |
+| 6 | real 0G | | 4h |
+| 7 | x402 challenge + PCR pinning | needs a real PCR0 from 5.4 | 3h |
+| 8 | receipts and audit on HCS | | 5h |
+
+Roughly 38h remaining. **5.3 is the one that matters** — everything before it
+is machinery, and it is the first point where the whole claim is demonstrable.
+
+Two items sit outside the sequence. 2.10 still needs a real HTS token in the
+account before it can run, and nothing depends on it. The **trusted setup**
+remains the largest open risk: `transaction.pk` came from a one-shot
+`groth16.Setup` with no ceremony, so whoever ran it can forge proofs for this
+circuit. It blocks real money, not the demo, and no task above changes that.
+
+### Phase 3 — mandates (lands after the API)
+
+Scope correction found while planning 4.4: **`lock` takes no mandate argument**,
+so there is no way to enforce one on chain at reservation time without a new
+Pool. On-chain enforcement is simply unavailable to us.
+
+That turns out not to matter, because of who a mandate protects. It is a
+company bounding what its own agents may spend. The company runs the daemon,
+and agents hold no keys — they reach the pool only through it. **The daemon is
+therefore a complete enforcement point**: an agent cannot route around the only
+thing that can sign for it.
+
+So mandates become a policy layer over `open`, not a circuit. ERC-7710
+delegation structs and caveat semantics stay as the vocabulary rather than
+inventing a format, which keeps the object publicly enforceable through the
+real Delegation Manager in a dispute.
+
+A shared Semaphore group with per-company write ACL is only needed if agents
+can act independently of the daemon. They cannot, so it leaves the critical
+path — revisit it if agents ever hold keys of their own.
+
+It lands after the API because it gates API requests, and there has to be an
+API to gate.
 
 ### Phase 4 — `veil-daemon` (4.1 done)
 
@@ -433,12 +475,18 @@ SIGINT.
 Remaining: 4.3 note selection with re-split, 4.4 envelope sessions,
 4.5 OpenAI-compatible API, 4.6 receipts.
 
-### Phase 5 — enclave logic, stub attester (6h)
+### Phase 5 — enclave image (6h)
 
 Rust behind an `Attester` trait: `StubAttester` locally, `NitroAttester` on EC2.
-Decrypt, call 0G, spend ceiling, encrypt response, sign release, multi-tenant key
-handling. Nitro cannot run on macOS, so everything but attestation and KMS is
-testable locally.
+Nitro cannot run on macOS, so everything but attestation and KMS is testable
+locally — and after 4.4 the enclave's logic already is.
+
+What is left is packaging, and three things that need real hardware: a vsock
+bridge handing the worker its socket as fd 0/1, an entropy self-check at boot
+(NSM seeds the kernel HWRNG from nitro-cli 1.2.0, and weak randomness would
+leak the Groth16 witness), and a reproducible EIF so PCR0 means anything. The
+Go binary is already byte-reproducible; the rootfs half is Nix plus
+`aws-nitro-util`.
 
 ### Phase 6 — real 0G (4h)
 
