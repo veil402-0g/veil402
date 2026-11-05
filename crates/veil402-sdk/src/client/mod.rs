@@ -3,11 +3,10 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 
 use crate::{
-    protocol::{Plan, Public, PublicInputs, Transaction},
+    Field, Transaction,
+    protocol::{Plan, Public, PublicInputs},
     proving::{Artifacts, Witness, Worker},
-    solana::{External, Pool, Prepared, Withdrawal},
 };
-use solana_pubkey::Pubkey;
 
 mod error;
 
@@ -110,68 +109,28 @@ impl Veil {
         })
     }
 
-    /// Proves a private transfer and builds the exact Solana instruction that consumes it.
+    /// Proves a transaction, binding it to an asset, a signed public amount and an
+    /// external-data hash supplied by the caller's chain adapter.
     ///
-    /// Account creation and transaction submission remain the caller's responsibility.
-    ///
-    /// # Errors
-    ///
-    /// Returns an [`Error`] when the transaction is invalid, proof generation fails, or the
-    /// resulting instruction cannot be encoded.
-    pub async fn transfer(
-        &self,
-        pool: &Pool,
-        transaction: Transaction,
-        payer: Pubkey,
-    ) -> Result<Prepared, Error> {
-        self.prepare(pool, transaction, pool.address(), 0, payer)
-            .await
-    }
-
-    /// Proves a withdrawal and builds the exact Solana instruction that consumes it.
-    ///
-    /// Account creation and transaction submission remain the caller's responsibility.
+    /// The external-data hash is whatever the target chain commits to — on EVM, the keccak
+    /// digest of the escrow parameters. The circuit only asserts that it is bound.
     ///
     /// # Errors
     ///
-    /// Returns an [`Error`] when the withdrawal is invalid, proof generation fails, or the
-    /// resulting instruction cannot be encoded.
-    pub async fn withdraw(
+    /// Returns an [`Error`] when the transaction is invalid, or witness generation, the prover
+    /// worker, or verification fails.
+    pub async fn prove_transaction(
         &self,
-        pool: &Pool,
         transaction: Transaction,
-        withdrawal: Withdrawal,
-        payer: Pubkey,
-    ) -> Result<Prepared, Error> {
-        if withdrawal.recipient() == pool.address() {
-            return Err(Error::Withdrawal("recipient resolves to the pool vault"));
-        }
-        self.prepare(
-            pool,
-            transaction,
-            withdrawal.recipient(),
-            withdrawal.public_amount(),
-            payer,
-        )
-        .await
-    }
-
-    async fn prepare(
-        &self,
-        pool: &Pool,
-        transaction: Transaction,
-        recipient: Pubkey,
+        asset: Field,
         amount: i64,
-        payer: Pubkey,
-    ) -> Result<Prepared, Error> {
-        let plan = transaction.plan(pool.asset())?;
-        let external = External::new(&plan, recipient)?;
+        ext_data_hash: Field,
+    ) -> Result<Proof, Error> {
+        let plan = transaction.plan(asset)?;
         let public = Public {
             amount,
-            hash: pool.bind(&external, amount)?,
+            hash: ext_data_hash,
         };
-        let proof = self.prove(plan, public).await?;
-        let instruction = pool.instruction(&proof, &external, amount, payer)?;
-        Ok(Prepared { proof, instruction })
+        self.prove(plan, public).await
     }
 }

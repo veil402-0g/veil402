@@ -1,4 +1,5 @@
-use solana_poseidon::{Endianness, Parameters, hashv};
+use ark_bn254::Fr;
+use light_poseidon::{Poseidon, PoseidonBytesHasher};
 
 use super::{Field, Secret};
 use crate::client::Error;
@@ -16,9 +17,9 @@ pub(crate) fn poseidon(inputs: &[&Field]) -> Result<Field, Error> {
         .iter()
         .map(|field| field.as_bytes().as_slice())
         .collect();
-    let hash =
-        hashv(Parameters::Bn254X5, Endianness::BigEndian, &bytes).map_err(|_| Error::Poseidon)?;
-    Field::from_bytes(hash.to_bytes())
+    let mut hasher = Poseidon::<Fr>::new_circom(bytes.len()).map_err(|_| Error::Poseidon)?;
+    let hash = hasher.hash_bytes_be(&bytes).map_err(|_| Error::Poseidon)?;
+    Field::from_bytes(hash)
 }
 
 /// Secrets that authorize spending a note.

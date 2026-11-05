@@ -2,8 +2,8 @@ use std::{error::Error as StdError, fs, path::Path, process::Command};
 
 use tempfile::tempdir;
 use veil402_sdk::{
-    Config, Error, Field, MerklePath, Note, Owner, Pool, PublicInputs, Secret, Send, Spend,
-    TREE_DEPTH, Transaction, Veil, Withdrawal,
+    Config, Error, Field, MerklePath, Note, Owner, PublicInputs, Secret, Send, Spend, TREE_DEPTH,
+    Transaction, Veil,
 };
 
 fn field(value: u64) -> Field {
@@ -60,15 +60,6 @@ fn root() -> Result<&'static Path, Box<dyn StdError>> {
 
 fn artifacts() -> Result<std::path::PathBuf, Box<dyn StdError>> {
     Ok(root()?.join("prover/veil402-gnark/artifacts/transaction-v4"))
-}
-
-fn pool() -> Result<Pool, Error> {
-    Pool::new(
-        solana_pubkey::Pubkey::new_from_array([1; 32]),
-        solana_pubkey::Pubkey::new_from_array([2; 32]),
-        solana_pubkey::Pubkey::new_from_array([3; 32]),
-        [4; 32],
-    )
 }
 
 #[test]
@@ -134,8 +125,11 @@ fn rejects_corrupt_artifacts() -> Result<(), Box<dyn StdError>> {
     Ok(())
 }
 
+/// Proves the shape the EVM escrow uses — one input note spent, one change note
+/// created, the difference leaving the pool as a negative public amount — and
+/// writes the proof and its public inputs for the Solidity verifier test.
 #[tokio::test]
-async fn proves_transfer_and_withdrawal_locally() -> Result<(), Box<dyn StdError>> {
+async fn proves_and_writes_evm_fixture() -> Result<(), Box<dyn StdError>> {
     let repository = root()?;
     let worker = repository.join("target/veil402-gnark-test");
     let status = Command::new("go")
@@ -149,34 +143,35 @@ async fn proves_transfer_and_withdrawal_locally() -> Result<(), Box<dyn StdError
     }
 
     let veil = Veil::open(Config::new(worker, artifacts()?))?;
-    let pool = pool()?;
-    let payer = solana_pubkey::Pubkey::new_unique();
-
-    // A private payment uses both real output slots and one random dummy input.
-    let transfer = veil
-        .transfer(
-            &pool,
-            transaction(pool.asset(), &[(700, 44), (300, 55)])?,
-            payer,
+    let asset = field(0x5645_494c);
+    // 1000 in, 700 change out, 300 leaving the pool into escrow.
+    let proof = veil
+        .prove_transaction(
+            transaction(asset, &[(700, 66)])?,
+            asset,
+            -300,
+            field(0xDEAD_BEEF),
         )
         .await?;
-    assert_eq!(transfer.proof.bytes.len(), 388);
-    assert_eq!(transfer.proof.artifact, "transaction-v4");
-    assert_ne!(
-        transfer.proof.public.nullifiers[0],
-        transfer.proof.public.nullifiers[1]
+
+    assert_eq!(proof.bytes.len(), 388);
+    assert_eq!(proof.artifact, "transaction-v4");
+    assert_ne!(proof.public.nullifiers[0], proof.public.nullifiers[1]);
+
+    let inputs: Vec<String> = proof
+        .public
+        .fields()
+        .iter()
+        .map(|field| format!("0x{}", hex::encode(field.to_bytes())))
+        .collect();
+    let fixture = format!(
+        "{{\n  \"artifact\": \"{}\",\n  \"proof\": \"0x{}\",\n  \"input\": [\n    \"{}\"\n  ]\n}}\n",
+        proof.artifact,
+        hex::encode(&proof.bytes),
+        inputs.join("\",\n    \"")
     );
-
-    // A withdrawal creates one real change note; the SDK pads and shuffles the other output.
-    let withdrawal = veil
-        .withdraw(
-            &pool,
-            transaction(pool.asset(), &[(700, 66)])?,
-            Withdrawal::new(solana_pubkey::Pubkey::new_unique(), 300)?,
-            payer,
-        )
-        .await?;
-    assert_eq!(withdrawal.proof.bytes.len(), 388);
-    assert_eq!(withdrawal.proof.artifact, "transaction-v4");
+    let out = repository.join("contracts/test/fixtures");
+    fs::create_dir_all(&out)?;
+    fs::write(out.join("transfer.json"), fixture)?;
     Ok(())
 }
