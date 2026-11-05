@@ -13,7 +13,7 @@ use veil402_daemon::{
         wallet::{Held, Minted, NoteStore, WalletError, WalletService, select, split},
     },
 };
-use veil402_sdk::{Field, Owner, Secret};
+use veil402_sdk::{Field, Owner, Secret, SessionKeys};
 
 type Fallible = Result<(), Box<dyn std::error::Error>>;
 
@@ -74,12 +74,17 @@ async fn observe(store: &SqliteStore, nullifiers: &[Field], locks: &[(Field, u64
     Ok(store.append(&batch, &[]).await?)
 }
 
-fn minted(commitment: Field, value: u64) -> Result<Minted, Box<dyn std::error::Error>> {
+fn minted(
+    commitment: Field,
+    value: u64,
+    seed: Option<Secret>,
+) -> Result<Minted, Box<dyn std::error::Error>> {
     Ok(Minted {
         commitment,
         value,
         asset: ASSET,
         random: Secret::random()?,
+        seed,
     })
 }
 
@@ -148,7 +153,7 @@ async fn reconcile_places_a_note_once_the_index_has_seen_it() -> Fallible {
     let wallet = wallet(&store, Owner::random()?);
     emit(&store, 3).await?;
     // field(2) is the pool's second commitment, so it sits at leaf 1.
-    wallet.remember(&[minted(field(2), 70)?], 0).await?;
+    wallet.remember(&[minted(field(2), 70, None)?], 0).await?;
 
     assert_eq!(wallet.reconcile(0).await?.placed, 1);
     assert_eq!(store.spendable(ASSET, 0).await?[0].leaf, 1);
@@ -167,7 +172,7 @@ async fn reconcile_retires_a_note_the_pool_has_nullified() -> Fallible {
     let wallet = wallet(&store, owner);
     emit(&store, 1).await?;
     observe(&store, &[nullifier], &[]).await?;
-    wallet.remember(&[minted(field(1), 40)?], 0).await?;
+    wallet.remember(&[minted(field(1), 40, None)?], 0).await?;
 
     let pass = wallet.reconcile(0).await?;
     assert_eq!((pass.placed, pass.spent), (1, 1));
@@ -182,7 +187,7 @@ async fn only_one_session_can_claim_a_note() -> Fallible {
     let store = store().await?;
     let wallet = wallet(&store, Owner::random()?);
     emit(&store, 1).await?;
-    wallet.remember(&[minted(field(1), 500)?], 0).await?;
+    wallet.remember(&[minted(field(1), 500, None)?], 0).await?;
     wallet.reconcile(0).await?;
 
     let note = wallet.reserve(ASSET, 100, 0).await?;
@@ -206,7 +211,7 @@ async fn a_lock_that_never_lands_frees_the_note_by_itself() -> Fallible {
     let store = store().await?;
     let wallet = wallet(&store, Owner::random()?);
     emit(&store, 1).await?;
-    wallet.remember(&[minted(field(1), 500)?], 0).await?;
+    wallet.remember(&[minted(field(1), 500, None)?], 0).await?;
     wallet.reconcile(0).await?;
     wallet.reserve(ASSET, 100, 0).await?;
 
@@ -229,7 +234,7 @@ async fn an_escrow_extends_the_hold_to_its_own_deadline() -> Fallible {
     let store = store().await?;
     let wallet = wallet(&store, owner);
     emit(&store, 1).await?;
-    wallet.remember(&[minted(field(1), 500)?], 0).await?;
+    wallet.remember(&[minted(field(1), 500, None)?], 0).await?;
     wallet.reconcile(0).await?;
     wallet.reserve(ASSET, 100, 0).await?;
     // The lock the reservation was taken for lands.
@@ -254,10 +259,59 @@ async fn a_note_that_never_lands_is_counted_not_deleted() -> Fallible {
     let store = store().await?;
     let wallet = wallet(&store, Owner::random()?);
     emit(&store, 1).await?;
-    wallet.remember(&[minted(field(9), 40)?], 0).await?;
+    wallet.remember(&[minted(field(9), 40, None)?], 0).await?;
 
     assert_eq!(wallet.reconcile(0).await?.stale, 0, "not stale yet");
     assert_eq!(wallet.reconcile(7_200).await?.stale, 1);
     assert_eq!(store.unplaced().await?.len(), 1, "still on record");
+    Ok(())
+}
+
+/// A session note belongs to its own owner. Deriving its nullifier from this
+/// wallet's key writes one the pool will never record, and the note is then
+/// offered forever.
+#[tokio::test]
+async fn a_session_note_reveals_its_own_nullifier() -> Fallible {
+    let wallet_owner = Owner::random()?;
+    let seed = Secret::random()?;
+    // field(1) is the first commitment, so the note lands at leaf 0.
+    let session = SessionKeys::from_seed(&seed)?.owner.nullifier(0)?;
+    assert_ne!(session, wallet_owner.nullifier(0)?, "the test would prove nothing");
+
+    let store = store().await?;
+    let wallet = wallet(&store, wallet_owner);
+    emit(&store, 1).await?;
+    wallet.remember(&[minted(field(1), 500, Some(seed))?], 0).await?;
+    wallet.reconcile(0).await?;
+
+    assert_eq!(store.outstanding().await?[0].nullifier, session);
+
+    // And the pool recording that nullifier retires it.
+    observe(&store, &[session], &[]).await?;
+    assert_eq!(wallet.reconcile(0).await?.spent, 1);
+    assert!(store.spendable(ASSET, 0).await?.is_empty());
+    Ok(())
+}
+
+/// Both kinds coexist: one pass has to use the right key for each.
+#[tokio::test]
+async fn session_and_wallet_notes_reconcile_together() -> Fallible {
+    let wallet_owner = Owner::random()?;
+    let seed = Secret::random()?;
+    let store = store().await?;
+    let wallet = wallet(&store, wallet_owner);
+    emit(&store, 2).await?;
+    wallet
+        .remember(
+            &[
+                minted(field(1), 100, Some(seed))?,
+                minted(field(2), 200, None)?,
+            ],
+            0,
+        )
+        .await?;
+
+    assert_eq!(wallet.reconcile(0).await?.placed, 2);
+    assert_eq!(store.spendable(ASSET, 0).await?.len(), 2);
     Ok(())
 }

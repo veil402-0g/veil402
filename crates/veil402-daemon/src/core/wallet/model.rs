@@ -7,6 +7,10 @@ pub struct Minted {
     pub value: u64,
     pub asset: Field,
     pub random: Secret,
+    /// Set when the note belongs to a session owner rather than this wallet's.
+    /// It is the one thing a session delegate is handed, so losing it costs
+    /// the note the same way losing `random` does.
+    pub seed: Option<Secret>,
 }
 
 /// A note the index has placed in the tree.
@@ -23,11 +27,13 @@ pub struct Held {
 }
 
 /// A note we created that the chain has not placed yet.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct Unplaced {
     pub commitment: Field,
     /// When it was written down, so one that never lands can be noticed.
     pub created: u64,
+    /// Which owner it belongs to, which decides the nullifier it will reveal.
+    pub seed: Option<Secret>,
 }
 
 /// What one reconciliation pass changed.

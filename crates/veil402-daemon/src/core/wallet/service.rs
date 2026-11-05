@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use thiserror::Error;
-use veil402_sdk::{Field, Owner};
+use veil402_sdk::{Field, Owner, Secret, SessionKeys};
 
 use super::{ChainFacts, Held, Minted, NoteStore, Reconciled};
 use crate::core::StoreError;
@@ -175,7 +175,7 @@ impl WalletService {
         for note in self.notes.unplaced().await? {
             match self.chain.leaf_of(note.commitment).await? {
                 Some(leaf) => {
-                    let nullifier = self.owner.nullifier(leaf).map_err(|_| WalletError::Owner)?;
+                    let nullifier = self.nullifier(note.seed.as_ref(), leaf)?;
                     self.notes.place(note.commitment, leaf, nullifier).await?;
                     pass.placed += 1;
                 }
@@ -202,5 +202,17 @@ impl WalletService {
             self.notes.spend(&spent).await?;
         }
         Ok(pass)
+    }
+
+    /// A session note belongs to its own owner, so the nullifier it reveals is
+    /// not the one this wallet's key derives. Using the wrong one writes a
+    /// nullifier the pool will never record, and the note is then offered
+    /// forever.
+    fn nullifier(&self, seed: Option<&Secret>, leaf: u32) -> Result<Field, WalletError> {
+        match seed {
+            Some(seed) => SessionKeys::from_seed(seed).and_then(|keys| keys.owner.nullifier(leaf)),
+            None => self.owner.nullifier(leaf),
+        }
+        .map_err(|_| WalletError::Owner)
     }
 }

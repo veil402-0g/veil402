@@ -5,7 +5,7 @@ mod transaction;
 mod tree;
 
 pub use field::{Field, Secret};
-pub use note::{Note, Owner, Send};
+pub use note::{Note, Owner, Send, SessionKeys};
 pub use transaction::{MerklePath, PublicInputs, Spend, Transaction};
 pub use tree::{StoredNode, Tree, Witness};
 pub(crate) use transaction::{Plan, Public, Values};

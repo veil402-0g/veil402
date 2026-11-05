@@ -11,6 +11,9 @@ pub(crate) const NOTE_KEY_DOMAIN: Field = Field::from_raw_u64(4);
 pub(crate) const NOTE_DOMAIN: Field = Field::from_raw_u64(5);
 pub(crate) const NULLIFIER_DOMAIN: Field = Field::from_raw_u64(6);
 pub(crate) const ASSET_DOMAIN: Field = Field::from_raw_u64(7);
+pub(crate) const SESSION_SPEND_DOMAIN: Field = Field::from_raw_u64(8);
+pub(crate) const SESSION_VIEW_DOMAIN: Field = Field::from_raw_u64(9);
+pub(crate) const SESSION_RANDOM_DOMAIN: Field = Field::from_raw_u64(10);
 
 pub(crate) fn poseidon(inputs: &[&Field]) -> Result<Field, Error> {
     let bytes: Vec<&[u8]> = inputs
@@ -70,6 +73,43 @@ impl Owner {
     pub(crate) fn nullifier_key(&self) -> Result<Field, Error> {
         poseidon(&[&NULLIFIER_KEY_DOMAIN, &self.view.expose()])
     }
+}
+
+/// The keys one session seed opens: an owner holding exactly one note, and
+/// that note's blinding.
+///
+/// Both come from the same seed, which is what lets a session be delegated by
+/// handing over thirty-two bytes — and what bounds that delegation to a single
+/// note. The seed's holder can spend that note and learn nothing about any
+/// other.
+#[derive(Debug)]
+pub struct SessionKeys {
+    /// Owner of the session note.
+    pub owner: Owner,
+    /// Blinding the session note was created with.
+    pub random: Secret,
+}
+
+impl SessionKeys {
+    /// Derives the keys a seed opens.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Poseidon`] if the configured hash rejects its inputs.
+    pub fn from_seed(seed: &Secret) -> Result<Self, Error> {
+        Ok(Self {
+            owner: Owner {
+                spend: derive(&SESSION_SPEND_DOMAIN, seed)?,
+                view: derive(&SESSION_VIEW_DOMAIN, seed)?,
+            },
+            random: derive(&SESSION_RANDOM_DOMAIN, seed)?,
+        })
+    }
+}
+
+/// Poseidon lands in the field by construction, so the parse cannot fail.
+fn derive(domain: &Field, seed: &Secret) -> Result<Secret, Error> {
+    Secret::from_bytes(poseidon(&[domain, &seed.expose()])?.to_bytes())
 }
 
 /// A private note owned by the caller.

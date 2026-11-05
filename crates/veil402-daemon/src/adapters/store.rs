@@ -72,7 +72,8 @@ impl SqliteStore {
                  random     BLOB    NOT NULL,
                  spent      INTEGER NOT NULL DEFAULT 0,
                  held       INTEGER NOT NULL DEFAULT 0,
-                 created    INTEGER NOT NULL
+                 created    INTEGER NOT NULL,
+                 seed       BLOB
              );
              CREATE INDEX IF NOT EXISTS owned_nullifier ON owned (nullifier);",
         )
@@ -300,14 +301,15 @@ impl NoteStore for SqliteStore {
 
         for note in minted {
             sqlx::query(
-                "INSERT OR IGNORE INTO owned (commitment, value, asset, random, created)
-                 VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO owned (commitment, value, asset, random, created, seed)
+                 VALUES (?, ?, ?, ?, ?, ?)",
             )
             .bind(note.commitment.to_bytes().to_vec())
             .bind(integer(note.value)?)
             .bind(note.asset.to_bytes().to_vec())
             .bind(note.random.to_bytes().to_vec())
             .bind(integer(now)?)
+            .bind(note.seed.as_ref().map(|seed| seed.to_bytes().to_vec()))
             .execute(&mut *transaction)
             .await
             .map_err(|_| StoreError::Unavailable)?;
@@ -321,7 +323,7 @@ impl NoteStore for SqliteStore {
 
     async fn unplaced(&self) -> Result<Vec<Unplaced>, StoreError> {
         let rows = sqlx::query(
-            "SELECT commitment, created FROM owned WHERE leaf_index IS NULL AND spent = 0",
+            "SELECT commitment, created, seed FROM owned WHERE leaf_index IS NULL AND spent = 0",
         )
         .fetch_all(&self.pool)
         .await
@@ -332,6 +334,10 @@ impl NoteStore for SqliteStore {
                 Ok(Unplaced {
                     commitment: field(row.get("commitment"))?,
                     created: count(row, "created")?,
+                    seed: row
+                        .get::<Option<Vec<u8>>, _>("seed")
+                        .map(secret)
+                        .transpose()?,
                 })
             })
             .collect()
