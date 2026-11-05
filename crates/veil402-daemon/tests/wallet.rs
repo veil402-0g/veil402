@@ -101,6 +101,7 @@ fn holding(values: &[u64]) -> Result<Vec<Held>, Box<dyn std::error::Error>> {
                 value: *value,
                 asset: ASSET,
                 random: Secret::random()?,
+                seed: None,
             })
         })
         .collect()

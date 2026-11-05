@@ -1,16 +1,21 @@
 use alloy::{
-    primitives::{Address, B256, Bytes, U256, keccak256},
-    sol_types::{SolCall, SolValue},
+    primitives::{Address, B256, Bytes, U256},
+    sol_types::{Eip712Domain, SolCall, SolStruct},
 };
 
 use super::{Pool, client::PoolClient};
 use crate::{Field, client::Error};
 
-const LOCK_TYPE: &[u8] = b"Lock(uint256 nullifier,address seller,uint64 deadline)";
-const SETTLEMENT_TYPE: &[u8] =
-    b"Settlement(uint256 nullifier,uint256 amount,bytes32 callsRoot)";
-const DOMAIN_TYPE: &[u8] =
-    b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)";
+/// The structs the pool recovers signatures against. `sol!` derives the
+/// typehash and the EIP-712 digest, so a field cannot drift out of step with
+/// the contract's own `TYPEHASH` without the shared fixture noticing.
+mod typed {
+    alloy::sol! {
+        struct Lock { uint256 nullifier; address seller; uint64 deadline; }
+        struct Settlement { uint256 nullifier; uint256 amount; bytes32 callsRoot; }
+        struct EnclaveKey { bytes32 publicKey; }
+    }
+}
 
 /// A reservation the enclave has agreed to meter.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -24,42 +29,43 @@ pub struct Session {
 }
 
 impl PoolClient {
-    /// Returns the pool's EIP-712 domain separator.
-    #[must_use]
-    pub fn domain_separator(&self) -> B256 {
-        keccak256(
-            (
-                keccak256(DOMAIN_TYPE),
-                keccak256("Veil402Pool"),
-                keccak256("1"),
-                U256::from(self.chain_id()),
-                self.address(),
-            )
-                .abi_encode(),
+    fn domain(&self) -> Eip712Domain {
+        Eip712Domain::new(
+            Some("Veil402Pool".into()),
+            Some("1".into()),
+            Some(U256::from(self.chain_id())),
+            Some(self.address()),
+            None,
         )
     }
 
-    fn typed_data(&self, struct_hash: B256) -> B256 {
-        let mut message = [0_u8; 66];
-        message[0] = 0x19;
-        message[1] = 0x01;
-        message[2..34].copy_from_slice(self.domain_separator().as_slice());
-        message[34..].copy_from_slice(struct_hash.as_slice());
-        keccak256(message)
+    /// Returns the pool's EIP-712 domain separator.
+    #[must_use]
+    pub fn domain_separator(&self) -> B256 {
+        self.domain().separator()
+    }
+
+    /// The digest an enclave signs to vouch for its encryption key.
+    ///
+    /// Signed the same way as everything else the enclave signs, so the domain
+    /// separator binds the chain and the pool and no hand-written tag has to.
+    #[must_use]
+    pub fn enclave_key_digest(&self, public: [u8; 32]) -> B256 {
+        typed::EnclaveKey {
+            publicKey: B256::from(public),
+        }
+        .eip712_signing_hash(&self.domain())
     }
 
     /// The digest an enclave signs to agree to meter `session`.
     #[must_use]
     pub fn lock_digest(&self, session: &Session) -> B256 {
-        self.typed_data(keccak256(
-            (
-                keccak256(LOCK_TYPE),
-                word(session.nullifier),
-                session.seller,
-                session.deadline,
-            )
-                .abi_encode(),
-        ))
+        typed::Lock {
+            nullifier: word(session.nullifier),
+            seller: session.seller,
+            deadline: session.deadline,
+        }
+        .eip712_signing_hash(&self.domain())
     }
 
     /// The digest an enclave signs to release `amount` to the seller.
@@ -68,15 +74,12 @@ impl PoolClient {
     /// signature that already covers every call so far.
     #[must_use]
     pub fn settlement_digest(&self, session: &Session, amount: u64, calls_root: B256) -> B256 {
-        self.typed_data(keccak256(
-            (
-                keccak256(SETTLEMENT_TYPE),
-                word(session.nullifier),
-                U256::from(amount),
-                calls_root,
-            )
-                .abi_encode(),
-        ))
+        typed::Settlement {
+            nullifier: word(session.nullifier),
+            amount: U256::from(amount),
+            callsRoot: calls_root,
+        }
+        .eip712_signing_hash(&self.domain())
     }
 
     /// Encodes the reservation itself. The enclave only signs; anyone may send

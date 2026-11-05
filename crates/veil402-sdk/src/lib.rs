@@ -3,6 +3,7 @@
 mod client;
 pub mod evm;
 mod protocol;
+pub mod session;
 mod proving;
 
 pub use client::{Config, Error, Prepared, Proof, Veil};

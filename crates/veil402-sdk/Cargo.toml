@@ -8,13 +8,14 @@ description = "Canonical Veil client library"
 
 [dependencies]
 acvm = { git = "https://github.com/noir-lang/noir", rev = "c57152f91260ecdb9faad4efc20abb14b6d2ece7", features = ["bn254"] }
-alloy = { version = "1", features = ["sol-types", "contract"] }
+alloy = { version = "1", features = ["sol-types", "contract", "signers"] }
 ark-bn254 = "0.5"
 ark-ff = "0.5"
 borsh = { version = "1", features = ["derive"] }
 bn254_blackbox_solver = { git = "https://github.com/noir-lang/noir", rev = "c57152f91260ecdb9faad4efc20abb14b6d2ece7" }
 futures-util = "0.3"
 hex = "0.4"
+hpke = "0.15"
 light-poseidon = "0.3"
 nargo = { git = "https://github.com/noir-lang/noir", rev = "c57152f91260ecdb9faad4efc20abb14b6d2ece7" }
 noirc_abi = { git = "https://github.com/noir-lang/noir", rev = "c57152f91260ecdb9faad4efc20abb14b6d2ece7" }

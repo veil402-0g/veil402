@@ -39,4 +39,8 @@ pub enum Error {
     /// Proof generation exceeded the configured deadline.
     #[error("proof generation timed out")]
     Timeout,
+
+    /// A session handover could not be sealed, opened, or trusted.
+    #[error("invalid handover: {0}")]
+    Handover(&'static str),
 }

@@ -24,6 +24,9 @@ pub struct Held {
     pub value: u64,
     pub asset: Field,
     pub random: Secret,
+    /// Set when the note belongs to a session owner. It is what a delegate is
+    /// handed, so a session note cannot be reserved without it.
+    pub seed: Option<Secret>,
 }
 
 /// A note we created that the chain has not placed yet.

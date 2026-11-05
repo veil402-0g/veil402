@@ -107,7 +107,8 @@ impl SqliteStore {
 }
 
 /// Every column a placed note needs to be spent again.
-const NOTE: &str = "SELECT commitment, leaf_index, nullifier, value, asset, random FROM owned";
+const NOTE: &str =
+    "SELECT commitment, leaf_index, nullifier, value, asset, random, seed FROM owned";
 
 
 fn field(bytes: Vec<u8>) -> Result<Field, StoreError> {
@@ -149,6 +150,10 @@ fn held(row: &SqliteRow) -> Result<Held, StoreError> {
         value: count(row, "value")?,
         asset: field(row.get("asset"))?,
         random: secret(row.get("random"))?,
+        seed: row
+            .get::<Option<Vec<u8>>, _>("seed")
+            .map(secret)
+            .transpose()?,
     })
 }
 
