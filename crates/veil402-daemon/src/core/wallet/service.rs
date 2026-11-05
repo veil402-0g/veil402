@@ -82,23 +82,6 @@ fn shortfall(held: &[Held], ceiling: u64) -> WalletError {
     }
 }
 
-/// Divides change so a settlement leaves a session-sized note behind.
-///
-/// A settlement emits two commitments either way and pads the spare one with a
-/// dummy, so the second note is free: it is an output slot already paid for.
-/// Splitting is what lets the next session run while this note is locked, and
-/// it keeps the public settlement amount from matching any public deposit.
-#[must_use]
-pub fn split(change: u64, target: u64) -> Vec<u64> {
-    if change == 0 {
-        return Vec::new();
-    }
-    if target > 0 && change >= target.saturating_mul(2) {
-        return vec![target, change - target];
-    }
-    vec![change]
-}
-
 /// Which notes we hold, and which of them a session may use.
 pub struct WalletService {
     notes: Arc<dyn NoteStore>,

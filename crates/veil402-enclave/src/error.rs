@@ -15,4 +15,12 @@ pub enum Error {
     /// The signing key rejected the digest.
     #[error("signing failed")]
     Signature(#[from] alloy::signers::Error),
+
+    /// The delegation does not open the escrowed note, or names another pool.
+    #[error("delegation refused: {0}")]
+    Refused(&'static str),
+
+    /// Building or proving the settlement failed.
+    #[error(transparent)]
+    Veil(#[from] veil402_sdk::Error),
 }

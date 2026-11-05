@@ -10,7 +10,7 @@ use veil402_daemon::{
     adapters::SqliteStore,
     core::{
         index::{Batch, Commitment, IndexStore, Locked, Nullified},
-        wallet::{Held, Minted, NoteStore, WalletError, WalletService, select, split},
+        wallet::{Held, Minted, NoteStore, WalletError, WalletService, select},
     },
 };
 use veil402_sdk::{Field, Owner, Secret, SessionKeys};
@@ -136,16 +136,6 @@ fn a_shortfall_says_whether_a_split_would_fix_it() -> Fallible {
         Err(WalletError::Insufficient { balance: 60, .. })
     ));
     Ok(())
-}
-
-#[test]
-fn split_fills_the_output_slot_a_settlement_would_waste() {
-    assert!(split(0, 10).is_empty(), "a zero note cannot be sent");
-    assert_eq!(split(5, 10), vec![5], "too small to leave a session behind");
-    assert_eq!(split(19, 10), vec![19]);
-    assert_eq!(split(20, 10), vec![10, 10]);
-    assert_eq!(split(75, 10), vec![10, 65]);
-    assert_eq!(split(75, 0), vec![75], "zero target never splits");
 }
 
 #[tokio::test]

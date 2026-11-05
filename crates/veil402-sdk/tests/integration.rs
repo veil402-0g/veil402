@@ -18,13 +18,14 @@ use alloy::{
     network::EthereumWallet,
     primitives::{Address, U256},
     providers::{Provider, ProviderBuilder},
-    signers::local::PrivateKeySigner,
+    signers::{SignerSync, local::PrivateKeySigner},
     sol,
 };
 use veil402_enclave::{Call, Meter, sign_lock};
 use veil402_sdk::{
-    Config, MerklePath, Note, Owner, Secret, Send, Spend, Transaction, Veil,
+    Config, Field, MerklePath, Note, Owner, Secret, Send, SessionKeys, Spend, Transaction, Veil,
     evm::{PoolClient, Session, Withdrawal},
+    session::{EnclaveKey, Handover, Recipient},
 };
 
 const DEPOSIT: u64 = 1_000;
@@ -227,17 +228,20 @@ async fn meters_a_session_and_settles() -> Result<(), Box<dyn StdError>> {
         .await?
         .get_receipt()
         .await?;
-    let owner = Owner::random()?;
+    // Owned by a session owner, so handing its seed over delegates this note
+    // and nothing else.
+    let seed = Secret::random()?;
+    let keys = SessionKeys::from_seed(&seed)?;
     let note = Note {
         value: DEPOSIT,
         asset: pool.asset(),
-        random: Secret::random()?,
+        random: SessionKeys::from_seed(&seed)?.random,
     };
     let leaf = u32::try_from(contract.leafCount().call().await?)?;
     let shield = provider
         .transaction_request()
         .to(pool_address)
-        .input(pool.shield(note.public_key(&owner)?, DEPOSIT, b"session")?.into());
+        .input(pool.shield(note.public_key(&keys.owner)?, DEPOSIT, b"session")?.into());
     provider.send_transaction(shield).await?.get_receipt().await?;
 
     // ---- lock ------------------------------------------------------------
@@ -250,7 +254,7 @@ async fn meters_a_session_and_settles() -> Result<(), Box<dyn StdError>> {
         .timestamp
         + 600;
     let session = Session {
-        nullifier: owner.nullifier(leaf)?,
+        nullifier: keys.owner.nullifier(leaf)?,
         seller,
         deadline,
     };
@@ -262,8 +266,31 @@ async fn meters_a_session_and_settles() -> Result<(), Box<dyn StdError>> {
     assert!(receipt.status(), "lock reverted");
     println!("lock gas         {}", receipt.gas_used);
 
+    // ---- hand the session over, sealed to the enclave --------------------
+    let key = EnclaveKey::generate();
+    let announcement = enclave.sign_hash_sync(&key.announcement(&pool))?.as_bytes();
+    let handover = Handover {
+        seed,
+        value: DEPOSIT,
+        asset: pool.asset(),
+        leaf,
+        siblings: MerklePath::only_leaf()?.siblings,
+        root: Field::from_bytes(contract.currentRoot().call().await?.to_be_bytes())?,
+        change_owner: Owner::random()?.public()?,
+        change_seed: Secret::random()?,
+        target: 0,
+        seller,
+        deadline,
+        pool: pool_address,
+        chain_id,
+        node: Address::ZERO,
+        tee_signer: Address::ZERO,
+    };
+    let sealed = Recipient::accept(key.public(), &pool, enclave.address(), &announcement)?
+        .seal(&handover.to_bytes()?)?;
+
     // ---- three checkpoints, nothing on chain -----------------------------
-    let mut meter = Meter::new(pool, session, DEPOSIT);
+    let mut meter = Meter::open(pool, &key, &sealed, session)?;
     let mut voucher = None;
     for cost in [40_u64, 110, 150] {
         meter.record(Call {
@@ -276,26 +303,13 @@ async fn meters_a_session_and_settles() -> Result<(), Box<dyn StdError>> {
     assert_eq!(voucher.amount, 300, "vouchers carry the running total");
     println!("checkpoints      {} calls, {} owed", meter.calls(), voucher.amount);
 
-    // ---- settle the newest voucher ---------------------------------------
+    // ---- the enclave proves it, with the buyer gone ----------------------
     let veil = Veil::open(Config::new(
         worker()?,
         root()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
     ))?;
-    let change = Send::new(
-        Owner::random()?.public()?,
-        DEPOSIT - voucher.amount,
-        Secret::random()?,
-        b"change".to_vec(),
-    )?;
-    let transaction = Transaction::new(
-        vec![Spend {
-            note,
-            owner,
-            merkle: MerklePath::only_leaf()?,
-        }],
-        vec![change],
-    )?;
-    let prepared = veil.settle(&pool, transaction, voucher).await?;
+    drop(voucher);
+    let prepared = meter.settle(&veil, &enclave).await?;
 
     let send = provider
         .transaction_request()

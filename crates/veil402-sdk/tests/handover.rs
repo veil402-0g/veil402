@@ -60,6 +60,7 @@ fn valid() -> Result<(Handover, Session), Box<dyn StdError>> {
             siblings: witness.paths[0].siblings,
             root: witness.root,
             change_owner: keys.owner.public()?,
+            change_seed: Secret::random()?,
             target: 100,
             seller: SELLER,
             deadline: DEADLINE,

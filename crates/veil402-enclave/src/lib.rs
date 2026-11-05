@@ -9,7 +9,12 @@ use alloy::{
     primitives::B256,
     signers::{SignerSync, local::PrivateKeySigner},
 };
-use veil402_sdk::evm::{PoolClient, Session, Voucher, calls_root};
+use veil402_sdk::{
+    MerklePath, Note, Prepared, Send, SessionKeys, Spend, Transaction, Veil, change_random,
+    evm::{PoolClient, Session, Voucher, calls_root},
+    session::{EnclaveKey, Handover, Sealed},
+    split,
+};
 
 mod error;
 
@@ -28,24 +33,53 @@ pub struct Call {
 pub struct Meter {
     pool: PoolClient,
     session: Session,
-    ceiling: u64,
+    handover: Handover,
     total: u64,
     calls: Vec<B256>,
 }
 
 impl Meter {
-    /// Opens a session. `ceiling` is what the enclave believes the reserved
-    /// note holds; the circuit enforces the real bound, this only lets the
-    /// enclave stop serving before a settlement would be unprovable.
-    #[must_use]
-    pub const fn new(pool: PoolClient, session: Session, ceiling: u64) -> Self {
-        Self {
+    /// Accepts a delegation, or refuses it.
+    ///
+    /// The only constructor, so a session cannot be metered before the seed it
+    /// was handed has been checked against the escrow it agreed to meter. The
+    /// ceiling is the note's own value rather than something the enclave is
+    /// told, so it cannot be asked to serve past what a settlement could pay.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] when the envelope does not open, the seed
+    /// opens another note, or the delegation names another pool.
+    pub fn open(
+        pool: PoolClient,
+        key: &EnclaveKey,
+        sealed: &Sealed,
+        session: Session,
+    ) -> Result<Self, Error> {
+        let handover = Handover::from_bytes(&key.open(sealed)?)?;
+        handover.accept(&session)?;
+        if handover.pool != pool.address() || handover.chain_id != pool.chain_id() {
+            return Err(Error::Refused("delegation names another pool"));
+        }
+        Ok(Self {
             pool,
             session,
-            ceiling,
+            handover,
             total: 0,
             calls: Vec::new(),
-        }
+        })
+    }
+
+    /// The escrow this session settles against.
+    #[must_use]
+    pub const fn session(&self) -> &Session {
+        &self.session
+    }
+
+    /// What the reserved note holds, and so the most this session can cost.
+    #[must_use]
+    pub const fn ceiling(&self) -> u64 {
+        self.handover.value
     }
 
     /// Records a served call.
@@ -60,7 +94,7 @@ impl Meter {
             .total
             .checked_add(call.cost)
             .ok_or(Error::CeilingReached)?;
-        if total > self.ceiling {
+        if total > self.ceiling() {
             return Err(Error::CeilingReached);
         }
         self.total = total;
@@ -108,6 +142,70 @@ impl Meter {
             calls_root,
             signature: signer.sign_hash_sync(&digest)?.as_bytes().to_vec(),
         })
+    }
+}
+
+impl Meter {
+    /// Proves and encodes the settlement, for whoever broadcasts it.
+    ///
+    /// The enclave holds everything a settlement needs — the note's secrets
+    /// arrived in the delegation and the path never expires — so the buyer is
+    /// not required to be present once the lock has landed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NothingOwed`] before the first call, or
+    /// [`Error::Veil`] when the transaction cannot be built or proved.
+    pub async fn settle(&self, veil: &Veil, signer: &PrivateKeySigner) -> Result<Prepared, Error> {
+        let voucher = self.voucher(signer)?;
+        let keys = SessionKeys::from_seed(&self.handover.seed)?;
+        let spend = Spend {
+            note: Note {
+                value: self.handover.value,
+                asset: self.handover.asset,
+                random: keys.random,
+            },
+            owner: keys.owner,
+            merkle: MerklePath {
+                index: self.handover.leaf,
+                siblings: self.handover.siblings,
+            },
+        };
+        let transaction = Transaction::new(vec![spend], self.outputs()?)?;
+        Ok(veil.settle(&self.pool, transaction, voucher).await?)
+    }
+
+    /// The notes a settlement leaves behind: a session-sized one for the next
+    /// envelope, then the remainder.
+    ///
+    /// Both derive from `change_seed`, and the amount is public, so a buyer
+    /// that was away reconstructs them without a ciphertext to decrypt.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Veil`] when a note cannot be derived.
+    pub fn outputs(&self) -> Result<Vec<Send>, Error> {
+        let change = self.handover.value.saturating_sub(self.total);
+        let mut amounts = split(change, self.handover.target).into_iter();
+        let mut sends = Vec::new();
+        if let Some(amount) = amounts.next() {
+            let keys = SessionKeys::from_seed(&self.handover.change_seed)?;
+            sends.push(Send::new(
+                keys.owner.public()?,
+                amount,
+                keys.random,
+                Vec::new(),
+            )?);
+        }
+        if let Some(amount) = amounts.next() {
+            sends.push(Send::new(
+                self.handover.change_owner,
+                amount,
+                change_random(&self.handover.change_seed)?,
+                Vec::new(),
+            )?);
+        }
+        Ok(sends)
     }
 }
 
