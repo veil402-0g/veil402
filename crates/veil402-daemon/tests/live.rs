@@ -9,30 +9,37 @@
 
 use std::{
     env, error::Error as StdError, num::NonZeroU64, path::Path, process::Command, sync::Arc,
+    time::Duration,
 };
 
 use alloy::{
     network::EthereumWallet,
-    primitives::{Address, U256},
+    primitives::{Address, B256, U256},
     providers::{Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
 };
 use veil402_daemon::{
     adapters::{ChainSource, SqliteStore, Window},
-    core::index::IndexService,
+    app::{Config, Daemon, Retry, now},
+    core::{index::IndexService, wallet::Minted},
 };
 use veil402_sdk::{
-    Config, Note, Owner, Secret, Send, Spend, Transaction, Veil,
-    evm::{PoolClient, Withdrawal},
+    Config as Proving, Note, Owner, Secret, Send, Spend, Transaction, Veil,
+    evm::{Call, PoolClient, Withdrawal},
+    session::{Keyring, RootSeed},
 };
 
 const DEPOSIT: u64 = 1_000;
+
+/// What the envelope reserves, and what a settlement leaves for the next one.
+const CEILING: u64 = 600;
+const TARGET: u64 = 200;
 
 fn var(name: &str) -> Result<String, Box<dyn StdError>> {
     env::var(name).map_err(|_| format!("{name} is not set").into())
 }
 
-fn root() -> Result<&'static Path, Box<dyn StdError>> {
+fn root_dir() -> Result<&'static Path, Box<dyn StdError>> {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
@@ -40,7 +47,7 @@ fn root() -> Result<&'static Path, Box<dyn StdError>> {
 }
 
 fn worker() -> Result<std::path::PathBuf, Box<dyn StdError>> {
-    let repository = root()?;
+    let repository = root_dir()?;
     let binary = repository.join("target/veil402-gnark-test");
     let status = Command::new("go")
         .args(["build", "-o"])
@@ -111,9 +118,9 @@ async fn spends_the_second_note() -> Result<(), Box<dyn StdError>> {
         "leaf 1's first sibling is leaf 0, not an empty subtree"
     );
 
-    let veil = Veil::open(Config::new(
+    let veil = Veil::open(Proving::new(
         worker()?,
-        root()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
+        root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
     ))?;
     let recipient = Address::from([0x22; 20]);
     let transaction = Transaction::new(
@@ -180,4 +187,205 @@ async fn shield(
     let request = provider.transaction_request().to(address).input(call.into());
     provider.send_transaction(request).await?.get_receipt().await?;
     Ok((note, owner))
+}
+
+/// The milestone: an envelope settles and the next one opens from its change.
+///
+/// Everything before this is machinery. This is the first point where a
+/// private metered payment works end to end, and the last assertion is the
+/// claim itself — a session running for hours costs one split, ever.
+#[tokio::test]
+#[ignore = "needs a deployed pool"]
+async fn an_envelope_rolls_into_the_next() -> Result<(), Box<dyn StdError>> {
+    let signer: PrivateKeySigner = var("PRIVATE_KEY")?.parse()?;
+    let provider = ProviderBuilder::new()
+        .wallet(EthereumWallet::from(signer))
+        .connect(&var("RPC_URL")?)
+        .await?;
+    let pool_address: Address = var("POOL")?.parse()?;
+    let token_address: Address = var("TOKEN")?.parse()?;
+    let pool = PoolClient::new(
+        pool_address,
+        token_address,
+        var("VERIFIER")?.parse()?,
+        provider.get_chain_id().await?,
+    )?;
+
+    // ---- the enclave the registry will vouch for -------------------------
+    let root = [0x0A_u8; 32];
+    let enclave = Keyring::new(RootSeed::from_bytes(root)).signer()?.address();
+    let registry = IRegistry::new(var("REGISTRY")?.parse()?, &provider);
+    if !registry.isLive(enclave).call().await? {
+        registry
+            .register(enclave, B256::repeat_byte(0xA1))
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+    }
+
+    // ---- a cold, wallet-owned note: the only split this session ever pays
+    approve(&provider, token_address, pool_address, DEPOSIT).await?;
+    let owner = Owner::random()?;
+    let note = Note {
+        value: DEPOSIT,
+        asset: pool.asset(),
+        random: Secret::random()?,
+    };
+    let commitment = note.commitment(&owner)?;
+    let call = pool.shield(note.public_key(&owner)?, DEPOSIT, b"cold")?;
+    let request = provider
+        .transaction_request()
+        .to(pool_address)
+        .input(call.into());
+    let receipt = provider.send_transaction(request).await?.get_receipt().await?;
+    println!("shield gas       {}", receipt.gas_used);
+
+    // ---- the daemon, from its own composition root -----------------------
+    let state = tempfile::tempdir()?;
+    let daemon = Arc::new(
+        daemon(
+            &pool,
+            owner,
+            root,
+            Minted {
+                commitment,
+                value: DEPOSIT,
+                asset: pool.asset(),
+                random: Secret::from_bytes(note.random.to_bytes())?,
+                seed: None,
+            },
+            state.path(),
+        )
+        .await?,
+    );
+
+    let mining = keep_mining(provider.clone());
+    let syncing = tokio::spawn({
+        let daemon = daemon.clone();
+        async move { daemon.run().await }
+    });
+    let envelopes = daemon.envelopes().ok_or("no envelope service")?.clone();
+    caught_up(&daemon, commitment).await?;
+
+    // ---- open: splits the cold note, locks, hands the session over -------
+    let seller = Address::repeat_byte(0x5E);
+    let first = envelopes.open(seller, CEILING, 600).await?;
+    assert_eq!(first.ceiling, CEILING, "the note's value is the ceiling");
+    println!("opened           ceiling {}, deadline {}", first.ceiling, first.deadline);
+
+    // ---- meter, then settle ----------------------------------------------
+    let mut owed = 0;
+    for cost in [40_u64, 110, 150] {
+        let metered = envelopes
+            .record(first.nullifier, Call { cost, attestation: B256::repeat_byte(1) })
+            .await?;
+        owed = metered.total;
+    }
+    assert_eq!(owed, 300);
+    envelopes.settle(first.nullifier, false).await?;
+
+    let token = IToken::new(token_address, &provider);
+    assert_eq!(token.balanceOf(seller).call().await?, U256::from(owed));
+    assert!(
+        IPoolView::new(pool_address, &provider)
+            .nullifierSpent(U256::from_be_bytes(first.nullifier.to_bytes()))
+            .call()
+            .await?,
+        "the settlement did not spend the nullifier"
+    );
+
+    // ---- the claim: the next envelope needs no split ---------------------
+    let second = envelopes.open(seller, TARGET, 600).await?;
+    assert_ne!(second.nullifier, first.nullifier);
+    assert_eq!(
+        second.ceiling, TARGET,
+        "the settlement minted the next envelope's note already seeded"
+    );
+    println!("rolled over      into {} without a split", second.ceiling);
+
+    syncing.abort();
+    mining.abort();
+    Ok(())
+}
+
+
+alloy::sol! {
+    #[sol(rpc)]
+    interface IToken { function balanceOf(address account) external view returns (uint256); }
+
+    #[sol(rpc)]
+    interface IRegistry {
+        function register(address signer, bytes32 imageHash) external;
+        function isLive(address signer) external view returns (bool);
+    }
+
+    #[sol(rpc)]
+    interface IPoolView { function nullifierSpent(uint256 nullifier) external view returns (bool); }
+}
+
+
+/// A note the index has not placed has no nullifier, and a reservation needs
+/// one — so the daemon has to be caught up before it can serve anything.
+async fn caught_up(daemon: &Daemon, commitment: veil402_sdk::Field) -> Result<(), Box<dyn StdError>> {
+    for _ in 0..80 {
+        if daemon.wallet().by_commitment(commitment).await?.is_some() {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    Err("the daemon never placed the shielded note".into())
+}
+
+
+/// Anvil mines only when a transaction arrives, so a confirmation depth is
+/// never reached while the daemon sits waiting for one. Real chains keep
+/// producing blocks; this makes the test chain behave like one.
+fn keep_mining(provider: impl Provider + 'static) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            let _: Result<(), _> = provider
+                .raw_request::<_, ()>("anvil_mine".into(), (1_u64,))
+                .await;
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    })
+}
+
+
+/// The daemon as it runs in production, over a throwaway database, already
+/// holding the note the test shielded. Nothing recovers a note from the
+/// chain yet, so a wallet is only ever told about one.
+async fn daemon(
+    pool: &PoolClient,
+    owner: Owner,
+    root: [u8; 32],
+    note: Minted,
+    state: &Path,
+) -> Result<Daemon, Box<dyn StdError>> {
+    let daemon = Daemon::start(Config {
+        rpc: var("RPC_URL")?,
+        pool: pool.address(),
+        token: var("TOKEN")?.parse()?,
+        verifier: var("VERIFIER")?.parse()?,
+        database: format!("sqlite://{}?mode=rwc", state.join("veil.db").display()),
+        signer: var("PRIVATE_KEY")?,
+        wallet_state: state.join("wallet.redb"),
+        worker: worker()?,
+        artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
+        root,
+        owner,
+        target: TARGET,
+        window: Window {
+            chunk: NonZeroU64::new(1_000).ok_or("chunk")?,
+            confirmations: 0,
+        },
+        retry: Retry {
+            interval: Duration::from_secs(1),
+            attempts: 8,
+        },
+    })
+    .await?;
+    daemon.wallet().remember(&[note], now()).await?;
+    Ok(daemon)
 }

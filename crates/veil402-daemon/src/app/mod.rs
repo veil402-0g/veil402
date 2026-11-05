@@ -81,7 +81,9 @@ pub struct Config {
     pub artifacts: PathBuf,
     /// Seed every enclave key derives from. On real hardware this comes from
     /// KMS gated on attestation; here it is configuration.
-    pub root: Secret,
+    ///
+    /// Raw bytes, not a field element: it keys an HKDF, not a circuit.
+    pub root: [u8; 32],
     /// Keys the notes belong to. Losing them loses the balance.
     pub owner: Owner,
     /// Size a settlement should leave behind as a second note. Zero returns
@@ -103,6 +105,13 @@ pub enum ConfigError {
 
 fn required(name: &'static str) -> Result<String, ConfigError> {
     env::var(name).map_err(|_| ConfigError::Missing(name))
+}
+
+fn seed(name: &'static str) -> Result<[u8; 32], ConfigError> {
+    hex::decode(required(name)?)
+        .map_err(|_| ConfigError::Invalid(name))?
+        .try_into()
+        .map_err(|_| ConfigError::Invalid(name))
 }
 
 fn key(name: &'static str) -> Result<Secret, ConfigError> {
@@ -142,7 +151,7 @@ impl Config {
             wallet_state: parsed("VEIL_WALLET_STATE", PathBuf::from(WALLET_STATE))?,
             worker: PathBuf::from(required("VEIL_WORKER")?),
             artifacts: PathBuf::from(required("VEIL_ARTIFACTS")?),
-            root: key("VEIL_ROOT_SEED")?,
+            root: seed("VEIL_ROOT_SEED")?,
             owner: Owner {
                 spend: key("VEIL_SPEND_KEY")?,
                 view: key("VEIL_VIEW_KEY")?,
@@ -240,6 +249,7 @@ impl Daemon {
                 config.pool,
                 &config.wallet_state,
                 store.clone(),
+                config.window.confirmations,
             )
             .await?,
         );
@@ -266,7 +276,7 @@ impl Daemon {
         );
         let enclave = Arc::new(LocalEnclave::new(
             pool,
-            Keyring::new(RootSeed::from_bytes(config.root.to_bytes())),
+            Keyring::new(RootSeed::from_bytes(config.root)),
             veil.clone(),
         )?);
 
@@ -309,6 +319,12 @@ impl Daemon {
     pub fn serving(mut self, envelopes: Arc<EnvelopeService>) -> Self {
         self.envelopes = Some(envelopes);
         self
+    }
+
+    /// The notes this daemon owns.
+    #[must_use]
+    pub const fn wallet(&self) -> &Arc<WalletService> {
+        &self.wallet
     }
 
     /// The envelopes, for the API that opens them.

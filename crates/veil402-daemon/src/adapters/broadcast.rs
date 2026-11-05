@@ -44,6 +44,7 @@ pub async fn open(
     pool: Address,
     state: &std::path::Path,
     submissions: Arc<dyn SubmissionStore>,
+    confirmations: u64,
 ) -> Result<PoolBroadcaster<impl Provider + 'static>, ChainError> {
     let signer = LocalSigner::from_private_key(key)
         .map_err(|error| ChainError::Refused(error.to_string()))?;
@@ -56,8 +57,11 @@ pub async fn open(
         .parse()
         .map_err(|_| ChainError::Refused("the endpoint is not a URL".into()))?;
     let transport = Transport::url(endpoint).map_err(|_| ChainError::Unavailable)?;
+    // The same depth the index holds back by. Twelve is an Ethereum default
+    // and would never arrive on a chain that reaches finality without reorgs.
     let wallet = Wallet::builder(Arc::new(transport), Arc::new(signer), Arc::new(policy))
         .store(Arc::new(store))
+        .confirmations(confirmations)
         .build()
         .map_err(|_| ChainError::Unavailable)?;
     let provider = ProviderBuilder::new()

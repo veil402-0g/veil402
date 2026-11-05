@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use alloy::primitives::Address;
 use thiserror::Error;
+use tokio::time::sleep;
 use veil402_sdk::{
     Field, Secret,
     evm::{Call, PoolClient, Session},
@@ -26,6 +27,11 @@ const BUFFER: u64 = 90;
 
 /// How long a lock may take to land before the attempt is abandoned.
 const PATIENCE: u64 = 120;
+
+/// Gap between asking whether something has landed. Waiting is the normal
+/// case, and asking as fast as the loop will go only loads the endpoint that
+/// has to answer.
+const POLL: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Error)]
 pub enum EnvelopeError {
@@ -251,11 +257,25 @@ impl EnvelopeService {
             .submit(split.session, prepared.calldata)
             .await?;
         self.landed(split.session, now).await?;
-        self.wallet.reconcile(now).await?;
-        self.wallet
-            .by_commitment(split.session)
-            .await?
-            .ok_or(EnvelopeError::Abandoned)
+        self.placed(split.session, now).await
+    }
+
+    /// Waits for the index to place a note the chain has already accepted.
+    ///
+    /// Landing and being indexed are different moments: the sync loop reads a
+    /// block after it is mined, and no path can be built before it has.
+    async fn placed(&self, commitment: Field, since: u64) -> Result<Held, EnvelopeError> {
+        loop {
+            let now = self.broadcast.timestamp().await?;
+            self.wallet.reconcile(now).await?;
+            if let Some(note) = self.wallet.by_commitment(commitment).await? {
+                return Ok(note);
+            }
+            if now > since.saturating_add(PATIENCE) {
+                return Err(EnvelopeError::Abandoned);
+            }
+            sleep(POLL).await;
+        }
     }
 
     /// Waits for a submitted call to reach the chain.
@@ -274,7 +294,7 @@ impl EnvelopeService {
                 None if self.broadcast.timestamp().await? > since.saturating_add(PATIENCE) => {
                     return Err(EnvelopeError::Abandoned);
                 }
-                None => tokio::task::yield_now().await,
+                None => sleep(POLL).await,
             }
         }
     }

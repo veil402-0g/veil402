@@ -173,6 +173,22 @@ projected transact                     ~1.2M       inserts are ~60%, not the pai
 projected shield                       ~490k
 ```
 
+One envelope end to end on anvil, M1:
+
+```
+shield                               561,260 gas
+lock                                  84,852
+transact (the split)                 997,411
+settle                             1,010,976
+                                   ---------
+one envelope, cold start           2,654,499
+steady state (lock + settle)       1,095,828       no split: the chain closes
+```
+
+The split is paid once per model, not per envelope: a settlement mints the
+next envelope's note already seeded. That is the difference between 2.65M and
+1.10M, and it is what M1 proves.
+
 Hedera gas is USD-pegged at $0.0000000852 plus a 20% surcharge. **Envelopes
 should be $5+** — at $2 the round trip is ~10% overhead.
 
