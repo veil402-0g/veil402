@@ -201,3 +201,17 @@ fn writes_binding_fixture() -> Result<(), Box<dyn StdError>> {
     )?;
     Ok(())
 }
+
+/// The lone-leaf path is the zero chain, which the pool's tree and the circuit
+/// both derive independently.
+#[test]
+fn lone_leaf_path_is_the_zero_chain() -> Result<(), Box<dyn StdError>> {
+    let path = veil402_sdk::MerklePath::only_leaf()?;
+    assert_eq!(path.index, 0);
+    assert_eq!(path.siblings[0], Field::ZERO);
+    assert_eq!(
+        hex(path.siblings[1]),
+        "0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864"
+    );
+    Ok(())
+}

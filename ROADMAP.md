@@ -192,14 +192,22 @@ is removed.
 Phase 0 is complete: verifier exported, Poseidon verified, a real proof
 verifying on Hedera.
 
-### Phase 1 — pool (~7h remaining)
+### Phase 1 — pool (complete)
+
+A full round trip is live on Hedera testnet: shield 561,202 gas, transact
+992,416 — a real Groth16 proof through the deployed verifier, moving ERC20
+value. anvil agrees within 12 gas, so the inner loop is trustworthy.
+
+The spend path uses `MerklePath::only_leaf`, valid only while the tree holds a
+single note. Spending any later note needs the commitment index and its
+siblings, which is the indexer in Phase 3.
 
 | # | Task | Gate |
 |---|---|---|
 | 1.3 | `LazyIMT`, zero = 0 | done — zero chain matches `0x2098f5fb…` |
 | 1.4 | `Pool.sol` | done — round-trips; replay, duplicate nullifier, zero root, unknown root, tampered extData all revert |
 | 1.5 | `sdk/src/evm/` — `asset`, `binding`, `calldata`, `client` | done — Rust and Solidity agree on asset ids and ext-data hashes |
-| 1.6 | Integration + measured gas | full `transact` on HashScan |
+| 1.6 | Integration + measured gas | done — shield + transact on Hedera testnet |
 
 **Unblocked.** QuickNode `hedera-testnet` replays the deployed verifier
 (`eth_call` clean, estimate 407,273) and `forge script` simulates chain 296

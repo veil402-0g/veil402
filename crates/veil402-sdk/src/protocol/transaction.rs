@@ -14,6 +14,22 @@ pub struct MerklePath {
     pub siblings: [Field; TREE_DEPTH],
 }
 
+impl MerklePath {
+    /// Path for the only leaf in a tree, where every sibling is an empty
+    /// subtree.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Poseidon`] if the hash rejects its inputs.
+    pub fn only_leaf() -> Result<Self, Error> {
+        let mut siblings = [Field::ZERO; TREE_DEPTH];
+        for level in 1..TREE_DEPTH {
+            siblings[level] = note::poseidon(&[&siblings[level - 1], &siblings[level - 1]])?;
+        }
+        Ok(Self { index: 0, siblings })
+    }
+}
+
 /// An input note together with its authorization and Merkle path.
 #[derive(Debug)]
 pub struct Spend {

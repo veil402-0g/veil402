@@ -3,13 +3,18 @@
   "network": "hedera-testnet",
   "contracts": {
     "Verifier": "0x42532488f967329e2B090dCf68396Ef0dd63de69",
-    "PoseidonT3": "0x98e7e0cc3a12183af743a9d33ca0dfa0982197fc"
+    "PoseidonT3": "0x98e7e0cc3a12183af743a9d33ca0dfa0982197fc",
+    "Pool": "0xCDc8B14bf4f1C66f7a2B04EB755201cC25Bf1391",
+    "PoolToken": "0x115A9b60d7e005dc2043d4Aa5B76D96e2733BAbC"
   },
   "measured": {
     "verifyProofTransactionGas": 378716,
     "poseidonT3TransactionGas": 39573,
     "verifierDeployGas": 1992722,
-    "poseidonT3DeployGas": 5152328
+    "poseidonT3DeployGas": 5152328,
+    "shieldTransactionGas": 561202,
+    "transactTransactionGas": 992416
   },
-  "proofTransaction": "0x941a3b7c91f397899d72fea4319f3730a0cc70cb1b13a1635473dec7b00fc6e2"
+  "proofTransaction": "0x941a3b7c91f397899d72fea4319f3730a0cc70cb1b13a1635473dec7b00fc6e2",
+  "transactTransaction": "0xb121aa29cd2f28b0428b857ff50ce9bb956333cba120a2826efc46e8b1c8caaa"
 }
