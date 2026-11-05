@@ -1,7 +1,20 @@
 NARGO ?= $(HOME)/.nargo/bin/nargo
 export PATH := $(HOME)/.foundry/bin:$(PATH)
 
-.PHONY: corpus poseidon test
+.PHONY: deps corpus poseidon test
+
+# contracts/lib is gitignored, so a fresh clone has no dependencies at all.
+# Pinned by commit: zk-kit's zero-chain constants have to stay fixed.
+define clone
+	@test -d contracts/lib/$(1) || git clone -q $(2) contracts/lib/$(1)
+	@git -C contracts/lib/$(1) fetch -q origin $(3) && git -C contracts/lib/$(1) checkout -q $(3)
+endef
+
+deps:
+	$(call clone,forge-std,https://github.com/foundry-rs/forge-std,bd8c87087369377df8b451de74fb3a4fa9a7f577)
+	$(call clone,poseidon-solidity,https://github.com/chancehudson/poseidon-solidity,8205c97ec4a35a9adb854b70b2c9ba92668d1304)
+	$(call clone,openzeppelin-contracts,https://github.com/OpenZeppelin/openzeppelin-contracts,c64a1edb67b6e3f4a15cca8909c9482ad33a02b0)
+	$(call clone,zk-kit.solidity,https://github.com/privacy-scaling-explorations/zk-kit.solidity,7cde10ed96629ed1fdf990c607334842e0a24f93)
 
 corpus:
 	cargo run --quiet --manifest-path tools/poseidon-corpus/Cargo.toml -- $(CURDIR)

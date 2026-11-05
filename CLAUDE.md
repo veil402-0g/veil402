@@ -8,7 +8,7 @@ Check for an audited library before writing a primitive. Current stack:
 |---|---|
 | Groth16 verifier | generated from `transaction-v4` vk by `cmd/export-verifier` |
 | Poseidon T3 / T5 | `poseidon-solidity` |
-| Fixed-depth Merkle tree | `@zk-kit/imt.sol` — `BinaryIMT` |
+| Fixed-depth Merkle tree | `@zk-kit/lazy-imt` — `LazyIMT`, always read via `_root(20)` |
 | Reentrancy, SafeERC20 | OpenZeppelin |
 
 If explaining a block of code takes a paragraph, that is usually a missing
@@ -32,3 +32,4 @@ Hedera. Solo for local (pinned), anvil for the fast inner loop, Solo as the
 gate. Foundry pinned — 1.8.x breaks against the Hiero relay.
 
 Never `delegatecall` into `0x167` or any system contract.
+
