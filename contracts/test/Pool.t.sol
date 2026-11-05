@@ -7,7 +7,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PoseidonT3} from "poseidon-solidity/PoseidonT3.sol";
 import {PoseidonT5} from "poseidon-solidity/PoseidonT5.sol";
 import {SNARK_SCALAR_FIELD} from "@zk-kit/lazy-imt/Constants.sol";
-import {Pool, IVerifier} from "../src/Pool.sol";
+import {EnclaveRegistry} from "../src/EnclaveRegistry.sol";
+import {Pool, IEnclaveRegistry, IVerifier} from "../src/Pool.sol";
 
 contract Token is ERC20 {
     constructor() ERC20("Test", "TST") {
@@ -62,7 +63,11 @@ contract PoolTest is Test {
     function setUp() public {
         token = new Token();
         stub = new StubVerifier();
-        pool = new Pool(IERC20(address(token)), IVerifier(address(stub)));
+        pool = new Pool(
+            IERC20(address(token)),
+            IVerifier(address(stub)),
+            IEnclaveRegistry(address(new EnclaveRegistry(address(this))))
+        );
         assertTrue(token.transfer(alice, 1e9));
         vm.prank(alice);
         token.approve(address(pool), type(uint256).max);
@@ -301,7 +306,11 @@ contract PoolTest is Test {
         assertTrue(h != pool.extDataHash(data), "chain id");
 
         vm.chainId(block.chainid - 1);
-        Pool other = new Pool(IERC20(address(token)), IVerifier(address(stub)));
+        Pool other = new Pool(
+            IERC20(address(token)),
+            IVerifier(address(stub)),
+            IEnclaveRegistry(address(new EnclaveRegistry(address(this))))
+        );
         assertTrue(h != other.extDataHash(data), "pool address");
     }
 

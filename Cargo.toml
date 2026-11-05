@@ -1,11 +1,11 @@
 [workspace]
-members = ["crates/veil402-sdk"]
+members = ["crates/veil402-sdk", "crates/veil402-enclave", "crates/veil402-daemon"]
 exclude = ["tools"]
 resolver = "2"
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.94.1"
 license = "Apache-2.0"
 
 [workspace.lints.rust]

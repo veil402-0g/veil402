@@ -1,9 +1,12 @@
 use std::{error::Error as StdError, fs, path::Path};
 
-use alloy::primitives::{Address, Bytes, I256, U256};
+use alloy::primitives::{Address, B256, Bytes, I256, U256, keccak256};
 use veil402_sdk::{
     Field, MAX_NOTE_BYTES,
-    evm::{ExtData, PoolClient, ProofCalldata, Withdrawal, asset_id, ext_data_hash, public_amount},
+    evm::{
+        ExtData, PoolClient, ProofCalldata, Session, Withdrawal, asset_id, calls_proof,
+        calls_root, ext_data_hash, public_amount,
+    },
 };
 
 const POOL: &str = "0x42532488f967329e2B090dCf68396Ef0dd63de69";
@@ -157,7 +160,7 @@ fn writes_binding_fixture() -> Result<(), Box<dyn StdError>> {
     let pool = client();
     let tokens = [
         TOKEN,
-        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000001",
         "0xffffffffffffffffffffffffffffffffffffffff",
         "0x73Cd11793191573237cb7a6DedCCa7cC9FDBD6ed",
     ];
@@ -182,8 +185,33 @@ fn writes_binding_fixture() -> Result<(), Box<dyn StdError>> {
         second.push(format!("0x{}", hex::encode(&data.notes[1])));
     }
 
+    // The contract must accept a signature made over these digests; a mismatch
+    // in the EIP-712 domain or type string would be invisible until a live
+    // settlement failed.
+    let session = Session {
+        nullifier: Field::from(7_u64),
+        seller: address("0x000000000000000000000000000000000000dEaD"),
+        deadline: 1_900_000_000,
+    };
+    // Five leaves exercises the odd carry on two levels.
+    let attestations: Vec<B256> = (0..5_u8).map(|i| keccak256([i])).collect();
+    let attested = calls_root(&attestations);
+
     let fixture = serde_json::json!({
         "pool": POOL,
+        "escrow": {
+            "nullifier": 7,
+            "seller": "0x000000000000000000000000000000000000dEaD",
+            "deadline": session.deadline,
+            "amount": 300,
+            "callsRoot": format!("{attested}"),
+            "attestations": attestations.iter().map(|a| format!("{a}")).collect::<Vec<_>>(),
+            "provenIndex": 3,
+            "proof": calls_proof(&attestations, 3).iter().map(|p| format!("{p}")).collect::<Vec<_>>(),
+            "domainSeparator": format!("{}", pool.domain_separator()),
+            "lockDigest": format!("{}", pool.lock_digest(&session)),
+            "settlementDigest": format!("{}", pool.settlement_digest(&session, 300, attested)),
+        },
         "token": TOKEN,
         "verifier": VERIFIER,
         "chainId": CHAIN_ID,

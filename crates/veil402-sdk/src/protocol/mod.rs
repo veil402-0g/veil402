@@ -2,10 +2,12 @@ pub(crate) mod encoding;
 mod field;
 pub(crate) mod note;
 mod transaction;
+mod tree;
 
 pub use field::{Field, Secret};
-pub use note::{Note, Owner, Send};
-pub use transaction::{MerklePath, PublicInputs, Spend, Transaction};
+pub use note::{Note, Owner, Send, SessionKeys, change_random};
+pub use transaction::{MerklePath, PublicInputs, Spend, Transaction, split};
+pub use tree::{StoredNode, Tree, Witness};
 pub(crate) use transaction::{Plan, Public, Values};
 
 /// Number of siblings in a transaction circuit Merkle path.

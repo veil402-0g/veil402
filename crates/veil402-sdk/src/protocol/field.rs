@@ -115,6 +115,15 @@ impl Secret {
         Ok(Self(Field::random(rng)?.0))
     }
 
+    /// Returns the raw encoding, for a wallet that has to persist it.
+    ///
+    /// A note cannot be spent without its randomness, so this is the one thing
+    /// a restart must not lose.
+    #[must_use]
+    pub const fn to_bytes(&self) -> [u8; 32] {
+        self.0
+    }
+
     pub(crate) fn expose(&self) -> Field {
         Field(self.0)
     }

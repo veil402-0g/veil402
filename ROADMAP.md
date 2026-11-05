@@ -68,6 +68,47 @@ tools/poseidon-corpus/    corpus generator, excluded from the workspace
 contracts/                Foundry
 ```
 
+### Sponsor integrations — verified 2026-10-29
+
+Both non-TEE externals were proved end to end before anything was built on
+them. Three published facts turned out to be wrong, and we will second-guess
+them later if they are not written down.
+
+**HCS.** A `SPEND` written to a keyless topic and read back from the mirror,
+byte-identical, in three seconds. The Rust SDK's default request timeout is too
+short for topic creation — the first attempt dies with `TimedOut(Cancelled)`
+while the consensus nodes are plainly reachable, so the adapter must raise it.
+
+**0G.** A real inference on `qwen/qwen3.8-omni-flash`, its TEE signature
+recovered against the **on-chain** `teeSignerAddress`. The whole path runs with
+no SDK — direct contract calls plus a hand-rolled `Bearer app-sk-…` session
+token — which matters because the enclave is Rust with no network and could
+never have run the TypeScript one.
+
+```
+ledger minimum   0.1 0G on testnet, not the 3 the SDK hardcodes (that is mainnet's)
+1 0G reserve     enforced by the provider's broker, not by any contract
+signed payload   requestHash:responseHash:providerType:providerIdentity:tlsCertFingerprint
+```
+
+That last line corrects this document: 0G signs the **request hash too**, not
+only the response. It still binds nothing of ours, so an identical prompt in a
+second session yields a byte-identical, replayable signature — which is exactly
+what our `escrowId` binding prevents, and the reason it is load-bearing rather
+than belt-and-braces.
+
+**Provider rule.** Accept a node only when `verifiability == TeeML`, its signer
+is acknowledged, and the SDK's override would not fire — that is, not
+(`TargetSeparated && !centralized && TargetTeeAddress`). Applied to all 29 live
+nodes: 3 of 9 usable on testnet, 15 of 20 on mainnet. Two mainnet nodes serve
+the same `glm-5.3` and only one is safe. `claude-opus-5` is `standard`, so a
+reroute there would leave nothing to gate the escrow on.
+
+The buyer supplies the node's `teeSignerAddress` in the handover rather than the
+enclave baking an allowlist: the buyer is the party harmed by a wrong one, it
+already has an RPC, and nothing has to be re-pinned when 0G adds a node. PCR0
+commits to the rule, the handover carries the data.
+
 ### Circuit facts
 
 ```
@@ -131,6 +172,22 @@ PoseidonT3 deploy                  5,152,328
 projected transact                     ~1.2M       inserts are ~60%, not the pairing
 projected shield                       ~490k
 ```
+
+One envelope end to end on anvil, M1:
+
+```
+shield                               561,260 gas
+lock                                  84,852
+transact (the split)                 997,411
+settle                             1,010,976
+                                   ---------
+one envelope, cold start           2,654,499
+steady state (lock + settle)       1,095,828       no split: the chain closes
+```
+
+The split is paid once per model, not per envelope: a settlement mints the
+next envelope's note already seeded. That is the difference between 2.65M and
+1.10M, and it is what M1 proves.
 
 Hedera gas is USD-pegged at $0.0000000852 plus a 20% surcharge. **Envelopes
 should be $5+** — at $2 the round trip is ~10% overhead.
@@ -308,51 +365,228 @@ free from PDA collision; Solidity has no equivalent.
 
 Duplicate commitments are legal. Do not add a uniqueness check.
 
-### Phase 2 — escrow (6h)
+### Phase 2 — escrow (2.1-2.9 done)
 
-`lock(proof, change_npk, seller, deadline)` · `settle(id, amountPaid, callsRoot,
-enclaveSig)` · `refund()`.
+`lock(nullifier, enclave, seller, deadline)` · `settleToAddress(...)` ·
+`settleToNote(...)`.
 
-Change is the correctness piece: lock L, actual cost A, return `L - A` without
-an interactive step. The buyer supplies `change_npk` at lock time; at settle the
-contract inserts `PoseidonT5(NOTE_DOMAIN, change_npk, assetId, L - A)`. Refund
-is the same path with `A = 0`, so full spend, partial spend and no spend are one
-function.
+**The pool never holds the escrowed value.** It reserves a nullifier. The note
+stays the buyer's; it simply cannot be spent elsewhere while the reservation is
+live, and when the deadline passes the reservation lifts. There is no refund
+function and nothing to get stuck.
 
-`callsRoot` keeps the envelope cheap: the enclave Merkle-roots per-call
-attestations and signs once; the buyer verifies its own calls off-chain. One
-ecrecover and one insert per envelope regardless of call count.
+Only the note's owner can name its nullifier, so nobody can lock a note they do
+not hold. `A <= L` needs no check either — the circuit cannot let outputs exceed
+inputs, so overpaying is arithmetically impossible.
 
-Change note values are public (`L` and `A` both are). Mitigate by re-mixing
-promptly and sizing envelopes to usage.
+`settleToAddress` pays the seller publicly: the ceiling and the buyer's change
+both stay hidden, and only the amount paid is visible. `settleToNote` pays a
+note against a commitment the enclave signed, so the amount never becomes
+public — shipped but unusable until note encryption and discovery exist, which
+is why both paths are in the contract now. The pool is immutable; adding the
+second path later would mean redeploying.
 
-Also here: HTS association for the vault via the `0x167` system contract.
+Both are the same join-split underneath, so `_spend` is shared and `transact`'s
+signature is unchanged.
 
-### Phase 3 — mandates (5h)
+**Grace window.** The seller may settle up to the deadline; the buyer regains
+the note only at `deadline + 60s`. Without it a settlement landing late would
+collide with the buyer taking the note back, and the seller would lose paid-for
+work through no fault of its own.
 
-Shared Semaphore group across companies with per-company write ACL — a
-per-company group would name the company in every lock proof. Revocation is a
-leaf removal and a new root. Already-issued capability survives until expiry;
-token TTL is the dial.
+`lock` is gated on `EnclaveRegistry` and carries an enclave signature over
+`(nullifier, seller, deadline)`. The registry is checked at lock only — checking
+it at settle would let a revocation strand a live escrow, costing the seller
+work it had already delivered. The
+enclave never needs gas or chain access — anyone may submit it — but a
+reservation now requires the enclave's consent, so it cannot be made against an
+enclave that will not serve, and every reservation is attributable to a key
+buyers pin and we can revoke.
 
-Reuse ERC-7710 delegation structs and caveat semantics as the mandate vocabulary
-rather than inventing a format; the hash becomes the Semaphore leaf, and the
-object stays publicly enforceable through the real Delegation Manager in a
-dispute.
+`EnclaveRegistry` records which signing key belongs to which `PCR0`. Gating
+`lock` on it narrows the grief surface from anyone to keys we registered. Its
+blast radius is freezing notes, never theft: settle still needs a proof only the
+note's owner can produce.
 
-### Phase 4 — `veil-daemon` (8h)
+Measured: `lock` ~66k, `settleToAddress` ~726k, `settleToNote` ~696k, and the
+reservation check costs `transact` 5,019 gas (992,416 -> 997,435).
 
-OpenAI-compatible API, agent keys, envelope sessions (cold path proves and
-locks, warm path does neither), note selection with re-split at lock time to
-self-defragment, receipts. Persistent local index — the mirror node's 60-day
-window makes rebuild-from-genesis impossible.
+`evm::escrow` carries the EIP-712 digests, and `veil402-enclave` holds the
+meter: it counts what it actually sent and received rather than believing a
+provider's figures, and signs a running total after each call. Vouchers are
+cumulative, so the seller keeps only the newest and a buyer who walks away
+mid-session still pays for what it consumed.
 
-### Phase 5 — enclave logic, stub attester (6h)
+Agreement is end to end rather than by inspection — the Solidity test signs the
+digest the SDK produced and the pool accepts it. Flipping one hex digit gives
+`WrongEnclave`.
+
+Live on Hedera testnet: lock 84,864 gas, settle 1,011,633, three checkpoints
+costing nothing on chain.
+
+Deferred: 2.10. The pool reports `max_automatic_token_associations: -1`, so it
+takes any HTS token with no `associate` call, but that is unproven against a
+real one until a token reaches the account. Nothing depends on it.
+
+## Plan from here
+
+Four stages, not the old phase numbers. Settlement moved into the enclave, so
+the enclave is on the critical path for fund safety rather than attestation,
+and a session turned out to be a chain of envelopes rather than one. The
+design those follow from is `docs/superpowers/specs/2026-10-29-session-envelope-architecture-design.md`.
+
+**Stage A — one envelope, end to end.** 8.5h
+
+| | | est |
+|---|---|---:|
+| ~~A1~~ | enclave keys from a root seed | done, `055fd93` |
+| ~~A2~~ | daemon write path, settled-change recovery | done, `17c804d`, `516d554` |
+| **A3** | envelope manager — open, meter, settle, roll | 3h |
+| **A4** | **M1 on anvil**: lock, N calls, settle, and the next envelope opens from the change | 2h |
+
+**Stage B — a product.** 12h · B1 `veil-gateway` (HTTP, 402, status codes,
+idempotency, vsock) 3h · B2 enclave restart resume 2h · B3 OpenAI-compatible
+API and per-agent reservation 3h · B4 mandates over the shared ceiling 2h ·
+**B5 M2 on Hedera testnet**: many agents, rollover, re-shop 2h
+
+**Stage C — real externals.** 15h · C1 0G in the enclave, seller keys, price
+stream, portal 5h · C2 receipts and the HCS audit bundle 4h · C3 note
+discovery and recovery 6h
+
+**Stage D — hardware and demo.** 25h · D1 Nitro image, KMS, PCR0 6h ·
+D2 PCR pinning and x402 3h · D3 dashboard 6h · D4 `npx veil402 init` 3h ·
+D5 demo sandboxes and background traffic 7h
+
+Roughly 58h. **A4 is the one that matters** — everything before it is
+machinery, and it is the first point where the whole claim is demonstrable,
+rollover included.
+
+C3 is the one task no demo needs. It waits until the demo-facing work is done,
+and lands before D1 because losing the database should stop costing the
+balance before real hardware arrives.
+
+Two items sit outside the sequence. 2.10 still needs a real HTS token in the
+account before it can run, and nothing depends on it. The **trusted setup**
+remains the largest open risk: `transaction.pk` came from a one-shot
+`groth16.Setup` with no ceremony, so whoever ran it can forge proofs for this
+circuit. It blocks real money, not the demo, and no task above changes that.
+
+### Phase 3 — mandates (lands after the API)
+
+Scope correction found while planning 4.4: **`lock` takes no mandate argument**,
+so there is no way to enforce one on chain at reservation time without a new
+Pool. On-chain enforcement is simply unavailable to us.
+
+That turns out not to matter, because of who a mandate protects. It is a
+company bounding what its own agents may spend. The company runs the daemon,
+and agents hold no keys — they reach the pool only through it. **The daemon is
+therefore a complete enforcement point**: an agent cannot route around the only
+thing that can sign for it.
+
+So mandates become a policy layer over `open`, not a circuit. ERC-7710
+delegation structs and caveat semantics stay as the vocabulary rather than
+inventing a format, which keeps the object publicly enforceable through the
+real Delegation Manager in a dispute.
+
+A shared Semaphore group with per-company write ACL is only needed if agents
+can act independently of the daemon. They cannot, so it leaves the critical
+path — revisit it if agents ever hold keys of their own.
+
+It lands after the API because it gates API requests, and there has to be an
+API to gate.
+
+### Phase 4 — `veil-daemon` (4.1 done)
+
+Hexagonal: `core/` is I/O-free and declares its ports, `adapters/` implements
+them, `app/` wires them.
+
+**4.1 index.** The pool keeps only the roots it has reached; the siblings a
+spend needs exist nowhere on chain, so a client that wants to spend anything
+but its first note has to carry the tree. `IndexService` mirrors it from
+`NewCommitment`, and checks its root against the pool on every pass — a missed
+commitment makes every path wrong, and serving one costs a proof and the gas to
+have it rejected. A skipped leaf is caught where it happens rather than left
+for the root to notice.
+
+The tree is stored, not rebuilt. `rs-merkle-tree` is incremental by design and
+spends twenty hashes per leaf, so replaying a history costs that again every
+start: 37 s at fifty thousand leaves, measured. Its nodes go into the same
+transaction as the commitments, nullifiers and cursor, and a restart loads them
+with no hashing at all. The store backing it is dense per level, since an
+append-only tree fills each level contiguously, which bounds it at twice the
+leaf count — 64 MB at depth-20 capacity, against the ciphertexts' 160 MB.
+
+One transaction is also what keeps the index honest: a crash between the rows
+and the cursor would replay leaves at shifted indices. A refused write rolls
+the in-memory tree back, so it never runs ahead of what is durable. Reload
+reads the store, never the chain, because the mirror node only answers a fixed
+window.
+
+Paths come out as a `Witness` — one root and every path read under one guard,
+because the circuit takes a single root and two spends proved against different
+tree states cannot verify.
+
+Leaf 1 now spends on anvil, which `MerklePath::only_leaf` could never do.
+
+**4.2 `app/`.** Config from the environment or a `.env`, the three adapters
+wired, and the loop that keeps the index current.
+
+Failure is sorted by whether reading again could help. An endpoint that is away
+is waited out, with the delay doubling per consecutive failure and the count
+reset by any pass that succeeds; a divergence, a gap or a corrupt store stops
+the loop at once, because the index is wrong rather than behind and every path
+it would hand out is wrong with it. Giving up after a bounded run of failures
+is deliberate: a loop that retries a problem it cannot fix is worse than one
+that stops and says so.
+
+Verified against anvil: starts, syncs on its interval, and stops cleanly on
+SIGINT.
+
+**C3 discovery.** Nothing scans. `index.notes` has returned ciphertexts since
+4.1 and has never had a consumer, because `ext.notes[i]` is written empty: the
+daemon created every note it owns, and a settlement's change derives from
+`change_seed` rather than from anything on chain. That holds while agents hold
+no keys and the company self-hosts, which is the whole demo. It stops holding
+the moment the database is lost — the notes are still on chain, and nothing can
+say which are ours.
+
+What exists already decides the shape. An address gains an X25519 key derived
+from the viewing secret, derived so it survives the database, and a sender seals
+`(value, random)` into the slot the extension data already reserves: 88 bytes of
+the 128 budget, HPKE from 5.1, borsh for the payload. The AEAD tag is the match
+test and the rebuilt commitment is what binds it, since a sender can seal a lie.
+Recovery is that same scan from leaf zero. The circuit does not move — a
+commitment binds owner, asset, value and blinding, and a ciphertext only ever
+reaches `ext_data_hash`.
+
+Making `settleToNote` usable costs more than discovery alone, and the extra
+half is easy to miss. That path publishes no amount — which is the privacy win
+— so the buyer cannot compute `value - paid` and derive its own change the way
+it does after a settlement to an address. The enclave therefore has to stop
+passing an empty ciphertext for its outputs and seal them to the buyer as well,
+on the same HPKE and inside the same budget. Until both halves land, a
+zero-amount `Settled` means only "do not guess": the daemon declines to derive
+rather than minting commitments the chain never saw.
+
+Four questions are worth reading about before any of it is written: whether
+trial decryption is good enough or a detection tag is needed (Aztec is the
+closest analogue and abandoned the former), whether the sender needs an outgoing
+viewing key to reconstruct what it sent, whether one address per recipient is
+enough once that address is published, and what encoding to use instead of
+inventing one.
+
+### Phase 5 — enclave image (6h)
 
 Rust behind an `Attester` trait: `StubAttester` locally, `NitroAttester` on EC2.
-Decrypt, call 0G, spend ceiling, encrypt response, sign release, multi-tenant key
-handling. Nitro cannot run on macOS, so everything but attestation and KMS is
-testable locally.
+Nitro cannot run on macOS, so everything but attestation and KMS is testable
+locally — and after 4.4 the enclave's logic already is.
+
+What is left is packaging, and three things that need real hardware: a vsock
+bridge handing the worker its socket as fd 0/1, an entropy self-check at boot
+(NSM seeds the kernel HWRNG from nitro-cli 1.2.0, and weak randomness would
+leak the Groth16 witness), and a reproducible EIF so PCR0 means anything. The
+Go binary is already byte-reproducible; the rootfs half is Nix plus
+`aws-nitro-util`.
 
 ### Phase 6 — real 0G (4h)
 
@@ -426,13 +660,17 @@ recording and polish (2h).
 
 | # | Risk | State |
 |---|---|---|
-| R1 | **0G SDK R14** — fee computed from unauthenticated provider token counts, signature checked *after* billing, skipped entirely without `chatID`. Open upstream, High | Mitigate in Phase 6: per-request ceiling, mandatory `chatID`, verify-before-bill, provider allowlist |
+| R1 | **0G SDK R14** — fee computed from unauthenticated provider token counts, signature checked *after* billing, skipped entirely without `chatID`. Open upstream, High | Mitigate in P4: per-request ceiling, mandatory `chatID`, verify-before-bill, and the allowlist rule below. The override vector is confirmed live, not theoretical |
 | R2 | **x402 eligibility.** Hedera ships the `exact` scheme with `@x402/hedera` and Blocky402; the track says "via an approved facilitator". We build `escrow`, an open proposal | Parked by decision. Insurance is ~half a day: add `exact` for compliance, keep escrow as the differentiator |
 | R3 | Relay reliability | Resolved — QuickNode `hedera-testnet`. Shared team app, so a vendor-side key change is still a single point of failure |
 | R4 | Same-entity binding across two proofs is weak — pool proof and mandate proof could come from different parties. Threat is collusion inside one company | Documented; a merged circuit is the real fix |
 | R5 | Anonymity set is the pool size, near zero at launch | Background traffic in Phase 13 |
 | R6 | 16GB host caps Docker at ~11GB; Solo wants 12GB | Testnet instead |
 | R7 | PoseidonT3 is 1,000 bytes under EIP-170 | Size test; solc pinned at 0.8.28 |
+| R8 | `transact` is now escrow-aware — the reservation check sits on the core spend path, in an immutable contract | All 21 pre-existing Pool tests pass unchanged; the real anvil round trip still settles |
+| R9 | A front-run `lock` can strand someone else's note | Largely closed. `lock` is registry-gated and needs enclave consent, so only a key we registered can do it; bounded by `MAX_LOCK` = 1 hour; needs the owner's nullifier, secret until spent. The clean fix is an ownership proof at lock — a circuit change, Phase 8 |
+| R11 | The registry owner can refuse new enclaves, stopping new sessions | Escrow only. `shield` and `transact` never read the registry, live escrows settle regardless, and no funds can be stranded |
+| R10 | `settleToNote` ships untested against a live seller — no note encryption or discovery exists yet | Contract-level tests only. Needs both halves of C3: discovery for the seller, and sealed change notes for the buyer |
 
 ---
 
