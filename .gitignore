@@ -1,0 +1,37 @@
+# Rust / Anchor
+**/target/
+*-keypair.json
+payer*.json
+
+# Noir / bb / Sunspot artifacts
+*.gz
+*.acir
+*.ccs
+*.pk
+*.vk
+*.proof
+*.pw
+*.so
+
+# Only the pinned public bundle belongs in Git; generated witnesses/proofs stay ignored.
+prover/veil402-gnark/artifacts/**
+!prover/veil402-gnark/artifacts/transaction-v4/
+!prover/veil402-gnark/artifacts/transaction-v4/manifest.json
+!prover/veil402-gnark/artifacts/transaction-v4/transaction.json
+!prover/veil402-gnark/artifacts/transaction-v4/transaction.ccs
+!prover/veil402-gnark/artifacts/transaction-v4/transaction.pk
+!prover/veil402-gnark/artifacts/transaction-v4/transaction.vk
+
+# Node
+**/node_modules/
+**/package-lock.json
+
+# OS
+.DS_Store
+*.log
+
+# Noir witness input (generated, demo values)
+**/Prover.toml
+
+
+docs
