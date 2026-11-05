@@ -1,7 +1,7 @@
 NARGO ?= $(HOME)/.nargo/bin/nargo
 export PATH := $(HOME)/.foundry/bin:$(PATH)
 
-.PHONY: deps corpus poseidon test
+.PHONY: deps abi corpus poseidon test
 
 # contracts/lib is gitignored, so a fresh clone has no dependencies at all.
 # Pinned by commit: zk-kit's zero-chain constants have to stay fixed.
@@ -16,6 +16,10 @@ deps:
 	$(call clone,openzeppelin-contracts,https://github.com/OpenZeppelin/openzeppelin-contracts,c64a1edb67b6e3f4a15cca8909c9482ad33a02b0)
 	$(call clone,zk-kit.solidity,https://github.com/privacy-scaling-explorations/zk-kit.solidity,7cde10ed96629ed1fdf990c607334842e0a24f93)
 
+# The SDK generates its bindings from this, so it must track the contract.
+abi:
+	cd contracts && forge inspect Pool abi --json > ../crates/veil402-sdk/abi/pool.json
+
 corpus:
 	cargo run --quiet --manifest-path tools/poseidon-corpus/Cargo.toml -- $(CURDIR)
 
@@ -24,6 +28,6 @@ poseidon: corpus
 	cd circuits/poseidon-check && $(NARGO) execute
 	cd contracts && forge test --match-path "test/Poseidon*.t.sol"
 
-test: poseidon
+test: abi poseidon
 	cargo test --manifest-path crates/veil402-sdk/Cargo.toml
 	cd contracts && forge test

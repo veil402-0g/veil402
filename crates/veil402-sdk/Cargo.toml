@@ -8,6 +8,7 @@ description = "Canonical Veil client library"
 
 [dependencies]
 acvm = { git = "https://github.com/noir-lang/noir", rev = "c57152f91260ecdb9faad4efc20abb14b6d2ece7", features = ["bn254"] }
+alloy = { version = "1", features = ["sol-types", "contract"] }
 ark-bn254 = "0.5"
 ark-ff = "0.5"
 borsh = { version = "1", features = ["derive"] }
@@ -30,6 +31,8 @@ tokio-util = { version = "0.7", features = ["codec"] }
 zeroize = { version = "1.8", features = ["derive"] }
 
 [dev-dependencies]
+alloy = { version = "1", features = ["sol-types"] }
+serde_json = "1"
 tempfile = "3"
 
 [lints]

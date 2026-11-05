@@ -2,8 +2,11 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use tokio::sync::Mutex;
 
+use alloy::primitives::Address;
+
 use crate::{
-    Field, Transaction,
+    Transaction,
+    evm::{External, PoolClient, Withdrawal, transact},
     protocol::{Plan, Public, PublicInputs},
     proving::{Artifacts, Witness, Worker},
 };
@@ -47,6 +50,17 @@ pub struct Proof {
     pub public: PublicInputs,
     /// Versioned artifact identity used for proving.
     pub artifact: String,
+}
+
+/// A locally verified proof and the call that consumes it.
+#[derive(Clone, Debug)]
+pub struct Prepared {
+    /// Proof and public values the call carries.
+    pub proof: Proof,
+    /// Pool the call must be sent to.
+    pub to: Address,
+    /// Ready-to-send `transact` calldata.
+    pub calldata: Vec<u8>,
 }
 
 /// Entry point for client-side Veil operations.
@@ -109,28 +123,69 @@ impl Veil {
         })
     }
 
-    /// Proves a transaction, binding it to an asset, a signed public amount and an
-    /// external-data hash supplied by the caller's chain adapter.
-    ///
-    /// The external-data hash is whatever the target chain commits to — on EVM, the keccak
-    /// digest of the escrow parameters. The circuit only asserts that it is bound.
+    /// Proves a shielded transfer: value stays in the pool and nothing moves
+    /// publicly.
     ///
     /// # Errors
     ///
-    /// Returns an [`Error`] when the transaction is invalid, or witness generation, the prover
-    /// worker, or verification fails.
-    pub async fn prove_transaction(
+    /// Returns an [`Error`] when the transaction is invalid, or proof
+    /// generation or encoding fails.
+    pub async fn transfer(
         &self,
+        pool: &PoolClient,
         transaction: Transaction,
-        asset: Field,
+    ) -> Result<Prepared, Error> {
+        self.prepare(pool, transaction, Address::ZERO, 0).await
+    }
+
+    /// Proves a withdrawal and builds the call that consumes it.
+    ///
+    /// Submission remains the caller's responsibility.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`] when the withdrawal is invalid, or proof generation
+    /// or encoding fails.
+    pub async fn withdraw(
+        &self,
+        pool: &PoolClient,
+        transaction: Transaction,
+        withdrawal: Withdrawal,
+    ) -> Result<Prepared, Error> {
+        if withdrawal.recipient() == pool.address() {
+            return Err(Error::Withdrawal("recipient is the pool itself"));
+        }
+        self.prepare(
+            pool,
+            transaction,
+            withdrawal.recipient(),
+            withdrawal.public_amount(),
+        )
+        .await
+    }
+
+    // Planning pads and shuffles the outputs, so the ciphertext order only
+    // exists here. Binding and encoding both read it, which is why neither is
+    // exposed separately.
+    async fn prepare(
+        &self,
+        pool: &PoolClient,
+        transaction: Transaction,
+        recipient: Address,
         amount: i64,
-        ext_data_hash: Field,
-    ) -> Result<Proof, Error> {
-        let plan = transaction.plan(asset)?;
+    ) -> Result<Prepared, Error> {
+        let plan = transaction.plan(pool.asset())?;
+        let external = External::new(&plan, recipient)?;
         let public = Public {
             amount,
-            hash: ext_data_hash,
+            hash: pool.bind(&external, amount)?,
         };
-        self.prove(plan, public).await
+        let proof = self.prove(plan, public).await?;
+        let calldata = transact(&proof, &external, amount)?;
+        Ok(Prepared {
+            proof,
+            to: pool.address(),
+            calldata,
+        })
     }
 }

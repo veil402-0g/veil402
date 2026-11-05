@@ -35,7 +35,7 @@ impl Field {
     ///
     /// Returns [`Error::Field`] when the encoding is not canonical for BN254.
     pub fn from_bytes(bytes: [u8; 32]) -> Result<Self, Error> {
-        encoding::parse_field(&bytes).ok_or(Error::Field)?;
+        encoding::parse_field::<Fr>(&bytes).ok_or(Error::Field)?;
         Ok(Self(bytes))
     }
 

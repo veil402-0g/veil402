@@ -4,6 +4,7 @@ use tempfile::tempdir;
 use veil402_sdk::{
     Config, Error, Field, MerklePath, Note, Owner, PublicInputs, Secret, Send, Spend, TREE_DEPTH,
     Transaction, Veil,
+    evm::{PoolClient, Withdrawal},
 };
 
 fn field(value: u64) -> Field {
@@ -143,17 +144,23 @@ async fn proves_and_writes_evm_fixture() -> Result<(), Box<dyn StdError>> {
     }
 
     let veil = Veil::open(Config::new(worker, artifacts()?))?;
-    let asset = field(0x5645_494c);
-    // 1000 in, 700 change out, 300 leaving the pool into escrow.
-    let proof = veil
-        .prove_transaction(
-            transaction(asset, &[(700, 66)])?,
-            asset,
-            -300,
-            field(0xDEAD_BEEF),
+    let pool = PoolClient::new(
+        "0x42532488f967329e2B090dCf68396Ef0dd63de69".parse()?,
+        "0x0000000000000000000000000000000000000abc".parse()?,
+        "0x98e7E0cC3a12183Af743a9D33ca0Dfa0982197FC".parse()?,
+        296,
+    )?;
+    // 1000 in, 700 change out, 300 leaving the pool to the recipient.
+    let prepared = veil
+        .withdraw(
+            &pool,
+            transaction(pool.asset(), &[(700, 66)])?,
+            Withdrawal::new("0x000000000000000000000000000000000000dEaD".parse()?, 300)?,
         )
         .await?;
+    let proof = prepared.proof;
 
+    assert!(!prepared.calldata.is_empty());
     assert_eq!(proof.bytes.len(), 388);
     assert_eq!(proof.artifact, "transaction-v4");
     assert_ne!(proof.public.nullifiers[0], proof.public.nullifiers[1]);
