@@ -4,7 +4,8 @@ use thiserror::Error;
 use tokio::sync::RwLock;
 use veil402_sdk::{Field, Tree, Witness};
 
-use super::{Batch, ChainError, Commitment, CommitmentSource, Health, IndexStore, StoreError};
+use super::{Batch, ChainError, Commitment, CommitmentSource, Health, IndexStore};
+use crate::core::StoreError;
 
 #[derive(Debug, Error)]
 pub enum IndexError {
@@ -36,8 +37,7 @@ impl IndexError {
     pub const fn recoverable(&self) -> bool {
         matches!(
             self,
-            Self::Chain(ChainError::Unavailable | ChainError::InvalidData)
-                | Self::Store(StoreError::Unavailable)
+            Self::Chain(ChainError::Unavailable) | Self::Store(StoreError::Unavailable)
         )
     }
 }

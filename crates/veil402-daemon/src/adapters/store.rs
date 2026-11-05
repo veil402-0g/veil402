@@ -1,19 +1,28 @@
 use async_trait::async_trait;
-use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions};
-use veil402_sdk::{Field, StoredNode};
+use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions, sqlite::SqliteRow};
+use veil402_sdk::{Field, Secret, StoredNode};
 
-use crate::core::index::{Batch, Commitment, IndexStore, StoreError};
+use crate::core::{
+    StoreError,
+    index::{Batch, Commitment, IndexStore},
+    wallet::{ChainFacts, Held, Minted, NoteStore, Unplaced},
+};
 
-/// The index, held across restarts.
+/// The daemon's store: the chain mirror and the notes we own, in one file.
 ///
-/// The chain only answers a fixed window, so this is the authority for
-/// anything older than it and losing the file cannot be recovered by resyncing.
-pub struct SqliteIndex {
+/// The chain only answers a fixed window and note ciphertexts are not
+/// decryptable, so neither half can be recovered by resyncing. One file also
+/// means one transaction, which is what keeps the tree and its cursor in step.
+pub struct SqliteStore {
     pool: SqlitePool,
 }
 
-impl SqliteIndex {
-    /// Opens the index, creating it if absent.
+impl SqliteStore {
+    /// Opens the store, creating it if absent.
+    ///
+    /// One connection: the daemon is a single writer, `SQLite` serialises
+    /// writes anyway, and it lets a test run the real schema against
+    /// `sqlite::memory:` rather than a mock of it.
     ///
     /// # Errors
     ///
@@ -21,6 +30,7 @@ impl SqliteIndex {
     /// the schema cannot be applied.
     pub async fn open(url: &str) -> Result<Self, StoreError> {
         let pool = SqlitePoolOptions::new()
+            .max_connections(1)
             .connect(url)
             .await
             .map_err(|_| StoreError::Unavailable)?;
@@ -37,6 +47,11 @@ impl SqliteIndex {
                  nullifier BLOB    PRIMARY KEY,
                  block     INTEGER NOT NULL
              );
+             CREATE TABLE IF NOT EXISTS escrows (
+                 nullifier BLOB    PRIMARY KEY,
+                 deadline  INTEGER NOT NULL,
+                 block     INTEGER NOT NULL
+             );
              CREATE TABLE IF NOT EXISTS nodes (
                  level INTEGER NOT NULL,
                  idx   INTEGER NOT NULL,
@@ -47,7 +62,19 @@ impl SqliteIndex {
                  id    INTEGER PRIMARY KEY CHECK (id = 1),
                  block INTEGER NOT NULL
              );
-             INSERT OR IGNORE INTO cursor (id, block) VALUES (1, 0);",
+             INSERT OR IGNORE INTO cursor (id, block) VALUES (1, 0);
+             CREATE TABLE IF NOT EXISTS owned (
+                 commitment BLOB PRIMARY KEY,
+                 leaf_index INTEGER,
+                 nullifier  BLOB,
+                 value      INTEGER NOT NULL,
+                 asset      BLOB    NOT NULL,
+                 random     BLOB    NOT NULL,
+                 spent      INTEGER NOT NULL DEFAULT 0,
+                 held       INTEGER NOT NULL DEFAULT 0,
+                 created    INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS owned_nullifier ON owned (nullifier);",
         )
         .execute(&pool)
         .await
@@ -55,35 +82,83 @@ impl SqliteIndex {
 
         Ok(Self { pool })
     }
+
+    /// Shared by `IndexStore` and `ChainFacts`, which ask the same question
+    /// for different reasons.
+    async fn placed_at(&self, commitment: Field) -> Result<Option<u32>, StoreError> {
+        let row = sqlx::query("SELECT leaf_index FROM commitments WHERE commitment = ?")
+            .bind(commitment.to_bytes().to_vec())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        row.map(|row| leaf(&row, "leaf_index")).transpose()
+    }
+
+    async fn nullified(&self, nullifier: Field) -> Result<bool, StoreError> {
+        let row = sqlx::query("SELECT 1 FROM nullifiers WHERE nullifier = ?")
+            .bind(nullifier.to_bytes().to_vec())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        Ok(row.is_some())
+    }
+
 }
+
+/// Every column a placed note needs to be spent again.
+const NOTE: &str = "SELECT commitment, leaf_index, nullifier, value, asset, random FROM owned";
+
 
 fn field(bytes: Vec<u8>) -> Result<Field, StoreError> {
     let encoded: [u8; 32] = bytes.try_into().map_err(|_| StoreError::Corrupt)?;
     Field::from_bytes(encoded).map_err(|_| StoreError::Corrupt)
 }
 
-fn block(value: u64) -> Result<i64, StoreError> {
+fn secret(bytes: Vec<u8>) -> Result<Secret, StoreError> {
+    let encoded: [u8; 32] = bytes.try_into().map_err(|_| StoreError::Corrupt)?;
+    Secret::from_bytes(encoded).map_err(|_| StoreError::Corrupt)
+}
+
+fn integer(value: u64) -> Result<i64, StoreError> {
     i64::try_from(value).map_err(|_| StoreError::Corrupt)
 }
 
-fn commitment(row: &sqlx::sqlite::SqliteRow) -> Result<Commitment, StoreError> {
+fn count(row: &SqliteRow, column: &str) -> Result<u64, StoreError> {
+    u64::try_from(row.get::<i64, _>(column)).map_err(|_| StoreError::Corrupt)
+}
+
+fn leaf(row: &SqliteRow, column: &str) -> Result<u32, StoreError> {
+    u32::try_from(row.get::<i64, _>(column)).map_err(|_| StoreError::Corrupt)
+}
+
+fn commitment(row: &SqliteRow) -> Result<Commitment, StoreError> {
     Ok(Commitment {
-        leaf_index: u32::try_from(row.get::<i64, _>("leaf_index"))
-            .map_err(|_| StoreError::Corrupt)?,
+        leaf_index: leaf(row, "leaf_index")?,
         commitment: field(row.get("commitment"))?,
         note: row.get("note"),
-        block: u64::try_from(row.get::<i64, _>("block")).map_err(|_| StoreError::Corrupt)?,
+        block: count(row, "block")?,
+    })
+}
+
+fn held(row: &SqliteRow) -> Result<Held, StoreError> {
+    Ok(Held {
+        commitment: field(row.get("commitment"))?,
+        leaf: leaf(row, "leaf_index")?,
+        nullifier: field(row.get("nullifier"))?,
+        value: count(row, "value")?,
+        asset: field(row.get("asset"))?,
+        random: secret(row.get("random"))?,
     })
 }
 
 #[async_trait]
-impl IndexStore for SqliteIndex {
+impl IndexStore for SqliteStore {
     async fn cursor(&self) -> Result<u64, StoreError> {
         let row = sqlx::query("SELECT block FROM cursor WHERE id = 1")
             .fetch_one(&self.pool)
             .await
             .map_err(|_| StoreError::Unavailable)?;
-        u64::try_from(row.get::<i64, _>("block")).map_err(|_| StoreError::Corrupt)
+        count(&row, "block")
     }
 
     async fn nodes(&self) -> Result<Vec<StoredNode>, StoreError> {
@@ -92,13 +167,12 @@ impl IndexStore for SqliteIndex {
             .await
             .map_err(|_| StoreError::Unavailable)?;
 
-        rows.into_iter()
+        rows.iter()
             .map(|row| {
                 Ok(StoredNode {
                     level: u8::try_from(row.get::<i64, _>("level"))
                         .map_err(|_| StoreError::Corrupt)?,
-                    index: u32::try_from(row.get::<i64, _>("idx"))
-                        .map_err(|_| StoreError::Corrupt)?,
+                    index: leaf(row, "idx")?,
                     node: field(row.get("node"))?,
                 })
             })
@@ -114,15 +188,15 @@ impl IndexStore for SqliteIndex {
             .await
             .map_err(|_| StoreError::Unavailable)?;
 
-        for held in &batch.commitments {
+        for note in &batch.commitments {
             sqlx::query(
                 "INSERT INTO commitments (leaf_index, commitment, note, block)
                  VALUES (?, ?, ?, ?)",
             )
-            .bind(i64::from(held.leaf_index))
-            .bind(held.commitment.to_bytes().to_vec())
-            .bind(held.note.clone())
-            .bind(block(held.block)?)
+            .bind(i64::from(note.leaf_index))
+            .bind(note.commitment.to_bytes().to_vec())
+            .bind(note.note.clone())
+            .bind(integer(note.block)?)
             .execute(&mut *transaction)
             .await
             .map_err(|_| StoreError::Corrupt)?;
@@ -130,26 +204,36 @@ impl IndexStore for SqliteIndex {
         for spent in &batch.nullifiers {
             sqlx::query("INSERT OR IGNORE INTO nullifiers (nullifier, block) VALUES (?, ?)")
                 .bind(spent.nullifier.to_bytes().to_vec())
-                .bind(block(spent.block)?)
+                .bind(integer(spent.block)?)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|_| StoreError::Unavailable)?;
+        }
+        // A nullifier can only be escrowed once; the pool refuses the second.
+        for lock in &batch.locks {
+            sqlx::query("INSERT OR IGNORE INTO escrows (nullifier, deadline, block) VALUES (?, ?, ?)")
+                .bind(lock.nullifier.to_bytes().to_vec())
+                .bind(integer(lock.deadline)?)
+                .bind(integer(lock.block)?)
                 .execute(&mut *transaction)
                 .await
                 .map_err(|_| StoreError::Unavailable)?;
         }
         // The rightmost node of each level is rewritten as the tree grows.
-        for held in nodes {
+        for node in nodes {
             sqlx::query(
                 "INSERT INTO nodes (level, idx, node) VALUES (?, ?, ?)
                  ON CONFLICT (level, idx) DO UPDATE SET node = excluded.node",
             )
-            .bind(i64::from(held.level))
-            .bind(i64::from(held.index))
-            .bind(held.node.to_bytes().to_vec())
+            .bind(i64::from(node.level))
+            .bind(i64::from(node.index))
+            .bind(node.node.to_bytes().to_vec())
             .execute(&mut *transaction)
             .await
             .map_err(|_| StoreError::Unavailable)?;
         }
         sqlx::query("UPDATE cursor SET block = ? WHERE id = 1")
-            .bind(block(batch.through)?)
+            .bind(integer(batch.through)?)
             .execute(&mut *transaction)
             .await
             .map_err(|_| StoreError::Unavailable)?;
@@ -161,24 +245,11 @@ impl IndexStore for SqliteIndex {
     }
 
     async fn leaf_of(&self, commitment: Field) -> Result<Option<u32>, StoreError> {
-        let row = sqlx::query("SELECT leaf_index FROM commitments WHERE commitment = ?")
-            .bind(commitment.to_bytes().to_vec())
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|_| StoreError::Unavailable)?;
-
-        row.map(|row| u32::try_from(row.get::<i64, _>("leaf_index")))
-            .transpose()
-            .map_err(|_| StoreError::Corrupt)
+        self.placed_at(commitment).await
     }
 
     async fn is_spent(&self, nullifier: Field) -> Result<bool, StoreError> {
-        let row = sqlx::query("SELECT 1 FROM nullifiers WHERE nullifier = ?")
-            .bind(nullifier.to_bytes().to_vec())
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|_| StoreError::Unavailable)?;
-        Ok(row.is_some())
+        self.nullified(nullifier).await
     }
 
     async fn notes(&self, from: u32, limit: u32) -> Result<Vec<Commitment>, StoreError> {
@@ -193,5 +264,164 @@ impl IndexStore for SqliteIndex {
         .map_err(|_| StoreError::Unavailable)?;
 
         rows.iter().map(commitment).collect()
+    }
+}
+
+#[async_trait]
+impl ChainFacts for SqliteStore {
+    async fn leaf_of(&self, commitment: Field) -> Result<Option<u32>, StoreError> {
+        self.placed_at(commitment).await
+    }
+
+    async fn is_spent(&self, nullifier: Field) -> Result<bool, StoreError> {
+        self.nullified(nullifier).await
+    }
+
+    async fn escrow(&self, nullifier: Field) -> Result<Option<u64>, StoreError> {
+        let row = sqlx::query("SELECT deadline FROM escrows WHERE nullifier = ?")
+            .bind(nullifier.to_bytes().to_vec())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        row.map(|row| count(&row, "deadline")).transpose()
+    }
+}
+
+#[async_trait]
+impl NoteStore for SqliteStore {
+    /// Re-recording a note is not an error: the same outputs are written again
+    /// whenever a send is retried.
+    async fn remember(&self, minted: &[Minted], now: u64) -> Result<(), StoreError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+
+        for note in minted {
+            sqlx::query(
+                "INSERT OR IGNORE INTO owned (commitment, value, asset, random, created)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(note.commitment.to_bytes().to_vec())
+            .bind(integer(note.value)?)
+            .bind(note.asset.to_bytes().to_vec())
+            .bind(note.random.to_bytes().to_vec())
+            .bind(integer(now)?)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        }
+
+        transaction
+            .commit()
+            .await
+            .map_err(|_| StoreError::Unavailable)
+    }
+
+    async fn unplaced(&self) -> Result<Vec<Unplaced>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT commitment, created FROM owned WHERE leaf_index IS NULL AND spent = 0",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| StoreError::Unavailable)?;
+
+        rows.iter()
+            .map(|row| {
+                Ok(Unplaced {
+                    commitment: field(row.get("commitment"))?,
+                    created: count(row, "created")?,
+                })
+            })
+            .collect()
+    }
+
+    async fn place(&self, commitment: Field, leaf: u32, nullifier: Field) -> Result<(), StoreError> {
+        sqlx::query("UPDATE owned SET leaf_index = ?, nullifier = ? WHERE commitment = ?")
+            .bind(i64::from(leaf))
+            .bind(nullifier.to_bytes().to_vec())
+            .bind(commitment.to_bytes().to_vec())
+            .execute(&self.pool)
+            .await
+            .map(|_| ())
+            .map_err(|_| StoreError::Unavailable)
+    }
+
+    async fn outstanding(&self) -> Result<Vec<Held>, StoreError> {
+        let rows = sqlx::query(&format!("{NOTE} WHERE nullifier IS NOT NULL AND spent = 0"))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        rows.iter().map(held).collect()
+    }
+
+    async fn spend(&self, nullifiers: &[Field]) -> Result<(), StoreError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+
+        for nullifier in nullifiers {
+            sqlx::query("UPDATE owned SET spent = 1 WHERE nullifier = ?")
+                .bind(nullifier.to_bytes().to_vec())
+                .execute(&mut *transaction)
+                .await
+                .map_err(|_| StoreError::Unavailable)?;
+        }
+
+        transaction
+            .commit()
+            .await
+            .map_err(|_| StoreError::Unavailable)
+    }
+
+    async fn spendable(&self, asset: Field, now: u64) -> Result<Vec<Held>, StoreError> {
+        let rows = sqlx::query(&format!(
+            "{NOTE} WHERE nullifier IS NOT NULL AND spent = 0
+             AND asset = ? AND held <= ? ORDER BY value"
+        ))
+        .bind(asset.to_bytes().to_vec())
+        .bind(integer(now)?)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| StoreError::Unavailable)?;
+        rows.iter().map(held).collect()
+    }
+
+    /// Conditional, so a claim is the decision rather than a read followed by
+    /// a write that assumes nothing moved in between.
+    async fn hold(&self, commitment: Field, now: u64, until: u64) -> Result<bool, StoreError> {
+        let result = sqlx::query("UPDATE owned SET held = ? WHERE commitment = ? AND held <= ?")
+            .bind(integer(until)?)
+            .bind(commitment.to_bytes().to_vec())
+            .bind(integer(now)?)
+            .execute(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    /// Idempotent: once the hold reaches the escrow's deadline, later passes
+    /// change nothing and report nothing.
+    async fn extend(&self, commitment: Field, until: u64) -> Result<bool, StoreError> {
+        let result = sqlx::query("UPDATE owned SET held = ? WHERE commitment = ? AND held < ?")
+            .bind(integer(until)?)
+            .bind(commitment.to_bytes().to_vec())
+            .bind(integer(until)?)
+            .execute(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    async fn free(&self, commitment: Field) -> Result<(), StoreError> {
+        sqlx::query("UPDATE owned SET held = 0 WHERE commitment = ?")
+            .bind(commitment.to_bytes().to_vec())
+            .execute(&self.pool)
+            .await
+            .map(|_| ())
+            .map_err(|_| StoreError::Unavailable)
     }
 }

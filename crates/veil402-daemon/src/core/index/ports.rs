@@ -3,17 +3,16 @@ use thiserror::Error;
 use veil402_sdk::{Field, StoredNode};
 
 use super::{Batch, Commitment};
+use crate::core::StoreError;
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum ChainError {
     #[error("the chain is unreachable")]
     Unavailable,
+    /// The pool emitted something this build cannot read, or a log arrived
+    /// without the block that carried it.
     #[error("the chain returned an event the pool could not have emitted")]
     InvalidData,
-    /// The mirror node answers a fixed window, so a cursor older than it leaves
-    /// a gap that cannot be filled by reading further.
-    #[error("block {block} is older than the chain will answer for")]
-    BehindWindow { block: u64 },
 }
 
 /// Reads what the pool has emitted.
@@ -30,14 +29,6 @@ pub trait CommitmentSource: Send + Sync {
 
     /// The pool's latest root, for reporting how far behind the index is.
     async fn root(&self) -> Result<Field, ChainError>;
-}
-
-#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
-pub enum StoreError {
-    #[error("the index store is unavailable")]
-    Unavailable,
-    #[error("the index store holds a gap or a duplicate leaf")]
-    Corrupt,
 }
 
 /// Holds the index across restarts. The chain only answers a fixed window, so

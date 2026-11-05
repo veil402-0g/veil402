@@ -7,7 +7,9 @@
 //!   cargo test -p veil402-daemon --test live -- --ignored --nocapture
 //! ```
 
-use std::{env, error::Error as StdError, path::Path, process::Command, sync::Arc};
+use std::{
+    env, error::Error as StdError, num::NonZeroU64, path::Path, process::Command, sync::Arc,
+};
 
 use alloy::{
     network::EthereumWallet,
@@ -16,7 +18,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use veil402_daemon::{
-    adapters::{ChainSource, SqliteIndex, Window},
+    adapters::{ChainSource, SqliteStore, Window},
     core::index::IndexService,
 };
 use veil402_sdk::{
@@ -80,13 +82,13 @@ async fn spends_the_second_note() -> Result<(), Box<dyn StdError>> {
     // ---- index -----------------------------------------------------------
     let file = tempfile::NamedTempFile::new()?;
     let store = Arc::new(
-        SqliteIndex::open(&format!("sqlite://{}?mode=rwc", file.path().display())).await?,
+        SqliteStore::open(&format!("sqlite://{}?mode=rwc", file.path().display())).await?,
     );
     let source = Arc::new(ChainSource::new(
         provider.clone(),
         pool_address,
         Window {
-            chunk: 1_000,
+            chunk: NonZeroU64::new(1_000).ok_or("chunk")?,
             confirmations: 0,
         },
     ));

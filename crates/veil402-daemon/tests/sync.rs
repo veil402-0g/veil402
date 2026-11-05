@@ -5,16 +5,23 @@ mod common;
 use std::{sync::Arc, time::Duration};
 
 use common::{Chain, Fallible, Memory};
-use tokio::time::timeout;
+use tokio::time::{pause, timeout};
 use veil402_daemon::{
+    adapters::SqliteStore,
     app::{Daemon, Halted, Retry},
-    core::index::IndexService,
+    core::{index::IndexService, wallet::WalletService},
 };
+use veil402_sdk::Owner;
 
+/// Built before the clock is paused: `sqlx` arms timers of its own, and
+/// auto-advancing virtual time trips them.
 async fn daemon(chain: Chain, attempts: u32) -> Result<Daemon, Box<dyn std::error::Error>> {
-    let index = IndexService::load(Arc::new(chain), Arc::new(Memory::default())).await?;
+    let index = Arc::new(IndexService::load(Arc::new(chain), Arc::new(Memory::default())).await?);
+    let store = Arc::new(SqliteStore::open("sqlite::memory:").await?);
+    let wallet = WalletService::new(store.clone(), store, Owner::random()?);
     Ok(Daemon::new(
-        Arc::new(index),
+        index,
+        Arc::new(wallet),
         Retry {
             interval: Duration::from_secs(5),
             attempts,
@@ -32,9 +39,10 @@ async fn a_divergence_stops_the_loop_at_once() -> Fallible {
     Ok(())
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn an_endpoint_that_stays_away_exhausts_the_loop() -> Fallible {
     let daemon = daemon(Chain::down(5), 3).await?;
+    pause();
 
     assert!(matches!(
         daemon.run().await,
@@ -45,9 +53,10 @@ async fn an_endpoint_that_stays_away_exhausts_the_loop() -> Fallible {
 
 /// Three refusals then a pass, repeating. Counted consecutively this never
 /// gives up; counted cumulatively it would stop on the fifth failure.
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn a_pass_that_succeeds_forgives_the_ones_before_it() -> Fallible {
     let daemon = daemon(Chain::flaky(5), 5).await?;
+    pause();
 
     assert!(
         timeout(Duration::from_secs(600), daemon.run())

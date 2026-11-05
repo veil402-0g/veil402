@@ -23,6 +23,20 @@ pub struct Nullified {
     pub block: u64,
 }
 
+/// An escrow the pool opened, at the block that carried it.
+///
+/// Only a note's owner can name its nullifier, so an escrow here is one we
+/// opened: it is the chain's record of our own reservation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Locked {
+    /// Nullifier the escrow reserves.
+    pub nullifier: Field,
+    /// When the reservation lapses.
+    pub deadline: u64,
+    /// Block that carried it.
+    pub block: u64,
+}
+
 /// What one sync pass observed, in the order the chain applied it.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Batch {
@@ -30,8 +44,25 @@ pub struct Batch {
     pub commitments: Vec<Commitment>,
     /// Nullifiers the pool recorded.
     pub nullifiers: Vec<Nullified>,
+    /// Escrows the pool opened.
+    pub locks: Vec<Locked>,
     /// Last block this pass covers.
     pub through: u64,
+}
+
+impl Batch {
+    /// How many events this pass carries.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.commitments.len() + self.nullifiers.len() + self.locks.len()
+    }
+
+    /// Whether the pass found nothing. A pass can still advance the cursor
+    /// through blocks that held no events.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// The index's standing against the pool.

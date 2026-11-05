@@ -13,8 +13,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-use veil402_daemon::core::index::{
-    Batch, ChainError, Commitment, CommitmentSource, IndexStore, Nullified, StoreError,
+use veil402_daemon::core::{
+    StoreError,
+    index::{Batch, ChainError, Commitment, CommitmentSource, IndexStore, Nullified},
 };
 use veil402_sdk::{Field, StoredNode, Tree};
 
@@ -166,6 +167,7 @@ impl CommitmentSource for Chain {
         Ok(Batch {
             commitments,
             nullifiers,
+            locks: Vec::new(),
             through: self.height()?,
         })
     }

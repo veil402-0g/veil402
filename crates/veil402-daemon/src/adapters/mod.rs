@@ -4,4 +4,4 @@ mod chain;
 mod store;
 
 pub use chain::{ChainSource, Window};
-pub use store::SqliteIndex;
+pub use store::SqliteStore;

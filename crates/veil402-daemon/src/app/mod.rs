@@ -1,17 +1,32 @@
 //! Composition root: builds the daemon from its configuration and runs it.
 
-use std::{env, future, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    env, future,
+    num::NonZeroU64,
+    str::FromStr,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use alloy::{primitives::Address, providers::ProviderBuilder};
+use alloy::{hex, primitives::Address, providers::ProviderBuilder};
 use thiserror::Error;
 use tokio::time::sleep;
+use veil402_sdk::{Owner, Secret};
 
 use crate::{
-    adapters::{ChainSource, SqliteIndex, Window},
-    core::index::{IndexError, IndexService, StoreError},
+    adapters::{ChainSource, SqliteStore, Window},
+    core::{
+        StoreError,
+        index::{IndexError, IndexService},
+        wallet::{WalletError, WalletService},
+    },
 };
 
 const DATABASE: &str = "sqlite://veil402.db?mode=rwc";
+
+/// Blocks per log query. Relays cap the span; a thousand is under every cap
+/// we have met.
+const CHUNK: NonZeroU64 = NonZeroU64::new(1_000).unwrap();
 
 /// How the sync loop reacts to failure.
 #[derive(Clone, Copy, Debug)]
@@ -22,15 +37,29 @@ pub struct Retry {
     pub attempts: u32,
 }
 
+/// Seconds since the epoch, which is the clock holds and staleness use.
+#[must_use]
+pub fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 /// Everything the daemon needs to run.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Config {
     /// EVM endpoint the pool is read through.
     pub rpc: String,
     /// Deployed pool.
     pub pool: Address,
-    /// `SQLite` URL holding the index.
+    /// `SQLite` URL holding the index and the notes we own.
     pub database: String,
+    /// Keys the notes belong to. Losing them loses the balance.
+    pub owner: Owner,
+    /// Size a settlement should leave behind as a second note. Zero returns
+    /// change as one note and lets the wallet fragment.
+    pub target: u64,
     /// How far one pass reads.
     pub window: Window,
     /// How failure is handled.
@@ -47,6 +76,14 @@ pub enum ConfigError {
 
 fn required(name: &'static str) -> Result<String, ConfigError> {
     env::var(name).map_err(|_| ConfigError::Missing(name))
+}
+
+fn key(name: &'static str) -> Result<Secret, ConfigError> {
+    let bytes: [u8; 32] = hex::decode(required(name)?)
+        .map_err(|_| ConfigError::Invalid(name))?
+        .try_into()
+        .map_err(|_| ConfigError::Invalid(name))?;
+    Secret::from_bytes(bytes).map_err(|_| ConfigError::Invalid(name))
 }
 
 fn parsed<T: FromStr>(name: &'static str, fallback: T) -> Result<T, ConfigError> {
@@ -70,8 +107,13 @@ impl Config {
                 .parse()
                 .map_err(|_| ConfigError::Invalid("VEIL_POOL"))?,
             database: env::var("VEIL_DATABASE").unwrap_or_else(|_| DATABASE.to_owned()),
+            owner: Owner {
+                spend: key("VEIL_SPEND_KEY")?,
+                view: key("VEIL_VIEW_KEY")?,
+            },
+            target: parsed("VEIL_NOTE_TARGET", 0)?,
             window: Window {
-                chunk: parsed("VEIL_CHUNK", 1_000)?,
+                chunk: parsed("VEIL_CHUNK", CHUNK)?,
                 confirmations: parsed("VEIL_CONFIRMATIONS", 0)?,
             },
             retry: Retry {
@@ -94,20 +136,40 @@ pub enum StartError {
     Index(#[from] IndexError),
 }
 
+/// Why one pass of the loop failed.
+#[derive(Debug, Error)]
+pub enum PassError {
+    #[error(transparent)]
+    Index(#[from] IndexError),
+    #[error(transparent)]
+    Wallet(#[from] WalletError),
+}
+
+impl PassError {
+    #[must_use]
+    pub const fn recoverable(&self) -> bool {
+        match self {
+            Self::Index(error) => error.recoverable(),
+            Self::Wallet(error) => error.recoverable(),
+        }
+    }
+}
+
 /// Why the sync loop stopped. It only stops for what reading again cannot fix.
 #[derive(Debug, Error)]
 pub enum Halted {
-    /// The index is wrong rather than behind, so every path it would hand out
-    /// is wrong with it.
-    #[error("the index can no longer be trusted: {0}")]
-    Untrusted(IndexError),
-    #[error("the index failed {attempts} passes in a row: {source}")]
-    Exhausted { attempts: u32, source: IndexError },
+    /// Something is wrong rather than behind: an index that diverged hands out
+    /// paths that are wrong with it, and a corrupt store is no better.
+    #[error("the daemon can no longer be trusted: {0}")]
+    Untrusted(PassError),
+    #[error("the daemon failed {attempts} passes in a row: {source}")]
+    Exhausted { attempts: u32, source: PassError },
 }
 
-/// The chain index and the loop that keeps it current.
+/// The chain index, the notes we own, and the loop that keeps both current.
 pub struct Daemon {
     index: Arc<IndexService>,
+    wallet: Arc<WalletService>,
     retry: Retry,
 }
 
@@ -117,23 +179,30 @@ impl Daemon {
     /// # Errors
     ///
     /// Returns [`StartError`] when any of the three cannot be reached.
-    pub async fn start(config: &Config) -> Result<Self, StartError> {
-        let store = Arc::new(SqliteIndex::open(&config.database).await?);
+    pub async fn start(config: Config) -> Result<Self, StartError> {
+        let store = Arc::new(SqliteStore::open(&config.database).await?);
         let provider = ProviderBuilder::new()
             .connect(&config.rpc)
             .await
             .map_err(|_| StartError::Chain(config.rpc.clone()))?;
         let source = Arc::new(ChainSource::new(provider, config.pool, config.window));
-        Ok(Self::new(
-            Arc::new(IndexService::load(source, store).await?),
-            config.retry,
-        ))
+        let index = Arc::new(IndexService::load(source, store.clone()).await?);
+        let wallet = WalletService::new(store.clone(), store, config.owner);
+        Ok(Self::new(index, Arc::new(wallet), config.retry))
     }
 
-    /// Builds a daemon over an index that is already wired.
+    /// Builds a daemon over services that are already wired.
     #[must_use]
-    pub const fn new(index: Arc<IndexService>, retry: Retry) -> Self {
-        Self { index, retry }
+    pub const fn new(
+        index: Arc<IndexService>,
+        wallet: Arc<WalletService>,
+        retry: Retry,
+    ) -> Self {
+        Self {
+            index,
+            wallet,
+            retry,
+        }
     }
 
     /// The index, for anything that reads it.
@@ -160,18 +229,29 @@ impl Daemon {
         }
     }
 
+    /// One pass: catch the index up, then catch the notes up with it.
+    async fn pass(&self) -> Result<(), PassError> {
+        let health = self.index.sync().await?;
+        let seen = self.wallet.reconcile(now()).await?;
+        tracing::debug!(
+            leaves = health.leaves,
+            block = health.block,
+            placed = seen.placed,
+            spent = seen.spent,
+            escrowed = seen.escrowed,
+            "synced"
+        );
+        if seen.stale > 0 {
+            tracing::warn!(notes = seen.stale, "written down but never placed");
+        }
+        Ok(())
+    }
+
     async fn syncing(&self) -> Halted {
         let mut failures = 0;
         loop {
-            match self.index.sync().await {
-                Ok(health) => {
-                    failures = 0;
-                    tracing::debug!(
-                        leaves = health.leaves,
-                        block = health.block,
-                        "index synced"
-                    );
-                }
+            match self.pass().await {
+                Ok(()) => failures = 0,
                 Err(error) if !error.recoverable() => return Halted::Untrusted(error),
                 Err(source) => {
                     failures += 1;
@@ -181,7 +261,7 @@ impl Daemon {
                             source,
                         };
                     }
-                    tracing::warn!(error = %source, failures, "index sync failed");
+                    tracing::warn!(error = %source, failures, "pass failed");
                 }
             }
             sleep(self.backoff(failures)).await;
