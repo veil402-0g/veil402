@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/veil402-sdk", "crates/veil402-enclave"]
+members = ["crates/veil402-sdk", "crates/veil402-enclave", "crates/veil402-daemon"]
 exclude = ["tools"]
 resolver = "2"
 

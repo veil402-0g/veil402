@@ -34,7 +34,7 @@ RPC ?= http://127.0.0.1:8545
 KEY ?= 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
 integration: abi
-	@for case in shields_then_withdraws meters_a_session_and_settles; do \
+	@for case in shields_then_withdraws meters_a_session_and_settles spends_the_second_note; do \
 	  out=$$(cd contracts && forge script script/DeployPool.s.sol:DeployPool \
 	    --rpc-url $(RPC) --private-key $(KEY) --broadcast 2>&1); \
 	  RPC_URL=$(RPC) PRIVATE_KEY=$(KEY) \
@@ -42,7 +42,7 @@ integration: abi
 	  TOKEN=$$(echo "$$out" | awk '/token /{print $$2}') \
 	  VERIFIER=$$(echo "$$out" | awk '/verifier /{print $$2}') \
 	  REGISTRY=$$(echo "$$out" | awk '/registry /{print $$2}') \
-	  cargo test --manifest-path crates/veil402-sdk/Cargo.toml --test integration \
+	  cargo test --workspace --test integration --test live \
 	    $$case -- --ignored --nocapture; \
 	done
 

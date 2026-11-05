@@ -22,6 +22,7 @@ noirc_artifacts = { git = "https://github.com/noir-lang/noir", rev = "c57152f912
 process-wrap = { version = "8.2.1", default-features = false, features = ["job-object", "kill-on-drop", "process-group", "tokio1"] }
 prost = "0.14.4"
 rand = "0.8"
+rs-merkle-tree = { version = "0.1", default-features = false, features = ["memory_store"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -31,6 +32,8 @@ tokio-util = { version = "0.7", features = ["codec"] }
 zeroize = { version = "1.8", features = ["derive"] }
 
 [dev-dependencies]
+ark-bn254 = "0.5"
+light-poseidon = "0.3"
 veil402-enclave = { path = "../veil402-enclave" }
 alloy = { version = "1", features = ["sol-types", "contract", "provider-http", "signer-local", "network"] }
 serde_json = "1"

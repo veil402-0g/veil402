@@ -8,7 +8,7 @@ Check for an audited library before writing a primitive. Current stack:
 |---|---|
 | Groth16 verifier | generated from `transaction-v4` vk by `cmd/export-verifier` |
 | Poseidon T3 / T5 | `poseidon-solidity` |
-| Fixed-depth Merkle tree | `@zk-kit/lazy-imt` — `LazyIMT`, always read via `_root(20)` |
+| Fixed-depth Merkle tree | on chain `@zk-kit/lazy-imt` — `LazyIMT`, read via `_root(20)`; off chain `rs-merkle-tree` |
 | Reentrancy, SafeERC20 | OpenZeppelin |
 | EVM types, ABI, RPC | `alloy` umbrella crate; bindings via `sol!(…, "abi/pool.json")` |
 

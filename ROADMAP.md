@@ -367,7 +367,9 @@ digest the SDK produced and the pool accepts it. Flipping one hex digit gives
 Live on Hedera testnet: lock 84,864 gas, settle 1,011,633, three checkpoints
 costing nothing on chain.
 
-Remaining: 2.10, which needs a real HTS token in the account before it can run.
+Deferred: 2.10. The pool reports `max_automatic_token_associations: -1`, so it
+takes any HTS token with no `associate` call, but that is unproven against a
+real one until a token reaches the account. Nothing depends on it.
 
 ### Phase 3 — mandates (5h)
 
@@ -381,12 +383,41 @@ rather than inventing a format; the hash becomes the Semaphore leaf, and the
 object stays publicly enforceable through the real Delegation Manager in a
 dispute.
 
-### Phase 4 — `veil-daemon` (8h)
+### Phase 4 — `veil-daemon` (4.1 done)
 
-OpenAI-compatible API, agent keys, envelope sessions (cold path proves and
-locks, warm path does neither), note selection with re-split at lock time to
-self-defragment, receipts. Persistent local index — the mirror node's 60-day
-window makes rebuild-from-genesis impossible.
+Hexagonal: `core/` is I/O-free and declares its ports, `adapters/` implements
+them, `app/` wires them.
+
+**4.1 index.** The pool keeps only the roots it has reached; the siblings a
+spend needs exist nowhere on chain, so a client that wants to spend anything
+but its first note has to carry the tree. `IndexService` mirrors it from
+`NewCommitment`, and checks its root against the pool on every pass — a missed
+commitment makes every path wrong, and serving one costs a proof and the gas to
+have it rejected. A skipped leaf is caught where it happens rather than left
+for the root to notice.
+
+The tree is stored, not rebuilt. `rs-merkle-tree` is incremental by design and
+spends twenty hashes per leaf, so replaying a history costs that again every
+start: 37 s at fifty thousand leaves, measured. Its nodes go into the same
+transaction as the commitments, nullifiers and cursor, and a restart loads them
+with no hashing at all. The store backing it is dense per level, since an
+append-only tree fills each level contiguously, which bounds it at twice the
+leaf count — 64 MB at depth-20 capacity, against the ciphertexts' 160 MB.
+
+One transaction is also what keeps the index honest: a crash between the rows
+and the cursor would replay leaves at shifted indices. A refused write rolls
+the in-memory tree back, so it never runs ahead of what is durable. Reload
+reads the store, never the chain, because the mirror node only answers a fixed
+window.
+
+Paths come out as a `Witness` — one root and every path read under one guard,
+because the circuit takes a single root and two spends proved against different
+tree states cannot verify.
+
+Leaf 1 now spends on anvil, which `MerklePath::only_leaf` could never do.
+
+Remaining: 4.2 persistence hardening, 4.3 note selection with re-split,
+4.4 envelope sessions, 4.5 OpenAI-compatible API, 4.6 receipts.
 
 ### Phase 5 — enclave logic, stub attester (6h)
 
