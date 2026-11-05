@@ -1,4 +1,4 @@
-mod encoding;
+pub(crate) mod encoding;
 mod field;
 pub(crate) mod note;
 mod transaction;
@@ -10,3 +10,6 @@ pub(crate) use transaction::{Plan, Public, Values};
 
 /// Number of siblings in a transaction circuit Merkle path.
 pub const TREE_DEPTH: usize = 20;
+
+/// Largest ciphertext the pool accepts for one output note.
+pub const MAX_NOTE_BYTES: usize = 128;

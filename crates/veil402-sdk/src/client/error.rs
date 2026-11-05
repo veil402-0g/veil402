@@ -20,7 +20,7 @@ pub enum Error {
     #[error("invalid transaction: {0}")]
     Transaction(&'static str),
 
-    /// A withdrawal or its Solana instruction is invalid.
+    /// A withdrawal or the call carrying it is invalid.
     #[error("invalid withdrawal: {0}")]
     Withdrawal(&'static str),
 

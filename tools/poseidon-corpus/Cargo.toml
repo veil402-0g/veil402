@@ -1,0 +1,12 @@
+[package]
+name = "poseidon-corpus"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+ark-bn254 = "0.5"
+hex = "0.4"
+light-poseidon = "0.3"

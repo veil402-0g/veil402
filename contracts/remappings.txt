@@ -1,0 +1,4 @@
+forge-std/=lib/forge-std/src/
+poseidon-solidity/=lib/poseidon-solidity/contracts/
+@zk-kit/lazy-imt/=lib/zk-kit.solidity/packages/lazy-imt/contracts/
+@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/

@@ -1,0 +1,11 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib"]
+solc = "0.8.28"
+optimizer = true
+# Matches poseidon-solidity upstream. Below ~50k the round loop is not
+# unrolled and an insert costs 37% more.
+optimizer_runs = 4294967295
+fs_permissions = [{ access = "read", path = "./test/fixtures" }]
