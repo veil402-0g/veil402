@@ -22,27 +22,22 @@ pub struct Sealed {
     pub ciphertext: Vec<u8>,
 }
 
-/// The enclave's side of the channel: an X25519 key minted per boot.
+/// The enclave's side of the channel: an X25519 key for one envelope.
 ///
-/// Per boot, not once: a static key that leaked would open every session ever
-/// delegated to that enclave. The public half is vouched for by the secp256k1
-/// key the registry knows, which is what lets a buyer tell a genuine enclave's
-/// key from one a seller made up — until attestation replaces the signature
-/// with a document binding the same key.
+/// Derived, never minted, so a restart reaches the same key and envelopes in
+/// flight survive it. The public half is vouched for by the secp256k1 key the
+/// registry knows, which is what lets a buyer tell a genuine enclave's key
+/// from one a seller made up — until attestation replaces the signature with a
+/// document binding the same key.
 pub struct EnclaveKey {
     private: Private,
     public: Public,
 }
 
 impl EnclaveKey {
-    /// Mints a fresh key from the system CSPRNG.
-    ///
-    /// Panics if that CSPRNG fails, which inside an enclave means an unseeded
-    /// RNG — so an enclave must prove entropy is live at boot before it calls
-    /// this, not discover it here.
-    #[must_use]
-    pub fn generate() -> Self {
-        let (private, public) = <Kem as hpke::Kem>::gen_keypair();
+    /// Derives the keypair RFC 9180 assigns to this input keying material.
+    pub(crate) fn from_ikm(ikm: &[u8; 32]) -> Self {
+        let (private, public) = <Kem as hpke::Kem>::derive_keypair(ikm);
         Self { private, public }
     }
 
@@ -120,7 +115,8 @@ impl Recipient {
 
     /// Seals a payload so only the enclave can read it.
     ///
-    /// Panics if the system CSPRNG fails, as [`EnclaveKey::generate`] does.
+    /// Panics if the system CSPRNG fails: HPKE needs fresh entropy per seal,
+    /// and an unseeded RNG would leak the delegation it is protecting.
     ///
     /// # Errors
     ///

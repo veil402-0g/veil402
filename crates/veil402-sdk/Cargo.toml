@@ -15,6 +15,7 @@ borsh = { version = "1", features = ["derive"] }
 bn254_blackbox_solver = { git = "https://github.com/noir-lang/noir", rev = "c57152f91260ecdb9faad4efc20abb14b6d2ece7" }
 futures-util = "0.3"
 hex = "0.4"
+hkdf = "0.12"
 hpke = "0.15"
 light-poseidon = "0.3"
 nargo = { git = "https://github.com/noir-lang/noir", rev = "c57152f91260ecdb9faad4efc20abb14b6d2ece7" }

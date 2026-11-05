@@ -6,7 +6,7 @@ use veil402_enclave::{Call, Error, Meter, sign_lock};
 use veil402_sdk::{
     Note, Secret, SessionKeys, Tree,
     evm::{PoolClient, Session, Voucher},
-    session::{EnclaveKey, Handover, Recipient},
+    session::{Handover, Keyring, Recipient, RootSeed},
 };
 
 type Fallible = Result<(), Box<dyn std::error::Error>>;
@@ -70,7 +70,7 @@ fn metered(value: u64, target: u64) -> Result<Meter, Box<dyn std::error::Error>>
         tee_signer: alloy::primitives::Address::ZERO,
     };
 
-    let key = EnclaveKey::generate();
+    let key = Keyring::new(RootSeed::random()?).handover(session.nullifier);
     let vouching = PrivateKeySigner::random();
     let signature = vouching.sign_hash_sync(&key.announcement(&client))?.as_bytes();
     let sealed = Recipient::accept(key.public(), &client, vouching.address(), &signature)?

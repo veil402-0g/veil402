@@ -25,7 +25,7 @@ use veil402_enclave::{Call, Meter, sign_lock};
 use veil402_sdk::{
     Config, Field, MerklePath, Note, Owner, Secret, Send, SessionKeys, Spend, Transaction, Veil,
     evm::{PoolClient, Session, Withdrawal},
-    session::{EnclaveKey, Handover, Recipient},
+    session::{Handover, Keyring, Recipient, RootSeed},
 };
 
 const DEPOSIT: u64 = 1_000;
@@ -267,7 +267,7 @@ async fn meters_a_session_and_settles() -> Result<(), Box<dyn StdError>> {
     println!("lock gas         {}", receipt.gas_used);
 
     // ---- hand the session over, sealed to the enclave --------------------
-    let key = EnclaveKey::generate();
+    let key = Keyring::new(RootSeed::random()?).handover(session.nullifier);
     let announcement = enclave.sign_hash_sync(&key.announcement(&pool))?.as_bytes();
     let handover = Handover {
         seed,

@@ -10,10 +10,16 @@ use alloy::{
 use veil402_sdk::{
     Field, Note, Secret, SessionKeys, TREE_DEPTH, Tree,
     evm::{PoolClient, Session},
-    session::{EnclaveKey, Handover, Recipient},
+    session::{EnclaveKey, Handover, Keyring, Recipient, RootSeed},
 };
 
 type Fallible = Result<(), Box<dyn StdError>>;
+
+/// A key no other call in this file shares, which is what these tests mean by
+/// "another enclave".
+fn fresh() -> Result<EnclaveKey, Box<dyn StdError>> {
+    Ok(Keyring::new(RootSeed::random()?).handover(Field::from(1_u64)))
+}
 
 const CHAIN: u64 = 296;
 const POOL: Address = Address::new([0x11; 20]);
@@ -79,7 +85,7 @@ fn valid() -> Result<(Handover, Session), Box<dyn StdError>> {
 fn only_a_vouched_key_can_be_sealed_to() -> Fallible {
     let pool = pool()?;
     let signer = PrivateKeySigner::random();
-    let key = EnclaveKey::generate();
+    let key = fresh()?;
     let signature = signer.sign_hash_sync(&key.announcement(&pool))?.as_bytes();
 
     let recipient = Recipient::accept(key.public(), &pool, signer.address(), &signature)?;
@@ -99,14 +105,14 @@ fn only_a_vouched_key_can_be_sealed_to() -> Fallible {
 /// announcement cannot be lifted from one deployment to another.
 #[test]
 fn an_announcement_is_bound_to_its_deployment() -> Fallible {
-    let key = EnclaveKey::generate();
+    let key = fresh()?;
     let here = key.announcement(&pool()?);
 
     let other_chain = PoolClient::new(POOL, Address::ZERO, Address::ZERO, CHAIN + 1)?;
     let other_pool = PoolClient::new(Address::new([0x99; 20]), Address::ZERO, Address::ZERO, CHAIN)?;
     assert_ne!(here, key.announcement(&other_chain));
     assert_ne!(here, key.announcement(&other_pool));
-    assert_ne!(here, EnclaveKey::generate().announcement(&pool()?));
+    assert_ne!(here, fresh()?.announcement(&pool()?));
     Ok(())
 }
 
@@ -114,13 +120,13 @@ fn an_announcement_is_bound_to_its_deployment() -> Fallible {
 fn an_envelope_opens_only_for_its_recipient() -> Fallible {
     let pool = pool()?;
     let signer = PrivateKeySigner::random();
-    let key = EnclaveKey::generate();
+    let key = fresh()?;
     let signature = signer.sign_hash_sync(&key.announcement(&pool))?.as_bytes();
     let sealed =
         Recipient::accept(key.public(), &pool, signer.address(), &signature)?.seal(b"authority")?;
 
     assert!(
-        EnclaveKey::generate().open(&sealed).is_err(),
+        fresh()?.open(&sealed).is_err(),
         "another enclave opened it"
     );
 
