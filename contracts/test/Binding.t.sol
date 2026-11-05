@@ -3,7 +3,8 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Pool, IVerifier} from "../src/Pool.sol";
+import {EnclaveRegistry} from "../src/EnclaveRegistry.sol";
+import {Pool, IEnclaveRegistry, IVerifier} from "../src/Pool.sol";
 
 // The SDK builds the proof and the pool recomputes what it was bound to. If the
 // two ever disagree, every transaction reverts at the verifier with nothing to
@@ -16,9 +17,11 @@ contract BindingTest is Test {
         json = vm.readFile("test/fixtures/binding.json");
         // extDataHash reads address(this), so the pool has to answer at the
         // address the fixture was generated for.
+        IEnclaveRegistry registry = IEnclaveRegistry(address(new EnclaveRegistry(address(this))));
         Pool deployed = new Pool(
             IERC20(vm.parseJsonAddress(json, ".token")),
-            IVerifier(vm.parseJsonAddress(json, ".verifier"))
+            IVerifier(vm.parseJsonAddress(json, ".verifier")),
+            registry
         );
         address target = vm.parseJsonAddress(json, ".pool");
         vm.etch(target, address(deployed).code);
@@ -32,7 +35,11 @@ contract BindingTest is Test {
         assertEq(tokens.length, expected.length);
 
         for (uint256 i = 0; i < tokens.length; i++) {
-            Pool instance = new Pool(IERC20(tokens[i]), IVerifier(address(1)));
+            Pool instance = new Pool(
+                IERC20(tokens[i]),
+                IVerifier(address(1)),
+                IEnclaveRegistry(address(new EnclaveRegistry(address(this))))
+            );
             assertEq(instance.assetId(), expected[i], "asset id diverges");
         }
     }

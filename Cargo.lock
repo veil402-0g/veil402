@@ -5049,6 +5049,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "serial_test"
+version = "3.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "699f4197115b8a7e7ff19c9a315a4bd6fffec26cc4626ef45ecaea389e081c6d"
+dependencies = [
+ "futures-executor",
+ "futures-util",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "serial_test_derive",
+]
+
+[[package]]
+name = "serial_test_derive"
+version = "3.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94e153fc76e1c6a068703d6d29c508a0b15c061c4b7e43da59cc097bc342673c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5797,6 +5822,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
+name = "veil402-enclave"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "thiserror 2.0.21",
+ "veil402-sdk",
+]
+
+[[package]]
 name = "veil402-sdk"
 version = "0.1.0"
 dependencies = [
@@ -5817,11 +5851,13 @@ dependencies = [
  "rand 0.8.8",
  "serde",
  "serde_json",
+ "serial_test",
  "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
+ "veil402-enclave",
  "zeroize",
 ]
 

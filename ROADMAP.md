@@ -308,25 +308,54 @@ free from PDA collision; Solidity has no equivalent.
 
 Duplicate commitments are legal. Do not add a uniqueness check.
 
-### Phase 2 — escrow (6h)
+### Phase 2 — escrow (2.1-2.6 done)
 
-`lock(proof, change_npk, seller, deadline)` · `settle(id, amountPaid, callsRoot,
-enclaveSig)` · `refund()`.
+`lock(nullifier, enclave, seller, deadline)` · `settleToAddress(...)` ·
+`settleToNote(...)`.
 
-Change is the correctness piece: lock L, actual cost A, return `L - A` without
-an interactive step. The buyer supplies `change_npk` at lock time; at settle the
-contract inserts `PoseidonT5(NOTE_DOMAIN, change_npk, assetId, L - A)`. Refund
-is the same path with `A = 0`, so full spend, partial spend and no spend are one
-function.
+**The pool never holds the escrowed value.** It reserves a nullifier. The note
+stays the buyer's; it simply cannot be spent elsewhere while the reservation is
+live, and when the deadline passes the reservation lifts. There is no refund
+function and nothing to get stuck.
 
-`callsRoot` keeps the envelope cheap: the enclave Merkle-roots per-call
-attestations and signs once; the buyer verifies its own calls off-chain. One
-ecrecover and one insert per envelope regardless of call count.
+Only the note's owner can name its nullifier, so nobody can lock a note they do
+not hold. `A <= L` needs no check either — the circuit cannot let outputs exceed
+inputs, so overpaying is arithmetically impossible.
 
-Change note values are public (`L` and `A` both are). Mitigate by re-mixing
-promptly and sizing envelopes to usage.
+`settleToAddress` pays the seller publicly: the ceiling and the buyer's change
+both stay hidden, and only the amount paid is visible. `settleToNote` pays a
+note against a commitment the enclave signed, so the amount never becomes
+public — shipped but unusable until note encryption and discovery exist, which
+is why both paths are in the contract now. The pool is immutable; adding the
+second path later would mean redeploying.
 
-Also here: HTS association for the vault via the `0x167` system contract.
+Both are the same join-split underneath, so `_spend` is shared and `transact`'s
+signature is unchanged.
+
+**Grace window.** The seller may settle up to the deadline; the buyer regains
+the note only at `deadline + 60s`. Without it a settlement landing late would
+collide with the buyer taking the note back, and the seller would lose paid-for
+work through no fault of its own.
+
+`lock` is gated on `EnclaveRegistry` and carries an enclave signature over
+`(nullifier, seller, deadline)`. The registry is checked at lock only — checking
+it at settle would let a revocation strand a live escrow, costing the seller
+work it had already delivered. The
+enclave never needs gas or chain access — anyone may submit it — but a
+reservation now requires the enclave's consent, so it cannot be made against an
+enclave that will not serve, and every reservation is attributable to a key
+buyers pin and we can revoke.
+
+`EnclaveRegistry` records which signing key belongs to which `PCR0`. Gating
+`lock` on it narrows the grief surface from anyone to keys we registered. Its
+blast radius is freezing notes, never theft: settle still needs a proof only the
+note's owner can produce.
+
+Measured: `lock` ~66k, `settleToAddress` ~726k, `settleToNote` ~696k, and the
+reservation check costs `transact` 5,019 gas (992,416 -> 997,435).
+
+Remaining: 2.7 SDK escrow module, 2.8 enclave stub, 2.9 testnet integration,
+2.10 HTS check with a real token.
 
 ### Phase 3 — mandates (5h)
 
@@ -433,6 +462,10 @@ recording and polish (2h).
 | R5 | Anonymity set is the pool size, near zero at launch | Background traffic in Phase 13 |
 | R6 | 16GB host caps Docker at ~11GB; Solo wants 12GB | Testnet instead |
 | R7 | PoseidonT3 is 1,000 bytes under EIP-170 | Size test; solc pinned at 0.8.28 |
+| R8 | `transact` is now escrow-aware — the reservation check sits on the core spend path, in an immutable contract | All 21 pre-existing Pool tests pass unchanged; the real anvil round trip still settles |
+| R9 | A front-run `lock` can strand someone else's note | Largely closed. `lock` is registry-gated and needs enclave consent, so only a key we registered can do it; bounded by `MAX_LOCK` = 1 hour; needs the owner's nullifier, secret until spent. The clean fix is an ownership proof at lock — a circuit change, Phase 8 |
+| R11 | The registry owner can refuse new enclaves, stopping new sessions | Escrow only. `shield` and `transact` never read the registry, live escrows settle regardless, and no funds can be stranded |
+| R10 | `settleToNote` ships untested against a live seller — no note encryption or discovery exists yet | Contract-level tests only. Do not advertise it until Phase 3 |
 
 ---
 

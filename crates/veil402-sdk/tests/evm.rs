@@ -157,7 +157,7 @@ fn writes_binding_fixture() -> Result<(), Box<dyn StdError>> {
     let pool = client();
     let tokens = [
         TOKEN,
-        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000001",
         "0xffffffffffffffffffffffffffffffffffffffff",
         "0x73Cd11793191573237cb7a6DedCCa7cC9FDBD6ed",
     ];
