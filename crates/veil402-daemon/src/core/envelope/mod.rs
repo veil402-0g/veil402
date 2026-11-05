@@ -2,4 +2,4 @@ mod error;
 mod ports;
 
 pub use error::{ChainError, ProveError};
-pub use ports::{Broadcaster, Prover};
+pub use ports::{Broadcaster, Landed, Prover, SubmissionStore};

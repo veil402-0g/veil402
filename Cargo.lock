@@ -7100,6 +7100,7 @@ dependencies = [
  "alloy",
  "async-trait",
  "dotenvy",
+ "serde_json",
  "sqlx",
  "tempfile",
  "thiserror 2.0.21",

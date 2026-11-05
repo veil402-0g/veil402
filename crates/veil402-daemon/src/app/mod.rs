@@ -3,6 +3,7 @@
 use std::{
     env, future,
     num::NonZeroU64,
+    path::PathBuf,
     str::FromStr,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -14,15 +15,20 @@ use tokio::time::sleep;
 use veil402_sdk::{Owner, Secret};
 
 use crate::{
-    adapters::{ChainSource, SqliteStore, Window},
+    adapters::{self, ChainSource, SqliteStore, Window},
     core::{
         StoreError,
+        envelope::{Broadcaster, ChainError},
         index::{IndexError, IndexService},
         wallet::{WalletError, WalletService},
     },
 };
 
 const DATABASE: &str = "sqlite://veil402.db?mode=rwc";
+
+/// Where the transaction engine's own durable state lives. Separate from the
+/// index: it is the engine's, and it rebroadcasts from it on its own.
+const WALLET_STATE: &str = "veil402-wallet.redb";
 
 /// Blocks per log query. Relays cap the span; a thousand is under every cap
 /// we have met.
@@ -55,6 +61,11 @@ pub struct Config {
     pub pool: Address,
     /// `SQLite` URL holding the index and the notes we own.
     pub database: String,
+    /// Key that pays for the daemon's transactions. Gas only: it signs for no
+    /// note and holds no balance the pool recognises.
+    pub signer: String,
+    /// Where the transaction engine keeps the calls it is still tracking.
+    pub wallet_state: PathBuf,
     /// Keys the notes belong to. Losing them loses the balance.
     pub owner: Owner,
     /// Size a settlement should leave behind as a second note. Zero returns
@@ -107,6 +118,8 @@ impl Config {
                 .parse()
                 .map_err(|_| ConfigError::Invalid("VEIL_POOL"))?,
             database: env::var("VEIL_DATABASE").unwrap_or_else(|_| DATABASE.to_owned()),
+            signer: required("VEIL_SIGNER_KEY")?,
+            wallet_state: parsed("VEIL_WALLET_STATE", PathBuf::from(WALLET_STATE))?,
             owner: Owner {
                 spend: key("VEIL_SPEND_KEY")?,
                 view: key("VEIL_VIEW_KEY")?,
@@ -127,6 +140,8 @@ impl Config {
 #[derive(Debug, Error)]
 pub enum StartError {
     #[error(transparent)]
+    Broadcast(#[from] ChainError),
+    #[error(transparent)]
     Config(#[from] ConfigError),
     #[error("the index store could not be opened")]
     Store(#[from] StoreError),
@@ -143,6 +158,8 @@ pub enum PassError {
     Index(#[from] IndexError),
     #[error(transparent)]
     Wallet(#[from] WalletError),
+    #[error(transparent)]
+    Chain(#[from] ChainError),
 }
 
 impl PassError {
@@ -151,6 +168,7 @@ impl PassError {
         match self {
             Self::Index(error) => error.recoverable(),
             Self::Wallet(error) => error.recoverable(),
+            Self::Chain(error) => error.recoverable(),
         }
     }
 }
@@ -170,6 +188,7 @@ pub enum Halted {
 pub struct Daemon {
     index: Arc<IndexService>,
     wallet: Arc<WalletService>,
+    broadcast: Arc<dyn Broadcaster>,
     retry: Retry,
 }
 
@@ -181,6 +200,16 @@ impl Daemon {
     /// Returns [`StartError`] when any of the three cannot be reached.
     pub async fn start(config: Config) -> Result<Self, StartError> {
         let store = Arc::new(SqliteStore::open(&config.database).await?);
+        let broadcast = Arc::new(
+            adapters::broadcaster(
+                &config.rpc,
+                &config.signer,
+                config.pool,
+                &config.wallet_state,
+                store.clone(),
+            )
+            .await?,
+        );
         let provider = ProviderBuilder::new()
             .connect(&config.rpc)
             .await
@@ -188,7 +217,7 @@ impl Daemon {
         let source = Arc::new(ChainSource::new(provider, config.pool, config.window));
         let index = Arc::new(IndexService::load(source, store.clone()).await?);
         let wallet = WalletService::new(store.clone(), store, config.owner);
-        Ok(Self::new(index, Arc::new(wallet), config.retry))
+        Ok(Self::new(index, Arc::new(wallet), broadcast, config.retry))
     }
 
     /// Builds a daemon over services that are already wired.
@@ -196,11 +225,13 @@ impl Daemon {
     pub const fn new(
         index: Arc<IndexService>,
         wallet: Arc<WalletService>,
+        broadcast: Arc<dyn Broadcaster>,
         retry: Retry,
     ) -> Self {
         Self {
             index,
             wallet,
+            broadcast,
             retry,
         }
     }
@@ -229,8 +260,13 @@ impl Daemon {
         }
     }
 
-    /// One pass: catch the index up, then catch the notes up with it.
+    /// One pass: advance what is in flight, catch the index up, then catch
+    /// the notes up with it.
+    ///
+    /// Ticking first is deliberate — a lock that confirms in this pass should
+    /// be visible to the index read that follows, not a pass later.
     async fn pass(&self) -> Result<(), PassError> {
+        self.broadcast.tick().await?;
         let health = self.index.sync().await?;
         let seen = self.wallet.reconcile(now()).await?;
         tracing::debug!(

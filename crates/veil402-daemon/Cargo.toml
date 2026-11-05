@@ -11,6 +11,7 @@ alloy = { version = "1", features = ["contract", "provider-http", "sol-types", "
 async-trait = "0.1"
 dotenvy = "0.15"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
+serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time"] }
 tracing = "0.1"

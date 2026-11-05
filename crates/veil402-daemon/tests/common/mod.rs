@@ -15,6 +15,7 @@ use std::{
 use async_trait::async_trait;
 use veil402_daemon::core::{
     StoreError,
+    envelope::{Broadcaster, ChainError as SendError, Landed},
     index::{Batch, ChainError, Commitment, CommitmentSource, IndexStore, Nullified},
 };
 use veil402_sdk::{Field, StoredNode, Tree};
@@ -252,5 +253,31 @@ impl IndexStore for Memory {
             .take(limit as usize)
             .cloned()
             .collect())
+    }
+}
+
+/// A broadcaster that sends nothing.
+///
+/// The sync loop's subject is the index and the notes; what it writes is
+/// exercised where a chain is real.
+#[derive(Default)]
+pub struct Silent;
+
+#[async_trait]
+impl Broadcaster for Silent {
+    async fn submit(&self, _: Field, _: Vec<u8>) -> Result<(), SendError> {
+        Ok(())
+    }
+
+    async fn landed(&self, _: Field) -> Result<Option<Landed>, SendError> {
+        Ok(None)
+    }
+
+    async fn tick(&self) -> Result<(), SendError> {
+        Ok(())
+    }
+
+    async fn timestamp(&self) -> Result<u64, SendError> {
+        Ok(0)
     }
 }

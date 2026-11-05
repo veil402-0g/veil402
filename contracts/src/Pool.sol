@@ -87,7 +87,7 @@ contract Pool is ReentrancyGuard, EIP712 {
     event Locked(
         uint256 indexed nullifier, address indexed enclave, address indexed seller, uint64 deadline
     );
-    event Settled(uint256 indexed nullifier, bytes32 callsRoot);
+    event Settled(uint256 indexed nullifier, bytes32 callsRoot, uint256 amount);
 
     error AlreadyLocked();
     error AmountOutOfRange();
@@ -201,15 +201,13 @@ contract Pool is ReentrancyGuard, EIP712 {
     ) external nonReentrant {
         uint256 nullifier = _open(nullifiers);
         if (ext.extAmount >= 0) revert WrongSettlement();
+        uint256 amount = uint256(-ext.extAmount);
 
         address seller = _authorize(
             nullifier,
-            keccak256(
-                abi.encode(
-                    SETTLE_TO_ADDRESS_TYPEHASH, nullifier, uint256(-ext.extAmount), callsRoot
-                )
-            ),
+            keccak256(abi.encode(SETTLE_TO_ADDRESS_TYPEHASH, nullifier, amount, callsRoot)),
             callsRoot,
+            amount,
             signature
         );
         if (ext.recipient != seller) revert InvalidRecipient();
@@ -232,10 +230,12 @@ contract Pool is ReentrancyGuard, EIP712 {
         uint256 nullifier = _open(nullifiers);
         if (ext.extAmount != 0) revert WrongSettlement();
 
+        // Nothing public moves, so there is no amount to publish.
         _authorize(
             nullifier,
             keccak256(abi.encode(SETTLE_TO_NOTE_TYPEHASH, nullifier, outCommitments[0], callsRoot)),
             callsRoot,
+            0,
             signature
         );
         _spend(proof, proofCommitments, proofCommitmentPok, root, nullifiers, outCommitments, ext);
@@ -258,6 +258,7 @@ contract Pool is ReentrancyGuard, EIP712 {
         uint256 nullifier,
         bytes32 structHash,
         bytes32 callsRoot,
+        uint256 amount,
         bytes calldata signature
     ) private returns (address seller) {
         Escrow storage escrow = escrows[nullifier];
@@ -266,7 +267,7 @@ contract Pool is ReentrancyGuard, EIP712 {
             revert WrongEnclave();
         }
         escrow.settled = true;
-        emit Settled(nullifier, callsRoot);
+        emit Settled(nullifier, callsRoot, amount);
         return escrow.seller;
     }
 

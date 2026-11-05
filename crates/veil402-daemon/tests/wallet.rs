@@ -10,6 +10,7 @@ use veil402_daemon::{
     adapters::SqliteStore,
     core::{
         index::{Batch, Commitment, IndexStore, Locked, Nullified, Settled},
+        envelope::SubmissionStore,
         wallet::{Held, Minted, NoteStore, WalletError, WalletService, select},
     },
 };
@@ -391,5 +392,41 @@ async fn settled_change_is_recovered_from_the_chain_alone() -> Fallible {
         .map(|note| note.value)
         .collect();
     assert_eq!(spendable, vec![100, 600], "the settled note's change is spendable");
+    Ok(())
+}
+
+/// A seller paid in a note publishes no amount, and guessing one would mint
+/// commitments the chain never saw. Finding that change needs note discovery.
+#[tokio::test]
+async fn a_private_settlement_recovers_nothing() -> Fallible {
+    let store = store().await?;
+    let wallet = wallet(&store, Owner::random()?);
+    let session = Secret::random()?;
+
+    wallet
+        .remember(&[minted(field(1), 1_000, Some(Secret::from_bytes(session.to_bytes())?))?], 0)
+        .await?;
+    emit(&store, 1).await?;
+    wallet.reconcile(0).await?;
+    let nullifier = SessionKeys::from_seed(&session)?.owner.nullifier(0)?;
+
+    settled(&store, nullifier, 0).await?;
+    assert_eq!(wallet.recover(nullifier, &Secret::random()?, 100, 0).await?, 0);
+    assert!(store.unplaced().await?.is_empty(), "nothing was invented");
+    Ok(())
+}
+
+/// A resubmission after a crash must adopt the call already in flight. Were
+/// the second write to win, the daemon would track one handle for a
+/// transaction it had sent twice, at two nonces.
+#[tokio::test]
+async fn a_resubmission_keeps_the_first_handle() -> Fallible {
+    let store = store().await?;
+
+    store.track(field(1), b"first").await?;
+    store.track(field(1), b"second").await?;
+
+    assert_eq!(store.handle(field(1)).await?, Some(b"first".to_vec()));
+    assert_eq!(store.handle(field(2)).await?, None, "an unsent key has no handle");
     Ok(())
 }

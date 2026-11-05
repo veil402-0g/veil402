@@ -210,6 +210,12 @@ impl WalletService {
         ) else {
             return Ok(0);
         };
+        // A settlement to an address always pays something, so a zero means
+        // the seller took a note instead and the amount stayed private.
+        // Deriving against it would mint commitments the chain never saw.
+        if spent == 0 {
+            return Ok(0);
+        }
         let minted = outputs(&note, spent, change_seed, &self.owner, target)
             .map_err(|_| WalletError::Owner)?;
         let placed = minted.len();

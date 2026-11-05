@@ -22,6 +22,7 @@ async fn daemon(chain: Chain, attempts: u32) -> Result<Daemon, Box<dyn std::erro
     Ok(Daemon::new(
         index,
         Arc::new(wallet),
+        Arc::new(common::Silent),
         Retry {
             interval: Duration::from_secs(5),
             attempts,

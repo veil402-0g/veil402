@@ -5,11 +5,10 @@ use alloy::{
     providers::Provider,
     rpc::types::{Filter, Log},
     sol,
-    consensus::Transaction as _,
     sol_types::SolEvent,
 };
 use async_trait::async_trait;
-use veil402_sdk::{Field, evm::settled_amount};
+use veil402_sdk::Field;
 
 use crate::core::index::{
     Batch, ChainError, Commitment, CommitmentSource, Locked, Nullified, Settled,
@@ -20,7 +19,7 @@ sol! {
     interface IPool {
         event NewCommitment(uint256 indexed commitment, uint256 leafIndex, bytes note);
         event Nullified(uint256 indexed nullifier);
-        event Settled(uint256 indexed nullifier, bytes32 callsRoot);
+        event Settled(uint256 indexed nullifier, bytes32 callsRoot, uint256 amount);
         event Locked(
             uint256 indexed nullifier,
             address indexed enclave,
@@ -98,24 +97,6 @@ impl<P: Provider> ChainSource<P> {
             .map_err(|_| ChainError::Unavailable)
     }
 
-    /// Reads what a settlement paid. The event carries only the nullifier and
-    /// the calls root, so the amount comes from the call that emitted it.
-    async fn settlement(&self, log: &Log) -> Result<Settled, ChainError> {
-        let hash = log.transaction_hash.ok_or(ChainError::InvalidData)?;
-        let transaction = self
-            .provider
-            .get_transaction_by_hash(hash)
-            .await
-            .inspect_err(|error| tracing::warn!(%error, %hash, "settling transaction unavailable"))
-            .map_err(|_| ChainError::Unavailable)?
-            .ok_or(ChainError::InvalidData)?;
-        Ok(Settled {
-            nullifier: field(decode::<IPool::Settled>(log)?.nullifier)?,
-            amount: settled_amount(transaction.input()).ok_or(ChainError::InvalidData)?,
-            block: log.block_number.ok_or(ChainError::InvalidData)?,
-        })
-    }
-
     fn contract(&self) -> IPool::IPoolInstance<&P> {
         IPool::new(self.pool, &self.provider)
     }
@@ -159,8 +140,14 @@ fn absorb(batch: &mut Batch, log: &Log) -> Result<(), ChainError> {
                 block,
             });
         }
-        // Settled is absorbed separately: its amount lives in the calldata.
-        Some(&IPool::Settled::SIGNATURE_HASH) => {}
+        Some(&IPool::Settled::SIGNATURE_HASH) => {
+            let event = decode::<IPool::Settled>(log)?;
+            batch.settlements.push(Settled {
+                nullifier: field(event.nullifier)?,
+                amount: u64::try_from(event.amount).map_err(|_| ChainError::InvalidData)?,
+                block,
+            });
+        }
         // The filter asks for four topics. A fifth means this ABI no longer
         // describes the pool, and guessing past that would miss commitments.
         topic => {
@@ -184,9 +171,6 @@ impl<P: Provider + Send + Sync> CommitmentSource for ChainSource<P> {
                 .min(head);
             for log in self.logs(from, to).await? {
                 absorb(&mut batch, &log)?;
-                if log.topic0() == Some(&IPool::Settled::SIGNATURE_HASH) {
-                    batch.settlements.push(self.settlement(&log).await?);
-                }
             }
             batch.through = to;
             from = to.saturating_add(1);

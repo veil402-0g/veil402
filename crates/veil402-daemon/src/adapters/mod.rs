@@ -4,6 +4,6 @@ mod broadcast;
 mod chain;
 mod store;
 
-pub use broadcast::PoolBroadcaster;
+pub use broadcast::{PoolBroadcaster, open as broadcaster};
 pub use chain::{ChainSource, Window};
 pub use store::SqliteStore;

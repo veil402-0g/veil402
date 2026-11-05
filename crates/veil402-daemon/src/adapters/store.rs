@@ -3,6 +3,7 @@ use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions, sqlite::SqliteRow};
 use veil402_sdk::{Field, Secret, StoredNode};
 
 use crate::core::{
+    envelope::SubmissionStore,
     StoreError,
     index::{Batch, Commitment, IndexStore},
     wallet::{ChainFacts, Held, Minted, NoteStore, Unplaced},
@@ -54,6 +55,10 @@ impl SqliteStore {
                  deadline  INTEGER NOT NULL,
                  block     INTEGER NOT NULL,
                  amount    INTEGER
+             );
+             CREATE TABLE IF NOT EXISTS submissions (
+                 key    BLOB PRIMARY KEY,
+                 handle BLOB NOT NULL
              );
              CREATE TABLE IF NOT EXISTS nodes (
                  level INTEGER NOT NULL,
@@ -317,6 +322,30 @@ impl ChainFacts for SqliteStore {
             .await
             .map_err(|_| StoreError::Unavailable)?;
         row.map(|row| count(&row, "amount")).transpose()
+    }
+}
+
+#[async_trait]
+impl SubmissionStore for SqliteStore {
+    /// First writer wins, so a racing resubmission adopts the call already in
+    /// flight rather than replacing its handle with a second one.
+    async fn track(&self, key: Field, handle: &[u8]) -> Result<(), StoreError> {
+        sqlx::query("INSERT OR IGNORE INTO submissions (key, handle) VALUES (?, ?)")
+            .bind(key.to_bytes().to_vec())
+            .bind(handle.to_vec())
+            .execute(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        Ok(())
+    }
+
+    async fn handle(&self, key: Field) -> Result<Option<Vec<u8>>, StoreError> {
+        let row = sqlx::query("SELECT handle FROM submissions WHERE key = ?")
+            .bind(key.to_bytes().to_vec())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        Ok(row.map(|row| row.get::<Vec<u8>, _>("handle")))
     }
 }
 
