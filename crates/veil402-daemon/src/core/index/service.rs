@@ -26,6 +26,22 @@ pub enum IndexError {
     Tree,
 }
 
+impl IndexError {
+    /// Whether reading again could plausibly succeed.
+    ///
+    /// A divergence, a gap or a corrupt store cannot be read away: the index
+    /// is wrong rather than behind, and every path it would hand out is wrong
+    /// with it. An endpoint that is away is a different thing entirely.
+    #[must_use]
+    pub const fn recoverable(&self) -> bool {
+        matches!(
+            self,
+            Self::Chain(ChainError::Unavailable | ChainError::InvalidData)
+                | Self::Store(StoreError::Unavailable)
+        )
+    }
+}
+
 /// The pool's tree, mirrored from the commitments it emitted.
 ///
 /// The pool keeps only the roots it has reached; the siblings a spend needs

@@ -25,6 +25,7 @@ sol! {
 const BATCH: usize = 10_000;
 
 /// How far the source reads in one pass.
+#[derive(Clone, Copy, Debug)]
 pub struct Window {
     /// Blocks per query, since relays cap how many one may span.
     pub chunk: u64,

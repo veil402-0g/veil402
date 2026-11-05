@@ -37,3 +37,9 @@ prover/veil402-gnark/artifacts/**
 docs
 # Local secrets
 .env*
+!.env.example
+
+# Daemon index
+*.db
+*.db-shm
+*.db-wal

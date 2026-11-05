@@ -416,8 +416,22 @@ tree states cannot verify.
 
 Leaf 1 now spends on anvil, which `MerklePath::only_leaf` could never do.
 
-Remaining: 4.2 persistence hardening, 4.3 note selection with re-split,
-4.4 envelope sessions, 4.5 OpenAI-compatible API, 4.6 receipts.
+**4.2 `app/`.** Config from the environment or a `.env`, the three adapters
+wired, and the loop that keeps the index current.
+
+Failure is sorted by whether reading again could help. An endpoint that is away
+is waited out, with the delay doubling per consecutive failure and the count
+reset by any pass that succeeds; a divergence, a gap or a corrupt store stops
+the loop at once, because the index is wrong rather than behind and every path
+it would hand out is wrong with it. Giving up after a bounded run of failures
+is deliberate: a loop that retries a problem it cannot fix is worse than one
+that stops and says so.
+
+Verified against anvil: starts, syncs on its interval, and stops cleanly on
+SIGINT.
+
+Remaining: 4.3 note selection with re-split, 4.4 envelope sessions,
+4.5 OpenAI-compatible API, 4.6 receipts.
 
 ### Phase 5 — enclave logic, stub attester (6h)
 
