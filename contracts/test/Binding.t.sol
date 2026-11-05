@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {EnclaveRegistry} from "../src/EnclaveRegistry.sol";
 import {Pool, IEnclaveRegistry, IVerifier} from "../src/Pool.sol";
 
@@ -115,6 +116,23 @@ contract BindingTest is Test {
             }),
             vm.parseJsonBytes32(json, ".escrow.callsRoot"),
             sign(".escrow.settlementDigest")
+        );
+    }
+
+    // A buyer checks one of its calls against callsRoot with OpenZeppelin's
+    // verifier, not a bespoke one, so the SDK has to build the tree the way
+    // that verifier recomputes it.
+    function test_CallsRootVerifiesWithOpenZeppelin() public view {
+        bytes32[] memory attestations = vm.parseJsonBytes32Array(json, ".escrow.attestations");
+        bytes32[] memory proof = vm.parseJsonBytes32Array(json, ".escrow.proof");
+        bytes32 root = vm.parseJsonBytes32(json, ".escrow.callsRoot");
+        uint256 index = vm.parseJsonUint(json, ".escrow.provenIndex");
+
+        assertTrue(MerkleProof.verify(proof, root, attestations[index]), "proof rejected");
+
+        // A call that was never made must not verify against the same root.
+        assertFalse(
+            MerkleProof.verify(proof, root, keccak256("never served")), "forged call accepted"
         );
     }
 }

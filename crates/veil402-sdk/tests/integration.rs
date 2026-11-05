@@ -255,13 +255,8 @@ async fn meters_a_session_and_settles() -> Result<(), Box<dyn StdError>> {
         deadline,
     };
     let lock = provider.transaction_request().to(pool_address).input(
-        pool.lock(
-            &session,
-            enclave.address(),
-            &sign_lock(&pool, &session, &enclave)?,
-            deadline - 600,
-        )?
-        .into(),
+        pool.lock(&session, enclave.address(), &sign_lock(&pool, &session, &enclave)?)
+            .into(),
     );
     let receipt = provider.send_transaction(lock).await?.get_receipt().await?;
     assert!(receipt.status(), "lock reverted");

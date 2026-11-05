@@ -6,6 +6,7 @@ use alloy::sol;
 mod asset;
 mod binding;
 mod calldata;
+mod calls;
 mod client;
 mod escrow;
 
@@ -24,5 +25,6 @@ pub use Pool::ExtData;
 pub use asset::asset_id;
 pub use binding::{Withdrawal, ext_data_hash, public_amount};
 pub use calldata::ProofCalldata;
+pub use calls::{calls_proof, calls_root};
 pub use escrow::{Session, Voucher};
 pub use client::PoolClient;

@@ -6,10 +6,10 @@
 //! a buyer who disappears mid-session still pays for what it consumed.
 
 use alloy::{
-    primitives::{B256, keccak256},
+    primitives::B256,
     signers::{SignerSync, local::PrivateKeySigner},
 };
-use veil402_sdk::evm::{PoolClient, Session, Voucher};
+use veil402_sdk::evm::{PoolClient, Session, Voucher, calls_root};
 
 mod error;
 
@@ -84,7 +84,7 @@ impl Meter {
     /// whatever the call count.
     #[must_use]
     pub fn calls_root(&self) -> B256 {
-        merkle_root(&self.calls)
+        calls_root(&self.calls)
     }
 
     /// Signs the running total. Called after every call, or every few; the
@@ -124,23 +124,4 @@ pub fn sign_lock(
 ) -> Result<Vec<u8>, Error> {
     let digest = pool.lock_digest(session);
     Ok(signer.sign_hash_sync(&digest)?.as_bytes().to_vec())
-}
-
-/// Binary Merkle root over the call attestations, duplicating the last leaf on
-/// an odd level.
-fn merkle_root(leaves: &[B256]) -> B256 {
-    if leaves.is_empty() {
-        return B256::ZERO;
-    }
-    let mut level = leaves.to_vec();
-    while level.len() > 1 {
-        level = level
-            .chunks(2)
-            .map(|pair| {
-                let right = pair.get(1).unwrap_or(&pair[0]);
-                keccak256([pair[0].as_slice(), right.as_slice()].concat())
-            })
-            .collect();
-    }
-    level[0]
 }

@@ -9,8 +9,6 @@ use crate::{Field, client::Error};
 const LOCK_TYPE: &[u8] = b"Lock(uint256 nullifier,address seller,uint64 deadline)";
 const SETTLEMENT_TYPE: &[u8] =
     b"Settlement(uint256 nullifier,uint256 amount,bytes32 callsRoot)";
-const NOTE_SETTLEMENT_TYPE: &[u8] =
-    b"NoteSettlement(uint256 nullifier,uint256 sellerCommitment,bytes32 callsRoot)";
 const DOMAIN_TYPE: &[u8] =
     b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)";
 
@@ -81,53 +79,21 @@ impl PoolClient {
         ))
     }
 
-    /// The digest for a settlement paid as a note, where the amount stays
-    /// inside the commitment and never becomes public.
-    #[must_use]
-    pub fn note_settlement_digest(
-        &self,
-        session: &Session,
-        seller_commitment: Field,
-        calls_root: B256,
-    ) -> B256 {
-        self.typed_data(keccak256(
-            (
-                keccak256(NOTE_SETTLEMENT_TYPE),
-                word(session.nullifier),
-                word(seller_commitment),
-                calls_root,
-            )
-                .abi_encode(),
-        ))
-    }
-
     /// Encodes the reservation itself. The enclave only signs; anyone may send
     /// this.
     ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Withdrawal`] when the deadline is already past.
-    pub fn lock(
-        &self,
-        session: &Session,
-        enclave: Address,
-        signature: &[u8],
-        now: u64,
-    ) -> Result<Vec<u8>, Error> {
-        if session.deadline <= now {
-            return Err(Error::Withdrawal("deadline is in the past"));
-        }
-        if session.seller.is_zero() || session.seller == self.address() {
-            return Err(Error::Withdrawal("seller cannot hold the escrow"));
-        }
-        Ok(Pool::lockCall {
+    /// Deadline and seller are left to the pool, which has to check them
+    /// anyway and is the only side that knows the current block time.
+    #[must_use]
+    pub fn lock(&self, session: &Session, enclave: Address, signature: &[u8]) -> Vec<u8> {
+        Pool::lockCall {
             nullifier: word(session.nullifier),
             enclave,
             seller: session.seller,
             deadline: session.deadline,
             signature: Bytes::copy_from_slice(signature),
         }
-        .abi_encode())
+        .abi_encode()
     }
 }
 
