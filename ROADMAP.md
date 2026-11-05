@@ -414,33 +414,40 @@ real one until a token reaches the account. Nothing depends on it.
 
 ## Plan from here
 
-Phase numbers stay as they are; execution order does not follow them, because
-settlement moved into the enclave and the enclave is now on the critical path
-for fund safety rather than for attestation.
+Four stages, not the old phase numbers. Settlement moved into the enclave, so
+the enclave is on the critical path for fund safety rather than attestation,
+and a session turned out to be a chain of envelopes rather than one. The
+design those follow from is `docs/superpowers/specs/2026-10-29-session-envelope-architecture-design.md`.
 
-| # | task | why here | est |
-|---|---|---|---:|
-| ~~4.4~~ | ephemeral session notes | done, `79e4bd2` | — |
-| ~~5.1~~ | handover channel | done, `0b38e05` | — |
-| ~~5.2~~ | enclave settlement | done, `cb83fee` | — |
-| **4.5** | session manager — derived state, the deadline obligation, both settle paths | needs 5.2 to have something to call | 3.5h |
-| **5.3** | **envelope end to end on anvil** — lock, N calls, one settlement, change placed | the milestone: a working private metered payment, no Nitro | 2h |
-| **4.6** | OpenAI-compatible API | needs sessions underneath it | 3h |
-| **3.1** | mandates — ERC-7710 vocabulary, daemon policy over `open` | gates API requests, so the API comes first | 2h |
-| **4.7** | receipts | the `block` columns 4.1 captured exist for this | 2h |
-| **4.8** | note discovery and recovery | fund safety rather than demo, and it fills the wait for EC2 | 6h |
-| **5.4** | Nitro image — vsock, entropy self-check, reproducible EIF, PCR0 | needs EC2; nothing before it does | 6h |
-| 6 | real 0G | | 4h |
-| 7 | x402 challenge + PCR pinning | needs a real PCR0 from 5.4 | 3h |
-| 8 | receipts and audit on HCS | | 5h |
+**Stage A — one envelope, end to end.** 8.5h
 
-Roughly 36h remaining. **5.3 is the one that matters** — everything before it
-is machinery, and it is the first point where the whole claim is demonstrable.
+| | | est |
+|---|---|---:|
+| ~~A1~~ | enclave keys from a root seed | done, `055fd93` |
+| ~~A2~~ | daemon write path, settled-change recovery | done, `17c804d`, `516d554` |
+| **A3** | envelope manager — open, meter, settle, roll | 3h |
+| **A4** | **M1 on anvil**: lock, N calls, settle, and the next envelope opens from the change | 2h |
 
-4.8 is the one task here that no demo needs. It sits last among the daemon's
-because nothing on the critical path waits for it, and before 5.4 because
-losing the database should stop costing the balance before real hardware
-arrives.
+**Stage B — a product.** 12h · B1 `veil-gateway` (HTTP, 402, status codes,
+idempotency, vsock) 3h · B2 enclave restart resume 2h · B3 OpenAI-compatible
+API and per-agent reservation 3h · B4 mandates over the shared ceiling 2h ·
+**B5 M2 on Hedera testnet**: many agents, rollover, re-shop 2h
+
+**Stage C — real externals.** 15h · C1 0G in the enclave, seller keys, price
+stream, portal 5h · C2 receipts and the HCS audit bundle 4h · C3 note
+discovery and recovery 6h
+
+**Stage D — hardware and demo.** 25h · D1 Nitro image, KMS, PCR0 6h ·
+D2 PCR pinning and x402 3h · D3 dashboard 6h · D4 `npx veil402 init` 3h ·
+D5 demo sandboxes and background traffic 7h
+
+Roughly 58h. **A4 is the one that matters** — everything before it is
+machinery, and it is the first point where the whole claim is demonstrable,
+rollover included.
+
+C3 is the one task no demo needs. It waits until the demo-facing work is done,
+and lands before D1 because losing the database should stop costing the
+balance before real hardware arrives.
 
 Two items sit outside the sequence. 2.10 still needs a real HTS token in the
 account before it can run, and nothing depends on it. The **trusted setup**
@@ -519,7 +526,7 @@ that stops and says so.
 Verified against anvil: starts, syncs on its interval, and stops cleanly on
 SIGINT.
 
-**4.8 discovery.** Nothing scans. `index.notes` has returned ciphertexts since
+**C3 discovery.** Nothing scans. `index.notes` has returned ciphertexts since
 4.1 and has never had a consumer, because `ext.notes[i]` is written empty: the
 daemon created every note it owns, and a settlement's change derives from
 `change_seed` rather than from anything on chain. That holds while agents hold
@@ -536,15 +543,21 @@ Recovery is that same scan from leaf zero. The circuit does not move — a
 commitment binds owner, asset, value and blinding, and a ciphertext only ever
 reaches `ext_data_hash`.
 
+Making `settleToNote` usable costs more than discovery alone, and the extra
+half is easy to miss. That path publishes no amount — which is the privacy win
+— so the buyer cannot compute `value - paid` and derive its own change the way
+it does after a settlement to an address. The enclave therefore has to stop
+passing an empty ciphertext for its outputs and seal them to the buyer as well,
+on the same HPKE and inside the same budget. Until both halves land, a
+zero-amount `Settled` means only "do not guess": the daemon declines to derive
+rather than minting commitments the chain never saw.
+
 Four questions are worth reading about before any of it is written: whether
 trial decryption is good enough or a detection tag is needed (Aztec is the
 closest analogue and abandoned the former), whether the sender needs an outgoing
 viewing key to reconstruct what it sent, whether one address per recipient is
 enough once that address is published, and what encoding to use instead of
 inventing one.
-
-Remaining: 4.5 session manager, 4.6 OpenAI-compatible API, 4.7 receipts,
-4.8 discovery.
 
 ### Phase 5 — enclave image (6h)
 
@@ -641,7 +654,7 @@ recording and polish (2h).
 | R8 | `transact` is now escrow-aware — the reservation check sits on the core spend path, in an immutable contract | All 21 pre-existing Pool tests pass unchanged; the real anvil round trip still settles |
 | R9 | A front-run `lock` can strand someone else's note | Largely closed. `lock` is registry-gated and needs enclave consent, so only a key we registered can do it; bounded by `MAX_LOCK` = 1 hour; needs the owner's nullifier, secret until spent. The clean fix is an ownership proof at lock — a circuit change, Phase 8 |
 | R11 | The registry owner can refuse new enclaves, stopping new sessions | Escrow only. `shield` and `transact` never read the registry, live escrows settle regardless, and no funds can be stranded |
-| R10 | `settleToNote` ships untested against a live seller — no note encryption or discovery exists yet | Contract-level tests only. Do not advertise it until 4.8, which is what makes it usable |
+| R10 | `settleToNote` ships untested against a live seller — no note encryption or discovery exists yet | Contract-level tests only. Needs both halves of C3: discovery for the seller, and sealed change notes for the buyer |
 
 ---
 

@@ -3,7 +3,7 @@ use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions, sqlite::SqliteRow};
 use veil402_sdk::{Field, Secret, StoredNode};
 
 use crate::core::{
-    envelope::SubmissionStore,
+    envelope::{EnvelopeStore, SubmissionStore},
     StoreError,
     index::{Batch, Commitment, IndexStore},
     wallet::{ChainFacts, Held, Minted, NoteStore, Unplaced},
@@ -55,6 +55,10 @@ impl SqliteStore {
                  deadline  INTEGER NOT NULL,
                  block     INTEGER NOT NULL,
                  amount    INTEGER
+             );
+             CREATE TABLE IF NOT EXISTS envelopes (
+                 nullifier   BLOB PRIMARY KEY,
+                 change_seed BLOB NOT NULL
              );
              CREATE TABLE IF NOT EXISTS submissions (
                  key    BLOB PRIMARY KEY,
@@ -326,6 +330,30 @@ impl ChainFacts for SqliteStore {
 }
 
 #[async_trait]
+impl EnvelopeStore for SqliteStore {
+    /// Written once. A second open under the same nullifier cannot happen —
+    /// the pool refuses it — and overwriting would lose the change anyway.
+    async fn remember(&self, nullifier: Field, change_seed: &Secret) -> Result<(), StoreError> {
+        sqlx::query("INSERT OR IGNORE INTO envelopes (nullifier, change_seed) VALUES (?, ?)")
+            .bind(nullifier.to_bytes().to_vec())
+            .bind(change_seed.to_bytes().to_vec())
+            .execute(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        Ok(())
+    }
+
+    async fn change_seed(&self, nullifier: Field) -> Result<Option<Secret>, StoreError> {
+        let row = sqlx::query("SELECT change_seed FROM envelopes WHERE nullifier = ?")
+            .bind(nullifier.to_bytes().to_vec())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        row.map(|row| secret(row.get::<Vec<u8>, _>("change_seed"))).transpose()
+    }
+}
+
+#[async_trait]
 impl SubmissionStore for SqliteStore {
     /// First writer wins, so a racing resubmission adopts the call already in
     /// flight rather than replacing its handle with a second one.
@@ -421,6 +449,15 @@ impl NoteStore for SqliteStore {
             .await
             .map_err(|_| StoreError::Unavailable)?;
         rows.iter().map(held).collect()
+    }
+
+    async fn by_commitment(&self, commitment: Field) -> Result<Option<Held>, StoreError> {
+        let row = sqlx::query(&format!("{NOTE} WHERE commitment = ? AND nullifier IS NOT NULL"))
+            .bind(commitment.to_bytes().to_vec())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        row.as_ref().map(held).transpose()
     }
 
     async fn by_nullifier(&self, nullifier: Field) -> Result<Option<Held>, StoreError> {

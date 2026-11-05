@@ -1,7 +1,12 @@
 use async_trait::async_trait;
-use veil402_sdk::{Field, Prepared, Transaction, evm::Voucher};
+use thiserror::Error;
+use veil402_sdk::{
+    Field, Prepared, Secret, Transaction,
+    evm::{Call, Session, Voucher},
+    session::Sealed,
+};
 
-use super::{ChainError, ProveError};
+use super::{Agreement, ChainError, Metered, ProveError};
 use crate::core::StoreError;
 
 /// Where a submitted call ended up.
@@ -71,4 +76,58 @@ pub trait Prover: Send + Sync {
         transaction: Transaction,
         voucher: Voucher,
     ) -> Result<Prepared, ProveError>;
+}
+
+/// Why the enclave would not act.
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
+pub enum EnclaveError {
+    /// The enclave does not hold this session. After a restart it has to be
+    /// handed its delegation again before it can meter anything.
+    #[error("the enclave does not hold this session")]
+    Unknown,
+    /// Serving this call would take the envelope past what its note can pay.
+    #[error("the envelope's ceiling is reached")]
+    CeilingReached,
+    #[error("the enclave refused: {0}")]
+    Refused(String),
+}
+
+impl EnclaveError {
+    #[must_use]
+    pub const fn recoverable(&self) -> bool {
+        false
+    }
+}
+
+/// The meter both sides trust.
+///
+/// A trait because the enclave runs in this process today and behind a vsock
+/// once there is hardware: that move must change one adapter and nothing else.
+#[async_trait]
+pub trait Enclave: Send + Sync {
+    /// Agrees to meter a session, returning the signatures and the key its
+    /// delegation must be sealed to.
+    async fn agree(&self, session: &Session) -> Result<Agreement, EnclaveError>;
+
+    /// Takes the sealed delegation. The enclave checks it against the escrow
+    /// before it will meter anything.
+    async fn accept(&self, sealed: Sealed, session: Session) -> Result<(), EnclaveError>;
+
+    /// Meters one served call.
+    async fn record(&self, nullifier: Field, call: Call) -> Result<Metered, EnclaveError>;
+
+    /// Proves the settlement. `dust` asks for the smallest one that frees the
+    /// note, for an envelope nobody owes anything on.
+    async fn settle(&self, nullifier: Field, dust: bool) -> Result<Prepared, EnclaveError>;
+}
+
+/// Holds the one secret an envelope cannot derive again.
+///
+/// Everything else about an envelope is on chain. This is not: without it the
+/// change a settlement mints can never be identified, let alone spent.
+#[async_trait]
+pub trait EnvelopeStore: Send + Sync {
+    async fn remember(&self, nullifier: Field, change_seed: &Secret) -> Result<(), StoreError>;
+
+    async fn change_seed(&self, nullifier: Field) -> Result<Option<Secret>, StoreError>;
 }

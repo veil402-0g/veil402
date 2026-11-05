@@ -16,6 +16,7 @@ thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+veil402-enclave = { path = "../veil402-enclave" }
 veil402-sdk = { path = "../veil402-sdk" }
 walletkit-rs = { git = "https://github.com/21r21a33333/walletkit", rev = "5af8b6ab3b9bc655c95dd8bc5d7655bce86e3cfe" }
 

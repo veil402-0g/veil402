@@ -23,6 +23,9 @@ pub trait NoteStore: Send + Sync {
     /// Every placed, unspent note, whatever its asset or hold.
     async fn outstanding(&self) -> Result<Vec<Held>, StoreError>;
 
+    /// A placed note by its commitment, for a caller that has just minted it.
+    async fn by_commitment(&self, commitment: Field) -> Result<Option<Held>, StoreError>;
+
     /// A note by the nullifier it reveals, spent or not. Rebuilding change
     /// needs the value of a note the chain has already retired.
     async fn by_nullifier(&self, nullifier: Field) -> Result<Option<Held>, StoreError>;

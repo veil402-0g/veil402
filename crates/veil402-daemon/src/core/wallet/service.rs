@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use thiserror::Error;
-use veil402_sdk::{Field, Note, Owner, Secret, SessionKeys, change_random, split};
+use veil402_sdk::{
+    Field, MerklePath, Note, Owner, Secret, SessionKeys, Send, Spend, Transaction,
+    change_random, split,
+};
 
 use super::{ChainFacts, Held, Minted, NoteStore, Reconciled};
 use crate::core::StoreError;
@@ -65,6 +68,81 @@ pub fn select(held: &[Held], ceiling: u64) -> Result<usize, WalletError> {
         .min_by_key(|(_, note)| note.value)
         .map(|(position, _)| position)
         .ok_or_else(|| shortfall(held, ceiling))
+}
+
+/// A wallet note divided into one a session owns and the remainder.
+pub struct Split {
+    /// Ready to prove and broadcast.
+    pub transaction: Transaction,
+    /// Commitment of the session note, which is also the key its submission
+    /// is tracked under.
+    pub session: Field,
+}
+
+/// What dividing a note produces: the rows to keep and the outputs to prove.
+struct Divided {
+    minted: Vec<Minted>,
+    sends: Vec<Send>,
+    session: Field,
+}
+
+fn divide(note: &Held, ceiling: u64, owner: &Owner) -> Result<Divided, veil402_sdk::Error> {
+    let seed = Secret::random()?;
+    let keys = SessionKeys::from_seed(&seed)?;
+    let (session_note, session_send) = output(
+        note.asset,
+        ceiling,
+        keys.owner.public()?,
+        &keys.random,
+        Some(&seed),
+    )?;
+    let session = session_note.commitment;
+    let mut minted = vec![session_note];
+    let mut sends = vec![session_send];
+
+    let remainder = note.value.saturating_sub(ceiling);
+    if remainder > 0 {
+        let (kept, created) = output(
+            note.asset,
+            remainder,
+            owner.public()?,
+            &Secret::random()?,
+            None,
+        )?;
+        minted.push(kept);
+        sends.push(created);
+    }
+    Ok(Divided {
+        minted,
+        sends,
+        session,
+    })
+}
+
+/// One output, as the row to keep and the send to prove. Both carry the same
+/// blinding, or the note written down is not the note created.
+fn output(
+    asset: Field,
+    value: u64,
+    owner: Field,
+    random: &Secret,
+    seed: Option<&Secret>,
+) -> Result<(Minted, Send), veil402_sdk::Error> {
+    let kept = mint(
+        asset,
+        value,
+        owner,
+        Secret::from_bytes(random.to_bytes())?,
+        seed.map(|seed| Secret::from_bytes(seed.to_bytes()))
+            .transpose()?,
+    )?;
+    let created = Send::new(
+        owner,
+        value,
+        Secret::from_bytes(random.to_bytes())?,
+        Vec::new(),
+    )?;
+    Ok((kept, created))
 }
 
 /// The notes a settlement minted, derived the way the enclave derived them.
@@ -184,6 +262,78 @@ impl WalletService {
     /// Returns [`WalletError::Store`] when the store cannot be written.
     pub async fn remember(&self, minted: &[Minted], now: u64) -> Result<(), WalletError> {
         Ok(self.notes.remember(minted, now).await?)
+    }
+
+    /// Divides a wallet note into one a session owns and the remainder.
+    ///
+    /// A shielded note belongs to this wallet's key, and delegating it would
+    /// delegate every note that key holds. The session note gets its own
+    /// seed, so handing that over hands over exactly one note.
+    ///
+    /// Both outputs are written down before the transaction is built, for the
+    /// same reason every mint is: nothing recovers them afterwards.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError`] when the store cannot be written or a note
+    /// cannot be derived.
+    pub async fn split(
+        &self,
+        note: &Held,
+        merkle: MerklePath,
+        ceiling: u64,
+        now: u64,
+    ) -> Result<Split, WalletError> {
+        let divided = divide(note, ceiling, &self.owner).map_err(|_| WalletError::Owner)?;
+        self.notes.remember(&divided.minted, now).await?;
+        let spend = Spend {
+            note: Note {
+                value: note.value,
+                asset: note.asset,
+                random: Secret::from_bytes(note.random.to_bytes())
+                    .map_err(|_| WalletError::Owner)?,
+            },
+            owner: self.owner_for(note)?,
+            merkle,
+        };
+        Ok(Split {
+            transaction: Transaction::new(vec![spend], divided.sends)
+                .map_err(|_| WalletError::Owner)?,
+            session: divided.session,
+        })
+    }
+
+    /// A note by the commitment that created it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError::Store`] when the store cannot be read.
+    pub async fn by_commitment(&self, commitment: Field) -> Result<Option<Held>, WalletError> {
+        Ok(self.notes.by_commitment(commitment).await?)
+    }
+
+    /// The deadline the pool holds against a nullifier, if it holds one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError::Store`] when the chain's record cannot be read.
+    pub async fn escrow(&self, nullifier: Field) -> Result<Option<u64>, WalletError> {
+        Ok(self.chain.escrow(nullifier).await?)
+    }
+
+    /// The key that signs for a note: its own session owner, or this wallet's.
+    fn owner_for(&self, note: &Held) -> Result<Owner, WalletError> {
+        match &note.seed {
+            Some(seed) => SessionKeys::from_seed(seed)
+                .map(|keys| keys.owner)
+                .map_err(|_| WalletError::Owner),
+            None => Ok(Owner {
+                spend: Secret::from_bytes(self.owner.spend.to_bytes())
+                    .map_err(|_| WalletError::Owner)?,
+                view: Secret::from_bytes(self.owner.view.to_bytes())
+                    .map_err(|_| WalletError::Owner)?,
+            }),
+        }
     }
 
     /// Rebuilds the notes a settlement left behind and writes them down.

@@ -29,6 +29,15 @@ pub fn calls_root(attestations: &[B256]) -> B256 {
     level[0]
 }
 
+/// What one call cost, and the attestation that justifies it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Call {
+    /// Price in token units, computed by the meter rather than reported to it.
+    pub cost: u64,
+    /// Digest of the request, response and any provider attestation.
+    pub attestation: B256,
+}
+
 /// Returns the siblings proving `index` is in the root, for a buyer checking
 /// that one call it made is among the ones it was charged for.
 #[must_use]

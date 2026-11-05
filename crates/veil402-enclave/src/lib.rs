@@ -19,15 +19,11 @@ use veil402_sdk::{
 mod error;
 
 pub use error::Error;
+pub use veil402_sdk::evm::Call;
 
-/// What one call cost, and the attestation that justifies it.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Call {
-    /// Price in token units, computed by the enclave, not reported to it.
-    pub cost: u64,
-    /// Digest of the request, response and any provider attestation.
-    pub attestation: B256,
-}
+/// What a settlement pays when nothing was served, so the note comes back
+/// rather than waiting out the deadline.
+const DUST: u64 = 1;
 
 /// A metered session against one reserved note.
 pub struct Meter {
@@ -132,13 +128,15 @@ impl Meter {
         if self.total == 0 {
             return Err(Error::NothingOwed);
         }
+        self.voucher_at(self.total, signer)
+    }
+
+    fn voucher_at(&self, amount: u64, signer: &PrivateKeySigner) -> Result<Voucher, Error> {
         let calls_root = self.calls_root();
-        let digest = self
-            .pool
-            .settlement_digest(&self.session, self.total, calls_root);
+        let digest = self.pool.settlement_digest(&self.session, amount, calls_root);
         Ok(Voucher {
             session: self.session,
-            amount: self.total,
+            amount,
             calls_root,
             signature: signer.sign_hash_sync(&digest)?.as_bytes().to_vec(),
         })
@@ -157,7 +155,33 @@ impl Meter {
     /// Returns [`Error::NothingOwed`] before the first call, or
     /// [`Error::Veil`] when the transaction cannot be built or proved.
     pub async fn settle(&self, veil: &Veil, signer: &PrivateKeySigner) -> Result<Prepared, Error> {
-        let voucher = self.voucher(signer)?;
+        if self.total == 0 {
+            return Err(Error::NothingOwed);
+        }
+        self.prove(self.total, veil, signer).await
+    }
+
+    /// Settles for a unit so the note comes back now.
+    ///
+    /// The pool has no way to cancel a reservation, so a seller that leaves
+    /// having served nothing would otherwise strand the buyer's capital until
+    /// the deadline. A settlement must pay something, and a unit is what that
+    /// costs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Veil`] when the transaction cannot be built or proved.
+    pub async fn release(&self, veil: &Veil, signer: &PrivateKeySigner) -> Result<Prepared, Error> {
+        self.prove(self.total.max(DUST), veil, signer).await
+    }
+
+    async fn prove(
+        &self,
+        amount: u64,
+        veil: &Veil,
+        signer: &PrivateKeySigner,
+    ) -> Result<Prepared, Error> {
+        let voucher = self.voucher_at(amount, signer)?;
         let keys = SessionKeys::from_seed(&self.handover.seed)?;
         let spend = Spend {
             note: Note {
@@ -171,7 +195,7 @@ impl Meter {
                 siblings: self.handover.siblings,
             },
         };
-        let transaction = Transaction::new(vec![spend], self.outputs()?)?;
+        let transaction = Transaction::new(vec![spend], self.outputs_at(amount)?)?;
         Ok(veil.settle(&self.pool, transaction, voucher).await?)
     }
 
@@ -185,7 +209,11 @@ impl Meter {
     ///
     /// Returns [`Error::Veil`] when a note cannot be derived.
     pub fn outputs(&self) -> Result<Vec<Send>, Error> {
-        let change = self.handover.value.saturating_sub(self.total);
+        self.outputs_at(self.total)
+    }
+
+    fn outputs_at(&self, amount: u64) -> Result<Vec<Send>, Error> {
+        let change = self.handover.value.saturating_sub(amount);
         let mut amounts = split(change, self.handover.target).into_iter();
         let mut sends = Vec::new();
         if let Some(amount) = amounts.next() {

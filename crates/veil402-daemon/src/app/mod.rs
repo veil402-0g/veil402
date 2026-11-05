@@ -9,16 +9,24 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use alloy::{hex, primitives::Address, providers::ProviderBuilder};
+use alloy::{
+    hex,
+    primitives::Address,
+    providers::{Provider, ProviderBuilder},
+};
 use thiserror::Error;
 use tokio::time::sleep;
-use veil402_sdk::{Owner, Secret};
+use veil402_sdk::{
+    Config as Proving, Owner, Secret, Veil,
+    evm::PoolClient,
+    session::{Keyring, RootSeed},
+};
 
 use crate::{
-    adapters::{self, ChainSource, SqliteStore, Window},
+    adapters::{self, ChainSource, LocalEnclave, LocalProver, SqliteStore, Window},
     core::{
         StoreError,
-        envelope::{Broadcaster, ChainError},
+        envelope::{Broadcaster, ChainError, EnclaveError, EnvelopeError, EnvelopeService, Terms},
         index::{IndexError, IndexService},
         wallet::{WalletError, WalletService},
     },
@@ -57,8 +65,10 @@ pub fn now() -> u64 {
 pub struct Config {
     /// EVM endpoint the pool is read through.
     pub rpc: String,
-    /// Deployed pool.
+    /// Deployed pool, and the two addresses a proof is bound to.
     pub pool: Address,
+    pub token: Address,
+    pub verifier: Address,
     /// `SQLite` URL holding the index and the notes we own.
     pub database: String,
     /// Key that pays for the daemon's transactions. Gas only: it signs for no
@@ -66,6 +76,12 @@ pub struct Config {
     pub signer: String,
     /// Where the transaction engine keeps the calls it is still tracking.
     pub wallet_state: PathBuf,
+    /// The gnark worker, and the proving artifacts it is pinned to.
+    pub worker: PathBuf,
+    pub artifacts: PathBuf,
+    /// Seed every enclave key derives from. On real hardware this comes from
+    /// KMS gated on attestation; here it is configuration.
+    pub root: Secret,
     /// Keys the notes belong to. Losing them loses the balance.
     pub owner: Owner,
     /// Size a settlement should leave behind as a second note. Zero returns
@@ -97,6 +113,10 @@ fn key(name: &'static str) -> Result<Secret, ConfigError> {
     Secret::from_bytes(bytes).map_err(|_| ConfigError::Invalid(name))
 }
 
+fn address(name: &'static str) -> Result<Address, ConfigError> {
+    required(name)?.parse().map_err(|_| ConfigError::Invalid(name))
+}
+
 fn parsed<T: FromStr>(name: &'static str, fallback: T) -> Result<T, ConfigError> {
     match env::var(name) {
         Err(_) => Ok(fallback),
@@ -114,12 +134,15 @@ impl Config {
     pub fn from_env() -> Result<Self, ConfigError> {
         Ok(Self {
             rpc: required("VEIL_RPC_URL")?,
-            pool: required("VEIL_POOL")?
-                .parse()
-                .map_err(|_| ConfigError::Invalid("VEIL_POOL"))?,
+            pool: address("VEIL_POOL")?,
+            token: address("VEIL_TOKEN")?,
+            verifier: address("VEIL_VERIFIER")?,
             database: env::var("VEIL_DATABASE").unwrap_or_else(|_| DATABASE.to_owned()),
             signer: required("VEIL_SIGNER_KEY")?,
             wallet_state: parsed("VEIL_WALLET_STATE", PathBuf::from(WALLET_STATE))?,
+            worker: PathBuf::from(required("VEIL_WORKER")?),
+            artifacts: PathBuf::from(required("VEIL_ARTIFACTS")?),
+            root: key("VEIL_ROOT_SEED")?,
             owner: Owner {
                 spend: key("VEIL_SPEND_KEY")?,
                 view: key("VEIL_VIEW_KEY")?,
@@ -142,6 +165,12 @@ pub enum StartError {
     #[error(transparent)]
     Broadcast(#[from] ChainError),
     #[error(transparent)]
+    Enclave(#[from] EnclaveError),
+    #[error("the pool at {0} could not be read")]
+    Pool(Address),
+    #[error("the proving artifacts could not be opened")]
+    Artifacts,
+    #[error(transparent)]
     Config(#[from] ConfigError),
     #[error("the index store could not be opened")]
     Store(#[from] StoreError),
@@ -155,6 +184,8 @@ pub enum StartError {
 #[derive(Debug, Error)]
 pub enum PassError {
     #[error(transparent)]
+    Envelope(#[from] EnvelopeError),
+    #[error(transparent)]
     Index(#[from] IndexError),
     #[error(transparent)]
     Wallet(#[from] WalletError),
@@ -166,6 +197,7 @@ impl PassError {
     #[must_use]
     pub const fn recoverable(&self) -> bool {
         match self {
+            Self::Envelope(error) => error.recoverable(),
             Self::Index(error) => error.recoverable(),
             Self::Wallet(error) => error.recoverable(),
             Self::Chain(error) => error.recoverable(),
@@ -188,6 +220,7 @@ pub enum Halted {
 pub struct Daemon {
     index: Arc<IndexService>,
     wallet: Arc<WalletService>,
+    envelopes: Option<Arc<EnvelopeService>>,
     broadcast: Arc<dyn Broadcaster>,
     retry: Retry,
 }
@@ -214,10 +247,44 @@ impl Daemon {
             .connect(&config.rpc)
             .await
             .map_err(|_| StartError::Chain(config.rpc.clone()))?;
+        let chain_id = provider
+            .get_chain_id()
+            .await
+            .map_err(|_| StartError::Chain(config.rpc.clone()))?;
         let source = Arc::new(ChainSource::new(provider, config.pool, config.window));
         let index = Arc::new(IndexService::load(source, store.clone()).await?);
-        let wallet = WalletService::new(store.clone(), store, config.owner);
-        Ok(Self::new(index, Arc::new(wallet), broadcast, config.retry))
+
+        let pool = PoolClient::new(config.pool, config.token, config.verifier, chain_id)
+            .map_err(|_| StartError::Pool(config.pool))?;
+        let change_owner = config
+            .owner
+            .public()
+            .map_err(|_| StartError::Pool(config.pool))?;
+        let veil = Arc::new(
+            Veil::open(Proving::new(config.worker, config.artifacts))
+                .map_err(|_| StartError::Artifacts)?,
+        );
+        let enclave = Arc::new(LocalEnclave::new(
+            pool,
+            Keyring::new(RootSeed::from_bytes(config.root.to_bytes())),
+            veil.clone(),
+        )?);
+
+        let wallet = Arc::new(WalletService::new(store.clone(), store.clone(), config.owner));
+        let envelopes = Arc::new(EnvelopeService::new(
+            wallet.clone(),
+            index.clone(),
+            enclave,
+            broadcast.clone(),
+            Arc::new(LocalProver::new(veil, pool)),
+            store,
+            Terms {
+                pool,
+                change_owner,
+                target: config.target,
+            },
+        ));
+        Ok(Self::new(index, wallet, broadcast, config.retry).serving(envelopes))
     }
 
     /// Builds a daemon over services that are already wired.
@@ -231,9 +298,23 @@ impl Daemon {
         Self {
             index,
             wallet,
+            envelopes: None,
             broadcast,
             retry,
         }
+    }
+
+    /// Gives the daemon the envelopes it serves sessions from.
+    #[must_use]
+    pub fn serving(mut self, envelopes: Arc<EnvelopeService>) -> Self {
+        self.envelopes = Some(envelopes);
+        self
+    }
+
+    /// The envelopes, for the API that opens them.
+    #[must_use]
+    pub const fn envelopes(&self) -> Option<&Arc<EnvelopeService>> {
+        self.envelopes.as_ref()
     }
 
     /// The index, for anything that reads it.
