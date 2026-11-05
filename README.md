@@ -67,5 +67,14 @@ cd ../../contracts && forge test -vv
 | Solidity verifier exported from `transaction-v4` vk | done |
 | Noir Poseidon matches circomlib (`hash_2`, `hash_3`, `hash_4`) | done |
 | SDK builds with no Solana dependency | done |
-| Real proof generated (388 bytes, ~10s) | done |
-| Proof verifies on a local EVM | pending — needs Foundry |
+| Real proof generated (388 bytes) | done |
+| Proof verifies on a local EVM | **done — 395,368 gas** |
+| Tampered public input is rejected | done |
+
+### Gotcha worth keeping
+
+The exported verifier derives the Pedersen commitment's public input with
+`keccak256`. gnark's prover defaults to a different hash-to-field, so the
+worker pins both sides to keccak via `WithProverHashToFieldFunction` /
+`WithVerifierHashToFieldFunction`. Without that the pairing check fails with
+`ProofInvalid()` even though every point is valid.

@@ -46,7 +46,7 @@ contract VerifierTest is Test {
         verifier.verifyProof(proof, commitments, commitmentPok, bad);
     }
 
-    function test_GasCost() public view {
+    function test_GasCost() public {
         uint256 before = gasleft();
         verifier.verifyProof(proof, commitments, commitmentPok, input);
         emit log_named_uint("groth16 verify gas", before - gasleft());

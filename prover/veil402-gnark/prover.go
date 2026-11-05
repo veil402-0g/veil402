@@ -15,10 +15,12 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	eccbn254 "github.com/consensys/gnark-crypto/ecc/bn254"
+	"github.com/consensys/gnark/backend"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/backend/witness"
 	"github.com/consensys/gnark/constraint"
 	"github.com/reilabs/sunspot/go/acir"
+	"golang.org/x/crypto/sha3"
 	sunbn254 "github.com/reilabs/sunspot/go/bn254"
 )
 
@@ -98,7 +100,8 @@ func (prover *prover) prove(encoded []byte) ([]byte, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	proof, err := groth16.Prove(prover.ccs, prover.pk, full)
+	proof, err := groth16.Prove(prover.ccs, prover.pk, full,
+		backend.WithProverHashToFieldFunction(sha3.NewLegacyKeccak256()))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -106,7 +109,8 @@ func (prover *prover) prove(encoded []byte) ([]byte, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := groth16.Verify(proof, prover.vk, public); err != nil {
+	if err := groth16.Verify(proof, prover.vk, public,
+		backend.WithVerifierHashToFieldFunction(sha3.NewLegacyKeccak256())); err != nil {
 		return nil, nil, err
 	}
 
