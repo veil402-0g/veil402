@@ -35,3 +35,5 @@ prover/veil402-gnark/artifacts/**
 
 
 docs
+# Local secrets
+.env*
