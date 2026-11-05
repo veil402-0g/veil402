@@ -13,6 +13,16 @@
     "0x2d06fa1a65732704320dfb2f2f4567fcb0b49cc74ae360819d9cbe2f32b85599"
   ],
   "chainId": 296,
+  "escrow": {
+    "amount": 300,
+    "callsRoot": "0xe09e5f3d850416fb9663d56eae165452a858ec19f833467daddca0e0df3194db",
+    "deadline": 1900000000,
+    "domainSeparator": "0xd7e166ea654a4cf21f44c090398bdd2dd3f23b8a66992eaec7591828fce704c9",
+    "lockDigest": "0xb1552db35a8740db8ee8986ce74f5fc68dd06efdea0a5017b2044b0e86e5335d",
+    "nullifier": 7,
+    "seller": "0x000000000000000000000000000000000000dEaD",
+    "settlementDigest": "0x7d6e6c2c0d8f619c58ea65d1356ad0bc777ba31b9fd37fba930a2626b3b656ec"
+  },
   "hashes": [
     "0x2f7ad88588a24ad321cce0f78f45993e594af50fcc695559006427740afd598b",
     "0x0ec4d6a68dbbd5b7292134686a02536b38e94df0407fbe086027586357870f72",

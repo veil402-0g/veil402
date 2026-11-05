@@ -55,6 +55,18 @@ impl Owner {
         poseidon(&[&OWNER_DOMAIN, &spend, &nullifier])
     }
 
+    /// Derives the nullifier a note at `leaf_index` will reveal when spent.
+    ///
+    /// Only the owner can compute this, which is what lets a note be reserved
+    /// without anyone else being able to reserve it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Poseidon`] if the hash rejects its inputs.
+    pub fn nullifier(&self, leaf_index: u32) -> Result<Field, Error> {
+        nullifier(self, leaf_index)
+    }
+
     pub(crate) fn nullifier_key(&self) -> Result<Field, Error> {
         poseidon(&[&NULLIFIER_KEY_DOMAIN, &self.view.expose()])
     }

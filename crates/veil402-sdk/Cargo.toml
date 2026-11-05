@@ -31,8 +31,10 @@ tokio-util = { version = "0.7", features = ["codec"] }
 zeroize = { version = "1.8", features = ["derive"] }
 
 [dev-dependencies]
+veil402-enclave = { path = "../veil402-enclave" }
 alloy = { version = "1", features = ["sol-types", "contract", "provider-http", "signer-local", "network"] }
 serde_json = "1"
+serial_test = "3"
 tempfile = "3"
 
 [lints]

@@ -10,18 +10,21 @@ import {Pool, IEnclaveRegistry, IVerifier} from "../src/Pool.sol";
 // two ever disagree, every transaction reverts at the verifier with nothing to
 // say why.
 contract BindingTest is Test {
+    uint256 constant ENCLAVE_KEY = 0xE11C;
+
     string json;
     Pool pool;
+    EnclaveRegistry registry;
 
     function setUp() public {
         json = vm.readFile("test/fixtures/binding.json");
         // extDataHash reads address(this), so the pool has to answer at the
         // address the fixture was generated for.
-        IEnclaveRegistry registry = IEnclaveRegistry(address(new EnclaveRegistry(address(this))));
+        registry = new EnclaveRegistry(address(this));
         Pool deployed = new Pool(
             IERC20(vm.parseJsonAddress(json, ".token")),
             IVerifier(vm.parseJsonAddress(json, ".verifier")),
-            registry
+            IEnclaveRegistry(address(registry))
         );
         address target = vm.parseJsonAddress(json, ".pool");
         vm.etch(target, address(deployed).code);
@@ -60,5 +63,58 @@ contract BindingTest is Test {
             });
             assertEq(pool.extDataHash(ext), expected[i], "ext data hash diverges");
         }
+    }
+
+    function sign(string memory path) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ENCLAVE_KEY, vm.parseJsonBytes32(json, path));
+        return abi.encodePacked(r, s, v);
+    }
+
+    function nullifier() internal view returns (uint256) {
+        return vm.parseJsonUint(json, ".escrow.nullifier");
+    }
+
+    function seller() internal view returns (address) {
+        return vm.parseJsonAddress(json, ".escrow.seller");
+    }
+
+    // A signature made over the SDK's digest has to be the one the pool
+    // recovers. A mismatched domain or type string would stay invisible until
+    // a live settlement failed.
+    function test_LockAcceptsTheSdkDigest() public {
+        registry.register(vm.addr(ENCLAVE_KEY), keccak256("PCR0"));
+        uint64 deadline = uint64(vm.parseJsonUint(json, ".escrow.deadline"));
+        vm.warp(deadline - 10 minutes);
+
+        pool.lock(nullifier(), vm.addr(ENCLAVE_KEY), seller(), deadline, sign(".escrow.lockDigest"));
+
+        (address enclave,,,) = pool.escrows(nullifier());
+        assertEq(enclave, vm.addr(ENCLAVE_KEY));
+    }
+
+    // Reaching the root check means the signature was accepted; a digest
+    // mismatch would stop at WrongEnclave instead.
+    function test_SettlementAcceptsTheSdkDigest() public {
+        test_LockAcceptsTheSdkDigest();
+
+        uint256[8] memory proof;
+        uint256[2] memory pair;
+
+        vm.expectRevert(Pool.UnknownRoot.selector);
+        pool.settleToAddress(
+            proof,
+            pair,
+            pair,
+            12345,
+            [nullifier(), uint256(8)],
+            pair,
+            Pool.ExtData({
+                recipient: seller(),
+                extAmount: -int256(vm.parseJsonUint(json, ".escrow.amount")),
+                notes: [bytes(""), bytes("")]
+            }),
+            vm.parseJsonBytes32(json, ".escrow.callsRoot"),
+            sign(".escrow.settlementDigest")
+        );
     }
 }

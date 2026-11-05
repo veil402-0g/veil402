@@ -3,7 +3,10 @@ use std::{error::Error as StdError, fs, path::Path};
 use alloy::primitives::{Address, Bytes, I256, U256};
 use veil402_sdk::{
     Field, MAX_NOTE_BYTES,
-    evm::{ExtData, PoolClient, ProofCalldata, Withdrawal, asset_id, ext_data_hash, public_amount},
+    evm::{
+        ExtData, PoolClient, ProofCalldata, Session, Withdrawal, asset_id, ext_data_hash,
+        public_amount,
+    },
 };
 
 const POOL: &str = "0x42532488f967329e2B090dCf68396Ef0dd63de69";
@@ -182,8 +185,28 @@ fn writes_binding_fixture() -> Result<(), Box<dyn StdError>> {
         second.push(format!("0x{}", hex::encode(&data.notes[1])));
     }
 
+    // The contract must accept a signature made over these digests; a mismatch
+    // in the EIP-712 domain or type string would be invisible until a live
+    // settlement failed.
+    let session = Session {
+        nullifier: Field::from(7_u64),
+        seller: address("0x000000000000000000000000000000000000dEaD"),
+        deadline: 1_900_000_000,
+    };
+    let calls_root = alloy::primitives::keccak256("412 calls");
+
     let fixture = serde_json::json!({
         "pool": POOL,
+        "escrow": {
+            "nullifier": 7,
+            "seller": "0x000000000000000000000000000000000000dEaD",
+            "deadline": session.deadline,
+            "amount": 300,
+            "callsRoot": format!("{calls_root}"),
+            "domainSeparator": format!("{}", pool.domain_separator()),
+            "lockDigest": format!("{}", pool.lock_digest(&session)),
+            "settlementDigest": format!("{}", pool.settlement_digest(&session, 300, calls_root)),
+        },
         "token": TOKEN,
         "verifier": VERIFIER,
         "chainId": CHAIN_ID,

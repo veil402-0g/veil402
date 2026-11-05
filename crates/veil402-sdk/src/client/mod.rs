@@ -6,7 +6,7 @@ use alloy::primitives::Address;
 
 use crate::{
     Transaction,
-    evm::{External, PoolClient, Withdrawal, transact},
+    evm::{External, PoolClient, Voucher, Withdrawal, transact},
     protocol::{Plan, Public, PublicInputs},
     proving::{Artifacts, Witness, Worker},
 };
@@ -135,7 +135,7 @@ impl Veil {
         pool: &PoolClient,
         transaction: Transaction,
     ) -> Result<Prepared, Error> {
-        self.prepare(pool, transaction, Address::ZERO, 0).await
+        self.prepare(pool, transaction, Address::ZERO, 0, None).await
     }
 
     /// Proves a withdrawal and builds the call that consumes it.
@@ -160,8 +160,34 @@ impl Veil {
             transaction,
             withdrawal.recipient(),
             withdrawal.public_amount(),
+            None,
         )
         .await
+    }
+
+    /// Proves a checkpoint settlement against a reserved note.
+    ///
+    /// The seller keeps the newest of these and sends only that one, so a
+    /// buyer who walks away mid-session still pays for what it consumed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`] when the voucher does not match the session, or
+    /// proof generation or encoding fails.
+    pub async fn settle(
+        &self,
+        pool: &PoolClient,
+        transaction: Transaction,
+        voucher: Voucher,
+    ) -> Result<Prepared, Error> {
+        if voucher.amount == 0 {
+            return Err(Error::Withdrawal("a settlement must pay something"));
+        }
+        let amount = i64::try_from(voucher.amount)
+            .map_err(|_| Error::Withdrawal("amount exceeds the signed protocol range"))?;
+        let seller = voucher.session.seller;
+        self.prepare(pool, transaction, seller, -amount, Some(voucher))
+            .await
     }
 
     // Planning pads and shuffles the outputs, so the ciphertext order only
@@ -173,6 +199,7 @@ impl Veil {
         transaction: Transaction,
         recipient: Address,
         amount: i64,
+        voucher: Option<Voucher>,
     ) -> Result<Prepared, Error> {
         let plan = transaction.plan(pool.asset())?;
         let external = External::new(&plan, recipient)?;
@@ -181,7 +208,10 @@ impl Veil {
             hash: pool.bind(&external, amount)?,
         };
         let proof = self.prove(plan, public).await?;
-        let calldata = transact(&proof, &external, amount)?;
+        let calldata = match &voucher {
+            Some(voucher) => voucher.calldata(&proof, &external)?,
+            None => transact(&proof, &external, amount)?,
+        };
         Ok(Prepared {
             proof,
             to: pool.address(),

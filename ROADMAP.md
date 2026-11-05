@@ -308,7 +308,7 @@ free from PDA collision; Solidity has no equivalent.
 
 Duplicate commitments are legal. Do not add a uniqueness check.
 
-### Phase 2 — escrow (2.1-2.6 done)
+### Phase 2 — escrow (2.1-2.9 done)
 
 `lock(nullifier, enclave, seller, deadline)` · `settleToAddress(...)` ·
 `settleToNote(...)`.
@@ -354,8 +354,20 @@ note's owner can produce.
 Measured: `lock` ~66k, `settleToAddress` ~726k, `settleToNote` ~696k, and the
 reservation check costs `transact` 5,019 gas (992,416 -> 997,435).
 
-Remaining: 2.7 SDK escrow module, 2.8 enclave stub, 2.9 testnet integration,
-2.10 HTS check with a real token.
+`evm::escrow` carries the EIP-712 digests, and `veil402-enclave` holds the
+meter: it counts what it actually sent and received rather than believing a
+provider's figures, and signs a running total after each call. Vouchers are
+cumulative, so the seller keeps only the newest and a buyer who walks away
+mid-session still pays for what it consumed.
+
+Agreement is end to end rather than by inspection — the Solidity test signs the
+digest the SDK produced and the pool accepts it. Flipping one hex digit gives
+`WrongEnclave`.
+
+Live on Hedera testnet: lock 84,864 gas, settle 1,011,633, three checkpoints
+costing nothing on chain.
+
+Remaining: 2.10, which needs a real HTS token in the account before it can run.
 
 ### Phase 3 — mandates (5h)
 

@@ -1,0 +1,15 @@
+[package]
+name = "veil402-enclave"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Metering and settlement signing for a Veil enclave"
+
+[dependencies]
+alloy = { version = "1", features = ["signer-local", "sol-types"] }
+thiserror = "2"
+veil402-sdk = { path = "../veil402-sdk" }
+
+[lints]
+workspace = true

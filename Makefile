@@ -1,7 +1,7 @@
 NARGO ?= $(HOME)/.nargo/bin/nargo
 export PATH := $(HOME)/.foundry/bin:$(PATH)
 
-.PHONY: deps abi corpus poseidon test
+.PHONY: deps abi corpus poseidon test integration
 
 # contracts/lib is gitignored, so a fresh clone has no dependencies at all.
 # Pinned by commit: zk-kit's zero-chain constants have to stay fixed.
@@ -27,6 +27,24 @@ corpus:
 poseidon: corpus
 	cd circuits/poseidon-check && $(NARGO) execute
 	cd contracts && forge test --match-path "test/Poseidon*.t.sol"
+
+# Spending the first note relies on MerklePath::only_leaf, so each case needs a
+# tree nobody has touched.
+RPC ?= http://127.0.0.1:8545
+KEY ?= 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
+integration: abi
+	@for case in shields_then_withdraws meters_a_session_and_settles; do \
+	  out=$$(cd contracts && forge script script/DeployPool.s.sol:DeployPool \
+	    --rpc-url $(RPC) --private-key $(KEY) --broadcast 2>&1); \
+	  RPC_URL=$(RPC) PRIVATE_KEY=$(KEY) \
+	  POOL=$$(echo "$$out" | awk '/pool /{print $$2}') \
+	  TOKEN=$$(echo "$$out" | awk '/token /{print $$2}') \
+	  VERIFIER=$$(echo "$$out" | awk '/verifier /{print $$2}') \
+	  REGISTRY=$$(echo "$$out" | awk '/registry /{print $$2}') \
+	  cargo test --manifest-path crates/veil402-sdk/Cargo.toml --test integration \
+	    $$case -- --ignored --nocapture; \
+	done
 
 test: abi poseidon
 	cargo test --manifest-path crates/veil402-sdk/Cargo.toml

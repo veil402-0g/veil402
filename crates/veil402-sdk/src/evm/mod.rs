@@ -7,6 +7,7 @@ mod asset;
 mod binding;
 mod calldata;
 mod client;
+mod escrow;
 
 // Generated from the compiled contract, so a signature cannot drift from it.
 sol!(
@@ -23,4 +24,5 @@ pub use Pool::ExtData;
 pub use asset::asset_id;
 pub use binding::{Withdrawal, ext_data_hash, public_amount};
 pub use calldata::ProofCalldata;
+pub use escrow::{Session, Voucher};
 pub use client::PoolClient;
