@@ -168,6 +168,7 @@ impl CommitmentSource for Chain {
             commitments,
             nullifiers,
             locks: Vec::new(),
+            settlements: Vec::new(),
             through: self.height()?,
         })
     }

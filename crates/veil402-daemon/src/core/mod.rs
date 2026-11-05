@@ -2,6 +2,7 @@
 
 use thiserror::Error;
 
+pub mod envelope;
 pub mod index;
 pub mod wallet;
 

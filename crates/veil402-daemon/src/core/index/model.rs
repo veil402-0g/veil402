@@ -1,3 +1,4 @@
+use alloy::primitives::Address;
 use veil402_sdk::Field;
 
 /// A commitment the pool emitted, at the leaf index it was inserted at.
@@ -31,8 +32,26 @@ pub struct Nullified {
 pub struct Locked {
     /// Nullifier the escrow reserves.
     pub nullifier: Field,
+    /// Who the enclave may pay, fixed here and unchangeable afterwards.
+    pub seller: Address,
+    /// The enclave that agreed to meter it.
+    pub enclave: Address,
     /// When the reservation lapses.
     pub deadline: u64,
+    /// Block that carried it.
+    pub block: u64,
+}
+
+/// What a settlement paid, which `Settled` itself does not say.
+///
+/// Read from the calldata, because a buyer that was away rebuilds its change
+/// from this figure and the seed it kept — and from nothing else.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Settled {
+    /// Nullifier the settlement spent.
+    pub nullifier: Field,
+    /// Amount released to the seller.
+    pub amount: u64,
     /// Block that carried it.
     pub block: u64,
 }
@@ -46,6 +65,8 @@ pub struct Batch {
     pub nullifiers: Vec<Nullified>,
     /// Escrows the pool opened.
     pub locks: Vec<Locked>,
+    /// Settlements the pool released.
+    pub settlements: Vec<Settled>,
     /// Last block this pass covers.
     pub through: u64,
 }
@@ -54,7 +75,7 @@ impl Batch {
     /// How many events this pass carries.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.commitments.len() + self.nullifiers.len() + self.locks.len()
+        self.commitments.len() + self.nullifiers.len() + self.locks.len() + self.settlements.len()
     }
 
     /// Whether the pass found nothing. A pass can still advance the cursor

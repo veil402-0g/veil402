@@ -23,6 +23,10 @@ pub trait NoteStore: Send + Sync {
     /// Every placed, unspent note, whatever its asset or hold.
     async fn outstanding(&self) -> Result<Vec<Held>, StoreError>;
 
+    /// A note by the nullifier it reveals, spent or not. Rebuilding change
+    /// needs the value of a note the chain has already retired.
+    async fn by_nullifier(&self, nullifier: Field) -> Result<Option<Held>, StoreError>;
+
     /// Retires notes the pool has nullified.
     async fn spend(&self, nullifiers: &[Field]) -> Result<(), StoreError>;
 
@@ -58,4 +62,8 @@ pub trait ChainFacts: Send + Sync {
     /// The deadline of the escrow the pool holds against this nullifier, if
     /// it holds one. This is the chain's own record of our reservation.
     async fn escrow(&self, nullifier: Field) -> Result<Option<u64>, StoreError>;
+
+    /// What a settlement against this nullifier paid, once one has landed.
+    /// The change a buyer is owed cannot be derived without it.
+    async fn settlement(&self, nullifier: Field) -> Result<Option<u64>, StoreError>;
 }

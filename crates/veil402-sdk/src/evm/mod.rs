@@ -26,5 +26,5 @@ pub use asset::asset_id;
 pub use binding::{Withdrawal, ext_data_hash, public_amount};
 pub use calldata::ProofCalldata;
 pub use calls::{calls_proof, calls_root};
-pub use escrow::{Session, Voucher};
+pub use escrow::{Session, Voucher, settled_amount};
 pub use client::PoolClient;

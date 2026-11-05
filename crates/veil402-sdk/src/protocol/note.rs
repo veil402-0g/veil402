@@ -153,7 +153,21 @@ impl Note {
     ///
     /// Returns [`Error::Poseidon`] if the configured hash rejects its inputs.
     pub fn commitment(&self, owner: &Owner) -> Result<Field, Error> {
-        commitment_from_key(&self.public_key(owner)?, &self.asset, self.value)
+        self.commitment_for(owner.public()?)
+    }
+
+    /// Derives the commitment this note has under a recipient's public
+    /// identifier, for an owner rebuilding change nobody told it about.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Poseidon`] if the configured hash rejects its inputs.
+    pub fn commitment_for(&self, owner: Field) -> Result<Field, Error> {
+        commitment_from_key(
+            &note_key(&owner, &self.random.expose())?,
+            &self.asset,
+            self.value,
+        )
     }
 }
 

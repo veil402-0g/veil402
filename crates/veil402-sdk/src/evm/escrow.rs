@@ -140,3 +140,13 @@ impl Voucher {
         .abi_encode())
     }
 }
+
+/// The amount a settlement paid, read from the call that carried it.
+///
+/// `Settled` carries only the nullifier and the calls root, so the figure a
+/// buyer needs to rebuild its change exists nowhere but the calldata.
+#[must_use]
+pub fn settled_amount(calldata: &[u8]) -> Option<u64> {
+    let call = Pool::settleToAddressCall::abi_decode(calldata).ok()?;
+    u64::try_from(-call.ext.extAmount).ok()
+}

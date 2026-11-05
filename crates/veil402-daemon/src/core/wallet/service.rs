@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use thiserror::Error;
-use veil402_sdk::{Field, Owner, Secret, SessionKeys};
+use veil402_sdk::{Field, Note, Owner, Secret, SessionKeys, change_random, split};
 
 use super::{ChainFacts, Held, Minted, NoteStore, Reconciled};
 use crate::core::StoreError;
@@ -65,6 +65,46 @@ pub fn select(held: &[Held], ceiling: u64) -> Result<usize, WalletError> {
         .min_by_key(|(_, note)| note.value)
         .map(|(position, _)| position)
         .ok_or_else(|| shortfall(held, ceiling))
+}
+
+/// The notes a settlement minted, derived the way the enclave derived them.
+/// The two must agree exactly: a mismatch loses the change outright.
+fn outputs(
+    note: &Held,
+    spent: u64,
+    change_seed: &Secret,
+    owner: &Owner,
+    target: u64,
+) -> Result<Vec<Minted>, veil402_sdk::Error> {
+    let mut amounts = split(note.value.saturating_sub(spent), target).into_iter();
+    let mut minted = Vec::new();
+    if let Some(value) = amounts.next() {
+        let keys = SessionKeys::from_seed(change_seed)?;
+        let seed = Secret::from_bytes(change_seed.to_bytes())?;
+        minted.push(mint(note.asset, value, keys.owner.public()?, keys.random, Some(seed))?);
+    }
+    if let Some(value) = amounts.next() {
+        let random = change_random(change_seed)?;
+        minted.push(mint(note.asset, value, owner.public()?, random, None)?);
+    }
+    Ok(minted)
+}
+
+fn mint(
+    asset: Field,
+    value: u64,
+    owner: Field,
+    random: Secret,
+    seed: Option<Secret>,
+) -> Result<Minted, veil402_sdk::Error> {
+    let note = Note { value, asset, random };
+    Ok(Minted {
+        commitment: note.commitment_for(owner)?,
+        value,
+        asset,
+        random: note.random,
+        seed,
+    })
 }
 
 /// Says whether a split or a deposit is what is missing, since only one of
@@ -144,6 +184,37 @@ impl WalletService {
     /// Returns [`WalletError::Store`] when the store cannot be written.
     pub async fn remember(&self, minted: &[Minted], now: u64) -> Result<(), WalletError> {
         Ok(self.notes.remember(minted, now).await?)
+    }
+
+    /// Rebuilds the notes a settlement left behind and writes them down.
+    ///
+    /// The seller settles, not the buyer, so this runs against a chain the
+    /// daemon may have been absent for. All it needs is the seed it kept and
+    /// the amount the pool recorded: both outputs derive, and nothing has to
+    /// be decrypted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError`] when the chain or the store cannot be read, or
+    /// a note cannot be derived.
+    pub async fn recover(
+        &self,
+        nullifier: Field,
+        change_seed: &Secret,
+        target: u64,
+        now: u64,
+    ) -> Result<usize, WalletError> {
+        let (Some(spent), Some(note)) = (
+            self.chain.settlement(nullifier).await?,
+            self.notes.by_nullifier(nullifier).await?,
+        ) else {
+            return Ok(0);
+        };
+        let minted = outputs(&note, spent, change_seed, &self.owner, target)
+            .map_err(|_| WalletError::Owner)?;
+        let placed = minted.len();
+        self.notes.remember(&minted, now).await?;
+        Ok(placed)
     }
 
     /// Catches the notes up with the chain: places the ones the index has

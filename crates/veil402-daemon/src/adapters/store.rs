@@ -49,8 +49,11 @@ impl SqliteStore {
              );
              CREATE TABLE IF NOT EXISTS escrows (
                  nullifier BLOB    PRIMARY KEY,
+                 seller    BLOB    NOT NULL,
+                 enclave   BLOB    NOT NULL,
                  deadline  INTEGER NOT NULL,
-                 block     INTEGER NOT NULL
+                 block     INTEGER NOT NULL,
+                 amount    INTEGER
              );
              CREATE TABLE IF NOT EXISTS nodes (
                  level INTEGER NOT NULL,
@@ -217,10 +220,25 @@ impl IndexStore for SqliteStore {
         }
         // A nullifier can only be escrowed once; the pool refuses the second.
         for lock in &batch.locks {
-            sqlx::query("INSERT OR IGNORE INTO escrows (nullifier, deadline, block) VALUES (?, ?, ?)")
-                .bind(lock.nullifier.to_bytes().to_vec())
-                .bind(integer(lock.deadline)?)
-                .bind(integer(lock.block)?)
+            sqlx::query(
+                "INSERT OR IGNORE INTO escrows (nullifier, seller, enclave, deadline, block)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(lock.nullifier.to_bytes().to_vec())
+            .bind(lock.seller.to_vec())
+            .bind(lock.enclave.to_vec())
+            .bind(integer(lock.deadline)?)
+            .bind(integer(lock.block)?)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        }
+        // The pool refuses a settlement without an escrow, and locks are
+        // applied above, so the row is always there to update.
+        for settled in &batch.settlements {
+            sqlx::query("UPDATE escrows SET amount = ? WHERE nullifier = ?")
+                .bind(integer(settled.amount)?)
+                .bind(settled.nullifier.to_bytes().to_vec())
                 .execute(&mut *transaction)
                 .await
                 .map_err(|_| StoreError::Unavailable)?;
@@ -290,6 +308,15 @@ impl ChainFacts for SqliteStore {
             .await
             .map_err(|_| StoreError::Unavailable)?;
         row.map(|row| count(&row, "deadline")).transpose()
+    }
+
+    async fn settlement(&self, nullifier: Field) -> Result<Option<u64>, StoreError> {
+        let row = sqlx::query("SELECT amount FROM escrows WHERE nullifier = ? AND amount IS NOT NULL")
+            .bind(nullifier.to_bytes().to_vec())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        row.map(|row| count(&row, "amount")).transpose()
     }
 }
 
@@ -365,6 +392,15 @@ impl NoteStore for SqliteStore {
             .await
             .map_err(|_| StoreError::Unavailable)?;
         rows.iter().map(held).collect()
+    }
+
+    async fn by_nullifier(&self, nullifier: Field) -> Result<Option<Held>, StoreError> {
+        let row = sqlx::query(&format!("{NOTE} WHERE nullifier = ?"))
+            .bind(nullifier.to_bytes().to_vec())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        row.as_ref().map(held).transpose()
     }
 
     async fn spend(&self, nullifiers: &[Field]) -> Result<(), StoreError> {

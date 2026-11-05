@@ -109,7 +109,12 @@ fn an_announcement_is_bound_to_its_deployment() -> Fallible {
     let here = key.announcement(&pool()?);
 
     let other_chain = PoolClient::new(POOL, Address::ZERO, Address::ZERO, CHAIN + 1)?;
-    let other_pool = PoolClient::new(Address::new([0x99; 20]), Address::ZERO, Address::ZERO, CHAIN)?;
+    let other_pool = PoolClient::new(
+        Address::new([0x99; 20]),
+        Address::ZERO,
+        Address::ZERO,
+        CHAIN,
+    )?;
     assert_ne!(here, key.announcement(&other_chain));
     assert_ne!(here, key.announcement(&other_pool));
     assert_ne!(here, fresh()?.announcement(&pool()?));
@@ -125,10 +130,7 @@ fn an_envelope_opens_only_for_its_recipient() -> Fallible {
     let sealed =
         Recipient::accept(key.public(), &pool, signer.address(), &signature)?.seal(b"authority")?;
 
-    assert!(
-        fresh()?.open(&sealed).is_err(),
-        "another enclave opened it"
-    );
+    assert!(fresh()?.open(&sealed).is_err(), "another enclave opened it");
 
     let mut tampered = sealed.clone();
     tampered.ciphertext[0] ^= 1;
@@ -160,10 +162,16 @@ fn an_unknown_version_is_refused() -> Fallible {
     assert!(Handover::from_bytes(&bytes).is_err());
 
     let good = handover.to_bytes()?;
-    assert!(Handover::from_bytes(&good[..good.len() - 1]).is_err(), "short payload accepted");
+    assert!(
+        Handover::from_bytes(&good[..good.len() - 1]).is_err(),
+        "short payload accepted"
+    );
     let mut trailing = good.clone();
     trailing.push(0);
-    assert!(Handover::from_bytes(&trailing).is_err(), "trailing bytes accepted");
+    assert!(
+        Handover::from_bytes(&trailing).is_err(),
+        "trailing bytes accepted"
+    );
     Ok(())
 }
 
@@ -204,7 +212,10 @@ fn a_tampered_path_is_refused() -> Fallible {
 
     let mut sibling = clone()?;
     sibling.siblings[TREE_DEPTH - 1] = Field::from(99_u64);
-    assert!(sibling.accept(&session).is_err(), "a changed sibling passed");
+    assert!(
+        sibling.accept(&session).is_err(),
+        "a changed sibling passed"
+    );
 
     let mut root = clone()?;
     root.root = Field::from(99_u64);

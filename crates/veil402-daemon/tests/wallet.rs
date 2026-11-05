@@ -9,7 +9,7 @@ use std::sync::Arc;
 use veil402_daemon::{
     adapters::SqliteStore,
     core::{
-        index::{Batch, Commitment, IndexStore, Locked, Nullified},
+        index::{Batch, Commitment, IndexStore, Locked, Nullified, Settled},
         wallet::{Held, Minted, NoteStore, WalletError, WalletService, select},
     },
 };
@@ -64,11 +64,59 @@ async fn observe(store: &SqliteStore, nullifiers: &[Field], locks: &[(Field, u64
             .iter()
             .map(|(nullifier, deadline)| Locked {
                 nullifier: *nullifier,
+                seller: alloy::primitives::Address::repeat_byte(0x5E),
+                enclave: alloy::primitives::Address::repeat_byte(0xE1),
                 deadline: *deadline,
                 block: 1,
             })
             .collect(),
         through: 1,
+        ..Batch::default()
+    };
+    Ok(store.append(&batch, &[]).await?)
+}
+
+/// Puts specific commitments in the tree from `leaf` onward, for notes whose
+/// values the test did not choose.
+async fn place(store: &SqliteStore, commitments: &[Field], leaf: u32) -> Fallible {
+    let batch = Batch {
+        commitments: commitments
+            .iter()
+            .enumerate()
+            .map(|(offset, commitment)| Commitment {
+                leaf_index: leaf + u32::try_from(offset).unwrap_or_default(),
+                commitment: *commitment,
+                note: Vec::new(),
+                block: 3,
+            })
+            .collect(),
+        through: 3,
+        ..Batch::default()
+    };
+    Ok(store.append(&batch, &[]).await?)
+}
+
+/// What the pool records when a seller settles: the escrow it held, the
+/// nullifier it spends, and the amount only the calldata carried.
+async fn settled(store: &SqliteStore, nullifier: Field, amount: u64) -> Fallible {
+    let batch = Batch {
+        nullifiers: vec![Nullified {
+            nullifier,
+            block: 2,
+        }],
+        locks: vec![Locked {
+            nullifier,
+            seller: alloy::primitives::Address::repeat_byte(0x5E),
+            enclave: alloy::primitives::Address::repeat_byte(0xE1),
+            deadline: 600,
+            block: 1,
+        }],
+        settlements: vec![Settled {
+            nullifier,
+            amount,
+            block: 2,
+        }],
+        through: 2,
         ..Batch::default()
     };
     Ok(store.append(&batch, &[]).await?)
@@ -304,5 +352,44 @@ async fn session_and_wallet_notes_reconcile_together() -> Fallible {
 
     assert_eq!(wallet.reconcile(0).await?.placed, 2);
     assert_eq!(store.spendable(ASSET, 0).await?.len(), 2);
+    Ok(())
+}
+
+/// A seller settles while the daemon is elsewhere. What comes back has to be
+/// derivable from the seed it kept and the figure the pool recorded, because
+/// those are the only two things it has.
+#[tokio::test]
+async fn settled_change_is_recovered_from_the_chain_alone() -> Fallible {
+    let store = store().await?;
+    let wallet = wallet(&store, Owner::random()?);
+    let session = Secret::random()?;
+    let change = Secret::random()?;
+
+    wallet
+        .remember(&[minted(field(1), 1_000, Some(Secret::from_bytes(session.to_bytes())?))?], 0)
+        .await?;
+    emit(&store, 1).await?;
+    wallet.reconcile(0).await?;
+    let nullifier = SessionKeys::from_seed(&session)?.owner.nullifier(0)?;
+
+    settled(&store, nullifier, 300).await?;
+    assert_eq!(wallet.recover(nullifier, &change, 100, 0).await?, 2);
+
+    // One note carries the next session, the other returns to the wallet.
+    let recovered = store.unplaced().await?;
+    assert_eq!(recovered.len(), 2);
+    assert_eq!(recovered.iter().filter(|note| note.seed.is_some()).count(), 1);
+
+    let commitments: Vec<Field> = recovered.iter().map(|note| note.commitment).collect();
+    place(&store, &commitments, 1).await?;
+    wallet.reconcile(0).await?;
+
+    let spendable: Vec<u64> = store
+        .spendable(ASSET, 0)
+        .await?
+        .iter()
+        .map(|note| note.value)
+        .collect();
+    assert_eq!(spendable, vec![100, 600], "the settled note's change is spendable");
     Ok(())
 }
