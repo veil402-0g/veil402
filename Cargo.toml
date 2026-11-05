@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/veil402-sdk"]
+exclude = ["tools"]
 resolver = "2"
 
 [workspace.package]
