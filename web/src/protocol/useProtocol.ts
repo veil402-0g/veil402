@@ -3,6 +3,7 @@ import { PROTOCOL_SCENES, SCENE_HOP, SCENE_REACH, pillColours } from './data'
 import { EASE, prefersReducedMotion } from '../motion/config'
 import { useFitScale } from '../ui/useFitScale'
 import { useInView } from '../ui/useInView'
+import { MESH_GRADIENT } from '../ui/mesh'
 
 const SCENE_COUNT = PROTOCOL_SCENES.length
 const DWELL_MS = 3600
@@ -103,15 +104,21 @@ export function useProtocol() {
     const active = sc.node === i || (i === 5 && last)
     // The shielded pool (index 5) only appears once a session is open.
     const reached = i < 5 ? i <= reach : scene >= 2
-    nodes[`nb${i}`] = active || reached ? '#1230d6' : '#d0d2d8'
-    nodes[`nbg${i}`] = active ? '#1230d6' : '#fff'
+    nodes[`nb${i}`] = active || reached ? '#1230d6' : 'rgba(18,48,214,.22)'
+    // Glass at rest, brand mesh when the packet is here, so the diagram reads
+    // like the poster cards rather than a wireframe.
+    nodes[`nbg${i}`] = active
+      ? MESH_GRADIENT
+      : 'linear-gradient(180deg,#fff,#e9edfa)'
     nodes[`nic${i}`] = active ? '#fff' : reached ? '#1230d6' : '#a3a6ae'
     nodes[`cap${i}`] = active ? 1 : 0.28
     nodes[`capF${i}`] = active ? 'none' : 'grayscale(1)'
     nodes[`nan${i}`] = active ? 'vnpulse 2s ease-out infinite' : 'none'
     nodes[`nsh${i}`] = active
-      ? '0 0 0 6px rgba(18,48,214,.12), 0 12px 24px -8px rgba(18,48,214,.5)'
-      : 'none'
+      ? '0 0 0 6px rgba(18,48,214,.12), 0 14px 28px -8px rgba(18,48,214,.55)'
+      : reached
+        ? 'inset 0 0 0 1px rgba(18,48,214,.14), 0 10px 20px -14px rgba(18,48,214,.65)'
+        : 'inset 0 0 0 1px rgba(18,48,214,.1), 0 8px 16px -14px rgba(18,48,214,.45)'
   }
 
   const hops = {} as HopStyles

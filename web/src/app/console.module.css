@@ -888,12 +888,14 @@
 .s097 {
   pointer-events: auto;
   box-sizing: border-box;
-  width: 100%;
-  height: 54px;
-  padding: 7px 10px;
+  width: fit-content;
+  max-width: 100%;
+  height: 46px;
+  padding: 6px 12px 6px 6px;
   display: flex;
   align-items: center;
   gap: 8px;
+  border-radius: 999px;
   cursor: default;
   background-color: rgba(255,255,255,.85);
   background-image: radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);
@@ -2393,7 +2395,7 @@
   transition: border-color .25s ease;
 }
 
-.s262:focus {
+.s262:focus-visible {
   border-bottom-color:#1230d6;
 }
 

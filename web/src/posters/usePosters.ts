@@ -30,6 +30,7 @@ export function usePosters() {
   return {
     pzRef: sectionRef,
     pzW: visible ? 'translateY(0)' : 'translateY(110%)',
+    pzLine: visible ? 'scaleX(1)' : 'scaleX(0)',
     pzOff: leave,
     ...cards,
 

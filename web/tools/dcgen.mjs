@@ -29,6 +29,69 @@ const MESH =
   'radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),' +
   'linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%)'
 
+/** The Posters heading: one mask span per word, each wiping up on its own beat. */
+const pzWord = (delay, word) =>
+  '<span style="display:inline-block;overflow:hidden;vertical-align:top;padding-bottom:.08em;margin-bottom:-.08em">' +
+  `<span style="display:inline-block;transform:{{ pzW }};transition:transform 1s cubic-bezier(.7,0,.2,1) ${delay}s">${word}</span></span>`
+
+/** The design ruled a word at rest and filled it on hover. */
+const PZ_RULED =
+  '<span style="position:relative;display:inline-block;cursor:default' +
+  ';background-image:linear-gradient(#1230d6,#1230d6);background-repeat:no-repeat' +
+  ';background-position:0 100%;background-size:100% .07em' +
+  ';transition:background-size .45s cubic-bezier(.7,0,.2,1),color .3s"' +
+  ' style-hover="background-size:100% 100%;color:#fff">'
+
+/** The console heading's version: bare at rest, with a rule that wipes in after. */
+const PZ_PLAIN = PZ_RULED.replace('background-size:100% .07em', 'background-size:100% 0%')
+const PZ_RULE =
+  '<span style="position:absolute;left:0;right:.1em;bottom:-.02em;height:.07em;background:#1230d6' +
+  ';transform:{{ pzLine }};transform-origin:left' +
+  ';transition:transform .9s cubic-bezier(.7,0,.2,1) 1.3s"></span>'
+
+/** Words the heading rules at rest, and the beat each one arrives on. */
+const PZ_WORDS = [
+  ['0.25', 'atomic,'],
+  ['0.30', 'private,'],
+  ['0.35', 'and'],
+  ['0.40', 'auditable'],
+  ['0.45', 'AI'],
+]
+
+/** Vendor marks, checked in as monochrome SVGs beside the one that is remote. */
+const LOGOS = [
+  ['https://github.com/openclaw.png?size=128', 'openclaw', 'OpenClaw'],
+  ['assets/hermes.png', 'hermes', 'Hermes'],
+  ['https://github.com/All-Hands-AI.png?size=128', 'openhands', 'OpenHands'],
+]
+
+/** Poster 03's ground: the same mesh pushed deep, with one warm corner. */
+const POSTER_MESH =
+  'radial-gradient(45% 40% at 85% 10%,#0b1f9c 0%,transparent 70%),' +
+  'radial-gradient(50% 45% at 15% 60%,#1230d6 0%,transparent 70%),' +
+  'radial-gradient(40% 35% at 80% 80%,#8fb0f2 0%,transparent 70%),' +
+  'radial-gradient(35% 30% at 25% 15%,#d8b9a6 0%,transparent 70%),' +
+  'linear-gradient(150deg,#2c63e6,#1230d6 45%,#4c86ee 80%,#c3d3f6)'
+
+/** The card the posters float on that ground. */
+const CARD = '#f4f6fd'
+
+/** The posters' dot grid, as an overlay the ground can carry. */
+const POSTER_DOTS =
+  '<div aria-hidden="true" style="position:absolute;inset:0;pointer-events:none' +
+  ';background-image:radial-gradient(rgba(255,255,255,.4) .8px,transparent 1.2px)' +
+  ';background-size:14px 14px;animation:vdots 6s linear infinite"></div>'
+
+/** A state badge: stadium, mono, as `Attested` and `Ciphertext only` write it. */
+const STATE_BADGE = (fg, bg) =>
+  "display:inline-flex;align-items:center;gap:7px;font-family:'JetBrains Mono',monospace" +
+  `;font-size:13px;letter-spacing:.06em;color:${fg};background:${bg}` +
+  ';padding:7px 13px;border-radius:999px;white-space:nowrap'
+
+/** A budget tag: a stadium badge with the brand tint falling across it. */
+const BADGE = (radius, pad) =>
+  `;height:${radius}px;padding:${pad};display:flex;align-items:center;gap:8px;border-radius:999px`
+
 /** Elements split out into their own component file, keyed by a source marker. */
 const TARGETS = [
   {
@@ -39,13 +102,140 @@ const TARGETS = [
     markers: [
       ['<div style="height:100vh;min-height:700px', 'data-dc-split="Hero" '],
     ],
-    // The design linked screens by hash and by file; the app uses routes. The
-    // Hermes tile was the one local asset in a row that otherwise loads from
-    // the vendors themselves.
-    urls: {
-      '#console': '/console',
-      'assets/hermes.png': 'https://github.com/NousResearch.png?size=128',
-    },
+    edits: [
+      // A budget tag broke mid-word and left one-line cards sitting higher
+      // than two-line ones. Keyed on style strings: class names renumber
+      // whenever the design gains an element.
+      [
+        `<span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.15;color:{{ col.nc }};overflow-wrap:anywhere">`,
+        `<span title="{{ col.name }}" style="font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.2;color:{{ col.nc }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">`,
+      ],
+      // ...and the tag itself reads as a badge rather than a box. Its height
+      // is mirrored by CHART_CHROME in useShowcase: the connector below it is
+      // measured from the chart, so the two have to agree.
+      [
+        '<div style="box-sizing:border-box;width:100%;height:58px;padding:8px 10px;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.8);box-shadow:inset 0 0 0 1px rgba(18,48,214,.16)">',
+        '<div style="box-sizing:border-box;width:100%' +
+          BADGE(46, '6px 12px 6px 6px') +
+          ';background-color:rgba(255,255,255,.86)' +
+          ';background-image:linear-gradient(115deg,rgba(255,255,255,0) 35%,rgba(199,214,248,.55) 100%)' +
+          ';box-shadow:inset 0 0 0 1px rgba(18,48,214,.16)">',
+      ],
+      // The Posters heading ruled every clause at rest, which read as six
+      // separate links. The console heading above it rules only its last word
+      // and wipes that rule in; this is the same heading, so it does that too.
+      ...PZ_WORDS.map(([d, w]) => [PZ_RULED + pzWord(d, w) + '</span>', pzWord(d, w)]),
+      [
+        PZ_RULED + pzWord('0.50', 'commerce.') + '</span>',
+        PZ_PLAIN + pzWord('0.50', 'commerce.') + PZ_RULE + '</span>',
+      ],
+      // The showcase CTA was the one button on the page that started filled
+      // and emptied on hover.
+      [
+        `style="width:min(100%,320px);display:flex;align-items:center;justify-content:space-between;gap:22px;color:#fff;font:500 12px 'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;padding:12px 14px;box-sizing:border-box;background-image:linear-gradient(#1230d6,#1230d6);background-repeat:no-repeat;background-position:0 100%;background-size:100% 100%;transition:background-size .4s cubic-bezier(.7,0,.2,1),color .12s linear .12s" style-hover="background-size:100% 1px;color:#1230d6;transition:background-size .4s cubic-bezier(.7,0,.2,1),color .12s linear .2s"`,
+        `style="width:fit-content;display:flex;align-items:center;gap:22px;color:#1230d6;font:500 12px 'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;padding:12px 14px;box-sizing:border-box;background-image:linear-gradient(#1230d6,#1230d6);background-repeat:no-repeat;background-position:0 100%;background-size:100% 1px;transition:background-size .4s cubic-bezier(.7,0,.2,1),color .12s linear .2s" style-hover="background-size:100% 100%;color:#fff;transition:background-size .4s cubic-bezier(.7,0,.2,1),color .12s linear .12s"`,
+      ],
+      // The diagram panel sat at 88% white over its own mesh and grain, which
+      // flattened it into a wireframe. Let the ground through, and carry the
+      // posters' dot grid across it.
+      [
+        'border:1px solid rgba(13,14,18,.08);background:rgba(255,255,255,.88)' +
+          ';backdrop-filter:blur(18px) saturate(1.5);-webkit-backdrop-filter:blur(18px) saturate(1.5)' +
+          ';box-shadow:0 30px 70px -30px rgba(18,48,214,.45),0 2px 8px rgba(13,14,18,.06)',
+        'border:0;background:' +
+          CARD +
+          ';box-shadow:0 44px 90px -36px rgba(6,14,64,.55),0 4px 14px rgba(6,14,64,.16)',
+      ],
+      // ...and the ground it sits on is the poster's, not the pale site mesh.
+      [
+        'background:' + MESH + ';background-size:180% 180%;animation:vbgshift 22s',
+        'background:' + POSTER_MESH + ';background-size:180% 180%;animation:vbgshift 22s',
+      ],
+      // A taller frame above and below; the card keeps the page content
+      // width, so its edges line up with the heading above it.
+      [
+        'padding:clamp(28px,4vw,64px) max(clamp(20px,4vw,56px),calc(50vw - 664px))',
+        'padding:clamp(48px,6vw,112px) max(clamp(20px,4vw,56px),calc(50vw - 664px))',
+      ],
+      // The drifting blobs were lit for a pale ground and wash this one out.
+      ...[
+        ['closest-side,rgba(205,220,250,.95),transparent', 'closest-side,rgba(205,220,250,.3),transparent'],
+        ['closest-side,#5f93f3,transparent', 'closest-side,rgba(95,147,243,.4),transparent'],
+        ['closest-side,#1f55e0,transparent', 'closest-side,rgba(31,85,224,.75),transparent'],
+      ].map(([a, b]) => [a, b]),
+      // The rails were grey hairlines from when the panel was white; on the
+      // mesh ground they read as a different drawing to everything on it.
+      ...[
+        ['<div style="position:absolute;left:70px;top:169.25px;width:810px;height:1.5px;background:#d9dae0"></div>', 'rgba(18,48,214,.2)'],
+        ['<div style="position:absolute;left:279.25px;top:200px;width:1.5px;height:115px;background:#d9dae0"></div>', 'rgba(18,48,214,.2)'],
+      ].map(([html, c]) => [html, html.replace('#d9dae0', c)]),
+      ...[
+        'left:70px;top:250px;width:810px;border-top:1.5px dashed #c4c8d4',
+        'left:880px;top:200px;height:50px;border-left:1.5px dashed #c4c8d4',
+        'left:70px;top:200px;height:50px;border-left:1.5px dashed #c4c8d4',
+      ].map((d) => [d, d.replace('#c4c8d4', 'rgba(18,48,214,.26)')]),
+      // ✓ and ✕ are text glyphs here, and Plus Jakarta draws a thin, slanted
+      // check that sits off-centre in its disc. Both become drawn marks.
+      [
+        'justify-content:center;font-size:10px">\u2713</span>',
+        'justify-content:center;flex-shrink:0">' +
+          '<svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="#fff"' +
+          ' stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">' +
+          '<path d="M3 8.5L6.5 12L13 4.5"></path></svg></span>',
+      ],
+      [
+        'justify-content:center;font-size:9px">\u2715</span>',
+        'justify-content:center;flex-shrink:0">' +
+          '<svg width="8" height="8" viewBox="0 0 16 16" fill="none" stroke="#8b8e97"' +
+          ' stroke-width="2.6" stroke-linecap="round">' +
+          '<path d="M4 4l8 8M12 4l-8 8"></path></svg></span>',
+      ],
+      // A full blue outline made every node a boxed icon. The step tabs carry
+      // their state on the top edge over a soft hairline; nodes do the same.
+      ...[0, 1, 2, 3, 4, 5].map((i) => [
+        `border:1.5px solid {{ nb${i} }};background:`,
+        `border:0;border-top:2px solid {{ nb${i} }};background:`,
+      ]),
+      // The mesh is authored large; at 60px a node samples only its palest
+      // corner, so scale it up the way the avatar chips do.
+      ...[0, 1, 2, 3, 4, 5].map((i) => [
+        `background:{{ nbg${i} }};box-shadow:`,
+        `background:{{ nbg${i} }};background-size:210% 210%;background-position:${['0% 0%', '100% 20%', '30% 100%', '80% 80%', '50% 40%', '10% 60%'][i]};box-shadow:`,
+      ]),
+      // The step tabs read as flat boxes against it.
+      [
+        'min-width:84px;border:0;background:rgba(255,255,255,.6);box-shadow:inset 0 0 0 1px rgba(18,48,214,.1)',
+        'min-width:84px;border:0;background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(255,255,255,.6))' +
+          ';box-shadow:inset 0 0 0 1px rgba(18,48,214,.1),0 8px 16px -14px rgba(18,48,214,.6)',
+      ],
+      // Four state badges were stadium and three were square boxes. Buttons
+      // stay square — the split is state vs. action, not slide by slide.
+      [
+        `font-size:12px;letter-spacing:.1em;color:#1230d6;padding:7px 11px;background:rgba(255,255,255,.75);box-shadow:inset 0 0 0 1px rgba(18,48,214,.16);white-space:nowrap"`,
+        `font-size:12px;letter-spacing:.1em;color:#1230d6;padding:7px 13px;border-radius:999px;background:rgba(255,255,255,.75);box-shadow:inset 0 0 0 1px rgba(18,48,214,.16);white-space:nowrap"`,
+      ],
+      [
+        'gap:7px;font-size:14.5px;border:1px solid #d0d2d8;background:#fff;padding:7px 12px"',
+        "gap:7px;font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:.06em;border:1px solid #d0d2d8;background:#fff;padding:7px 13px;border-radius:999px\"",
+      ],
+      [
+        '<span style="font-size:17px;display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;border-radius:50%;background:#1230d6;display:block"></span>Active</span>',
+        `<span style="${STATE_BADGE('#1230d6', '#e3e8ff')};justify-self:start"><span style="width:7px;height:7px;border-radius:50%;background:#1230d6;display:block"></span>Active</span>`,
+      ],
+      [
+        '<span style="font-size:17px;display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;border-radius:50%;background:#c4c6cc;display:block"></span>Revoked</span>',
+        `<span style="${STATE_BADGE('#8b8e97', 'rgba(255,255,255,.8)')};justify-self:start"><span style="width:7px;height:7px;border-radius:50%;background:#c4c6cc;display:block"></span>Revoked</span>`,
+      ],
+      // These three are logos, not avatars, so they sit inside the tile
+      // instead of covering it. Aider publishes an SVG and stays remote.
+      ...LOGOS.map(([src, file, alt]) => [
+        `<img src="${src}" alt="${alt}" title="${alt}" style="width:100%;height:100%;object-fit:cover;display:block;filter:grayscale(1) contrast(1.15);mix-blend-mode:multiply">`,
+        `<img src="/logos/${file}.svg" alt="${alt}" title="${alt}" style="width:68%;height:68%;object-fit:contain;display:block;opacity:.78">`,
+      ]),
+    ],
+    inject: [["animation:vbgshift 22s ease-in-out infinite alternate;\">", POSTER_DOTS]],
+    // The design linked screens by hash and by file; the app uses routes.
+    urls: { '#console': '/console' },
   },
   {
     src: 'design/Console.dc.html',
@@ -53,6 +243,12 @@ const TARGETS = [
     name: 'Console',
     markers: [],
     urls: { 'Veil%20402%20Landing.dc.html': '/' },
+    edits: [
+      [
+        ';width:100%;height:54px;padding:7px 10px;display:flex;align-items:center;gap:8px;cursor:default',
+        ';width:fit-content;max-width:100%' + BADGE(46, '6px 12px 6px 6px') + ';cursor:default',
+      ],
+    ],
     // Markup the app adds to the design's header, kept here so `npm run gen`
     // does not drop it.
     inject: [
@@ -275,7 +471,7 @@ class Generator {
     }
     const states = {
       ':hover': hover ? splitDecls(hover).map((d) => `${d};`) : [],
-      ':focus': focus ? splitDecls(focus).map((d) => `${d};`) : [],
+      ':focus-visible': focus ? splitDecls(focus).map((d) => `${d};`) : [],
     }
 
     const entry = { cls: `s${String(this.classes.size + 1).padStart(3, '0')}`, body, states, vars }
@@ -475,6 +671,10 @@ for (const t of TARGETS) {
   for (const [find, attrs] of t.markers) {
     if (!src.includes(find)) throw new Error(`marker not found in ${t.src}: ${find}`)
     src = src.replace(find, find.replace('<div ', `<div ${attrs}`))
+  }
+  for (const [find, replace] of t.edits ?? []) {
+    if (!src.includes(find)) throw new Error(`edit target not found in ${t.src}: ${find.slice(0, 60)}…`)
+    src = src.split(find).join(replace)
   }
   for (const [after, html] of t.inject ?? []) {
     if (!src.includes(after)) throw new Error(`inject anchor not found in ${t.src}: ${after}`)

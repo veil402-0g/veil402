@@ -54,63 +54,57 @@ export function Posters({ v }: { v: LandingBindings }) {
         </span>
       </span>
       <span
-        className={s.s379}
+        className={s.s065}
       >
         <span
-          className={s.s065}
+          className={s.s379}
+          style={{ '--d0': v.pzW } as CSSVars}
         >
-          <span
-            className={s.s380}
-            style={{ '--d0': v.pzW } as CSSVars}
-          >
-            atomic,
-          </span>
+          atomic,
         </span>
       </span>
       <span
-        className={s.s379}
+        className={s.s065}
       >
         <span
-          className={s.s065}
+          className={s.s380}
+          style={{ '--d0': v.pzW } as CSSVars}
         >
-          <span
-            className={s.s381}
-            style={{ '--d0': v.pzW } as CSSVars}
-          >
-            private,
-          </span>
+          private,
         </span>
       </span>
       <span
-        className={s.s379}
+        className={s.s065}
       >
         <span
-          className={s.s065}
+          className={s.s381}
+          style={{ '--d0': v.pzW } as CSSVars}
         >
-          <span
-            className={s.s382}
-            style={{ '--d0': v.pzW } as CSSVars}
-          >
-            and
-          </span>
+          and
         </span>
       </span>
       <span
-        className={s.s379}
+        className={s.s065}
       >
         <span
-          className={s.s065}
+          className={s.s382}
+          style={{ '--d0': v.pzW } as CSSVars}
         >
-          <span
-            className={s.s383}
-            style={{ '--d0': v.pzW } as CSSVars}
-          >
-            auditable
-          </span>
+          auditable
         </span>
       </span>
       <span
-        className={s.s379}
+        className={s.s065}
+      >
+        <span
+          className={s.s383}
+          style={{ '--d0': v.pzW } as CSSVars}
+        >
+          AI
+        </span>
+      </span>
+      <span
+        className={s.s074}
       >
         <span
           className={s.s065}
@@ -119,23 +113,13 @@ export function Posters({ v }: { v: LandingBindings }) {
             className={s.s384}
             style={{ '--d0': v.pzW } as CSSVars}
           >
-            AI
-          </span>
-        </span>
-      </span>
-      <span
-        className={s.s379}
-      >
-        <span
-          className={s.s065}
-        >
-          <span
-            className={s.s385}
-            style={{ '--d0': v.pzW } as CSSVars}
-          >
             commerce.
           </span>
         </span>
+        <span
+          className={s.s385}
+          style={{ '--d0': v.pzLine } as CSSVars}
+        />
       </span>
     </h2>
     <div
@@ -325,7 +309,7 @@ export function Posters({ v }: { v: LandingBindings }) {
               />
             </span>
             <div
-              className={s.s216}
+              className={s.s217}
             >
               <h3
                 className={s.s413}

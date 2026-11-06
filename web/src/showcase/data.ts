@@ -32,14 +32,6 @@ export const HISTORY_ACCENT_RANGE = [39, 41] as const
 /** Background-position per avatar, so neighbouring chips sample different mesh. */
 export const AVATAR_MESH_POSITIONS = ['0% 0%', '100% 20%', '30% 100%', '80% 80%', '50% 40%', '10% 60%']
 
-export const MESH_GRADIENT =
-  'radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),' +
-  'radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),' +
-  'radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),' +
-  'linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%)'
-
-export const MUTED_GRADIENT = 'linear-gradient(170deg,#8b8e97,#b4b7c0)'
-
 /** `research-03` -> `RE`, `support-triage` -> `ST`. */
 export function initials(name: string): string {
   const words = name.split('-').filter((p) => /[a-z]/.test(p))

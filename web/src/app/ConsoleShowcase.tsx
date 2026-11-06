@@ -621,10 +621,10 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                         </span>
                       </div>
                       <span
-                        className={s.s131}
+                        className={s.s142}
                       >
                         <span
-                          className={s.s142}
+                          className={s.s143}
                         />
                         Revoked
                       </span>
@@ -634,7 +634,7 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                         2d ago
                       </span>
                       <span
-                        className={s.s143}
+                        className={s.s144}
                       >
                         Revoked
                       </span>
@@ -642,14 +642,14 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                   </div>
                 </div>
                 <div
-                  className={s.s144}
+                  className={s.s145}
                   style={{ '--d0': v.sO2, '--d1': v.sT2, '--d2': v.sF2 } as CSSVars}
                 >
                   <div
-                    className={s.s145}
+                    className={s.s146}
                   >
                     <div
-                      className={s.s146}
+                      className={s.s147}
                       style={{ '--d0': v.a2O, '--d1': v.a2Y } as CSSVars}
                     >
                       <div
@@ -661,94 +661,94 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                           Budgets
                         </span>
                         <span
-                          className={s.s147}
+                          className={s.s148}
                         >
                           ENFORCED BEFORE THE CALL
                         </span>
                       </div>
                       <div
-                        className={s.s148}
+                        className={s.s149}
                       >
                         <span
-                          className={s.s149}
-                        >
-                          <span
-                            className={s.s150}
-                          />
-                          SPENT TODAY
-                        </span>
-                        <span
-                          className={s.s149}
+                          className={s.s150}
                         >
                           <span
                             className={s.s151}
                           />
-                          PROJECTED
+                          SPENT TODAY
                         </span>
                         <span
-                          className={s.s149}
+                          className={s.s150}
                         >
                           <span
                             className={s.s152}
+                          />
+                          PROJECTED
+                        </span>
+                        <span
+                          className={s.s150}
+                        >
+                          <span
+                            className={s.s153}
                           />
                           OVER LIMIT
                         </span>
                       </div>
                     </div>
                     <span
-                      className={s.s153}
+                      className={s.s154}
                       style={{ '--d0': v.a2O, '--d1': v.a2Y } as CSSVars}
                     >
                       Each column is one mandate. Calls past the limit are refused with a 402 before inference runs.
                     </span>
                     <div
-                      className={s.s154}
+                      className={s.s155}
                     >
                       <div
-                        className={s.s155}
+                        className={s.s156}
                       >
                         <span
-                          className={s.s156}
+                          className={s.s157}
                           aria-hidden="true"
                         />
                         <span
-                          className={s.s157}
+                          className={s.s158}
                         >
                           LIMIT
                           <br />
                           <span
-                            className={s.s158}
+                            className={s.s159}
                           >
                             100%
                           </span>
                         </span>
                         <span
-                          className={s.s159}
+                          className={s.s160}
                         >
                           125%
                         </span>
                         <span
-                          className={s.s160}
+                          className={s.s161}
                         >
                           0
                         </span>
                         <div
-                          className={s.s161}
+                          className={s.s162}
                         >
                           <div
-                            className={s.s162}
+                            className={s.s163}
                           >
                             {v.bCols.map((col, i) => (
                               <Fragment key={i}>
                               <div
-                                className={s.s163}
+                                className={s.s164}
                               >
                                 <div
-                                  className={s.s164}
+                                  className={s.s165}
                                   style={{ '--d0': col.barH, '--d1': col.barBg, '--d2': col.grow, '--d3': `transform 1s cubic-bezier(.2,.8,.2,1) ${col.dl}` } as CSSVars}
                                 >
                                   <span
-                                    className={s.s165}
+                                    className={s.s166}
                                     style={{ '--d0': col.todayB } as CSSVars}
                                   />
                                 </div>
@@ -757,34 +757,35 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                             ))}
                           </div>
                           <div
-                            className={s.s166}
+                            className={s.s167}
                           >
                             {v.bCols.map((col, i) => (
                               <Fragment key={i}>
                               <div
-                                className={s.s167}
+                                className={s.s168}
                                 style={{ '--d0': col.tO, '--d1': `opacity .6s ease ${col.dl2}` } as CSSVars}
                               >
                                 <div
-                                  className={s.s168}
+                                  className={s.s169}
                                 >
                                   <span
-                                    className={s.s169}
+                                    className={s.s170}
                                     style={{ '--d0': col.avBg, '--d1': col.avPos } as CSSVars}
                                   >
                                     {col.ini}
                                   </span>
                                   <span
-                                    className={s.s170}
+                                    className={s.s171}
                                   >
                                     <span
-                                      className={s.s171}
+                                      className={s.s172}
+                                      title={col.name}
                                       style={{ '--d0': col.nc } as CSSVars}
                                     >
                                       {col.name}
                                     </span>
                                     <span
-                                      className={s.s172}
+                                      className={s.s173}
                                       style={{ '--d0': col.pc } as CSSVars}
                                     >
                                       {col.lbl}
@@ -792,11 +793,11 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                                   </span>
                                 </div>
                                 <span
-                                  className={s.s173}
+                                  className={s.s174}
                                   style={{ '--d0': col.conH } as CSSVars}
                                 >
                                   <span
-                                    className={s.s174}
+                                    className={s.s175}
                                   />
                                 </span>
                               </div>
@@ -809,38 +810,38 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                   </div>
                 </div>
                 <div
-                  className={s.s175}
+                  className={s.s176}
                   style={{ '--d0': v.sO3, '--d1': v.sT3, '--d2': v.sF3 } as CSSVars}
                 >
                   <div
-                    className={s.s176}
+                    className={s.s177}
                   >
                     <div
-                      className={s.s177}
+                      className={s.s178}
                     >
                       <div
-                        className={s.s178}
+                        className={s.s179}
                       >
                         <span
-                          className={s.s179}
+                          className={s.s180}
                           style={{ '--d0': v.a3O, '--d1': v.a3Y } as CSSVars}
                         >
                           AUDIT · SELECTIVE DISCLOSURE
                         </span>
                         <span
-                          className={s.s180}
+                          className={s.s181}
                           style={{ '--d0': v.a3O, '--d1': v.a3Y } as CSSVars}
                         >
                           Prove exactly what’s asked. Nothing more.
                         </span>
                         <span
-                          className={s.s181}
+                          className={s.s182}
                           style={{ '--d0': v.a3O, '--d1': v.a3Y } as CSSVars}
                         >
                           Hand an auditor a scoped viewing proof — one payment, one agent’s history, or one period. The rest of the ledger stays sealed.
                         </span>
                         <span
-                          className={s.s182}
+                          className={s.s183}
                           style={{ '--d0': v.a3O, '--d1': v.a3Y } as CSSVars}
                         >
                           POOL CONTRACT 0.0.4821930 · GROTH16
@@ -849,47 +850,47 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                         </span>
                       </div>
                       <div
-                        className={s.s183}
+                        className={s.s184}
                       >
                         <span
-                          className={s.s184}
+                          className={s.s185}
                         >
                           TWO VIEWS OF ONE PAYMENT
                         </span>
                         <div
-                          className={s.s185}
+                          className={s.s186}
                           style={{ '--d0': v.a3O, '--d1': v.c3L } as CSSVars}
                         >
                           <span
-                            className={s.s186}
+                            className={s.s187}
                           >
                             HEDERA SEES
                           </span>
                           <span
-                            className={s.s187}
+                            className={s.s188}
                           >
                             <span
-                              className={s.s188}
+                              className={s.s189}
                             >
                               Commitment
                             </span>
                             0x346a6c…8eab
                           </span>
                           <span
-                            className={s.s187}
+                            className={s.s188}
                           >
                             <span
-                              className={s.s188}
+                              className={s.s189}
                             >
                               Nullifier
                             </span>
                             0xbd6f83…7a92
                           </span>
                           <span
-                            className={s.s187}
+                            className={s.s188}
                           >
                             <span
-                              className={s.s188}
+                              className={s.s189}
                             >
                               Amount
                             </span>
@@ -897,37 +898,37 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                           </span>
                         </div>
                         <div
-                          className={s.s189}
+                          className={s.s190}
                           style={{ '--d0': v.a3O, '--d1': v.c3R } as CSSVars}
                         >
                           <span
-                            className={s.s190}
+                            className={s.s191}
                           >
                             YOU SEE
                           </span>
                           <span
-                            className={s.s191}
+                            className={s.s192}
                           >
                             research-03
                           </span>
                           <span
-                            className={s.s192}
+                            className={s.s193}
                           >
                             → 0G · deepseek-r1
                           </span>
                           <span
-                            className={s.s193}
+                            className={s.s194}
                           >
                             12.84
                           </span>
                           <span
-                            className={s.s194}
+                            className={s.s195}
                           >
                             tx_44bebf · settled
                           </span>
                         </div>
                         <span
-                          className={s.s195}
+                          className={s.s196}
                           style={{ '--d0': v.c3P } as CSSVars}
                         >
                           proof ✓
@@ -935,75 +936,52 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                       </div>
                     </div>
                     <div
-                      className={s.s196}
+                      className={s.s197}
                     >
                       <div
-                        className={s.s197}
+                        className={s.s198}
                         style={{ '--d0': v.a3O, '--d1': v.a3Y } as CSSVars}
                       >
                         <span
-                          className={s.s198}
+                          className={s.s199}
                         >
                           01
                         </span>
                         <span
-                          className={s.s199}
+                          className={s.s200}
                         />
                         <span
-                          className={s.s200}
+                          className={s.s201}
                         >
                           Single payment
                         </span>
                         <span
-                          className={s.s201}
+                          className={s.s202}
                         >
                           One settlement, verifiable on its own.
                         </span>
                       </div>
                       <div
-                        className={s.s202}
+                        className={s.s203}
                         style={{ '--d0': v.a3O, '--d1': v.a3Y } as CSSVars}
                       >
                         <span
-                          className={s.s203}
+                          className={s.s204}
                         >
                           02
                         </span>
                         <span
-                          className={s.s204}
+                          className={s.s205}
                         />
                         <span
-                          className={s.s205}
+                          className={s.s206}
                         >
                           One agent
                         </span>
                         <span
-                          className={s.s206}
+                          className={s.s207}
                         >
                           Every spend under one mandate.
-                        </span>
-                      </div>
-                      <div
-                        className={s.s207}
-                        style={{ '--d0': v.a3O, '--d1': v.a3Y } as CSSVars}
-                      >
-                        <span
-                          className={s.s203}
-                        >
-                          03
-                        </span>
-                        <span
-                          className={s.s204}
-                        />
-                        <span
-                          className={s.s205}
-                        >
-                          One period
-                        </span>
-                        <span
-                          className={s.s206}
-                        >
-                          All settlements in a date range.
                         </span>
                       </div>
                       <div
@@ -1011,27 +989,50 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                         style={{ '--d0': v.a3O, '--d1': v.a3Y } as CSSVars}
                       >
                         <span
-                          className={s.s209}
+                          className={s.s204}
+                        >
+                          03
+                        </span>
+                        <span
+                          className={s.s205}
+                        />
+                        <span
+                          className={s.s206}
+                        >
+                          One period
+                        </span>
+                        <span
+                          className={s.s207}
+                        >
+                          All settlements in a date range.
+                        </span>
+                      </div>
+                      <div
+                        className={s.s209}
+                        style={{ '--d0': v.a3O, '--d1': v.a3Y } as CSSVars}
+                      >
+                        <span
+                          className={s.s210}
                         >
                           IN SCOPE
                         </span>
                         <span
-                          className={s.s210}
+                          className={s.s211}
                         >
                           tx_44bebf — research-03, 12.84 USDC
                         </span>
                         <span
-                          className={s.s211}
+                          className={s.s212}
                         >
                           STAYS SEALED
                         </span>
                         <span
-                          className={s.s210}
+                          className={s.s211}
                         >
                           2,573 other settlements, all balances.
                         </span>
                         <span
-                          className={s.s212}
+                          className={s.s213}
                         >
                           Generate viewing proof
                           <span>
@@ -1043,72 +1044,72 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                   </div>
                 </div>
                 <div
-                  className={s.s213}
+                  className={s.s214}
                   style={{ '--d0': v.sO4, '--d1': v.sT4, '--d2': v.sF4 } as CSSVars}
                 >
                   <div
-                    className={s.s214}
+                    className={s.s215}
                   >
                     <div
-                      className={s.s215}
+                      className={s.s216}
                       style={{ '--d0': v.a4O, '--d1': v.a4Y } as CSSVars}
                     >
                       <div
-                        className={s.s216}
+                        className={s.s217}
                       >
                         <span
-                          className={s.s217}
+                          className={s.s218}
                         >
                           PRIVATE INFERENCE · 0G
                         </span>
                         <span
-                          className={s.s218}
+                          className={s.s219}
                         >
                           Path verifier
                         </span>
                       </div>
                       <span
-                        className={s.s219}
+                        className={s.s220}
                       >
                         Trace again ↻
                       </span>
                     </div>
                     <div
-                      className={s.s220}
+                      className={s.s221}
                       style={{ '--d0': v.a4O, '--d1': v.a4Y } as CSSVars}
                     >
                       <span
-                        className={s.s221}
+                        className={s.s222}
                       >
                         Private endpoint
                       </span>
                       <span
-                        className={s.s222}
+                        className={s.s223}
                       >
                         Official endpoint
                       </span>
                       <span
-                        className={s.s222}
+                        className={s.s223}
                       >
                         Verified provider
                       </span>
                     </div>
                     <div
-                      className={s.s223}
+                      className={s.s224}
                     >
                       <div
-                        className={s.s224}
-                      />
-                      <div
                         className={s.s225}
-                        style={{ '--d0': v.l4 } as CSSVars}
                       />
                       <div
                         className={s.s226}
+                        style={{ '--d0': v.l4 } as CSSVars}
+                      />
+                      <div
+                        className={s.s227}
                         style={{ '--d0': v.a4O, '--d1': v.a4Y } as CSSVars}
                       >
                         <span
-                          className={s.s227}
+                          className={s.s228}
                         >
                           <svg
                             width="20"
@@ -1124,36 +1125,36 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                           </svg>
                         </span>
                         <div
-                          className={s.s228}
+                          className={s.s229}
                         >
                           <span
-                            className={s.s229}
+                            className={s.s230}
                           >
                             Gateway
                           </span>
                           <span
-                            className={s.s230}
+                            className={s.s231}
                           >
                             Your request is encrypted inside the gateway enclave. No one can see your data.
                           </span>
                         </div>
                         <span
-                          className={s.s231}
+                          className={s.s232}
                           style={{ '--d0': v.p4, '--d1': v.a4O } as CSSVars}
                         >
                           <span
-                            className={s.s232}
+                            className={s.s233}
                           >
                             ✓ Attested
                           </span>
                         </span>
                       </div>
                       <div
-                        className={s.s233}
+                        className={s.s234}
                         style={{ '--d0': v.a4O, '--d1': v.a4Y } as CSSVars}
                       >
                         <span
-                          className={s.s227}
+                          className={s.s228}
                         >
                           <svg
                             width="20"
@@ -1169,36 +1170,36 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                           </svg>
                         </span>
                         <div
-                          className={s.s228}
+                          className={s.s229}
                         >
                           <span
-                            className={s.s229}
+                            className={s.s230}
                           >
                             Router
                           </span>
                           <span
-                            className={s.s230}
+                            className={s.s231}
                           >
                             Forwards ciphertext and settles billing. Nothing to decrypt, nothing to trust.
                           </span>
                         </div>
                         <span
-                          className={s.s234}
+                          className={s.s235}
                           style={{ '--d0': v.p4, '--d1': v.a4O } as CSSVars}
                         >
                           <span
-                            className={s.s235}
+                            className={s.s236}
                           >
                             Ciphertext only
                           </span>
                         </span>
                       </div>
                       <div
-                        className={s.s236}
+                        className={s.s237}
                         style={{ '--d0': v.a4O, '--d1': v.a4Y } as CSSVars}
                       >
                         <span
-                          className={s.s227}
+                          className={s.s228}
                         >
                           <svg
                             width="20"
@@ -1220,36 +1221,36 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                           </svg>
                         </span>
                         <div
-                          className={s.s228}
+                          className={s.s229}
                         >
                           <span
-                            className={s.s229}
+                            className={s.s230}
                           >
                             Broker
                           </span>
                           <span
-                            className={s.s230}
+                            className={s.s231}
                           >
                             Decrypted inside the provider’s broker enclave — not on an open server.
                           </span>
                         </div>
                         <span
-                          className={s.s237}
+                          className={s.s238}
                           style={{ '--d0': v.p4, '--d1': v.a4O } as CSSVars}
                         >
                           <span
-                            className={s.s232}
+                            className={s.s233}
                           >
                             ✓ Attested
                           </span>
                         </span>
                       </div>
                       <div
-                        className={s.s238}
+                        className={s.s239}
                         style={{ '--d0': v.a4O, '--d1': v.a4Y } as CSSVars}
                       >
                         <span
-                          className={s.s227}
+                          className={s.s228}
                         >
                           <svg
                             width="20"
@@ -1277,28 +1278,28 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                           </svg>
                         </span>
                         <div
-                          className={s.s228}
+                          className={s.s229}
                         >
                           <span
-                            className={s.s229}
+                            className={s.s230}
                           >
                             Inference
                           </span>
                           <span
-                            className={s.s230}
+                            className={s.s231}
                           >
                             The model runs hardware-isolated, protected from the provider and 0G.
                           </span>
                         </div>
                         <span
-                          className={s.s239}
+                          className={s.s240}
                           style={{ '--d0': v.p4, '--d1': v.a4O } as CSSVars}
                         >
                           <span
-                            className={s.s240}
+                            className={s.s241}
                           >
                             <span
-                              className={s.s241}
+                              className={s.s242}
                             >
                               <svg
                                 width="14"
@@ -1315,7 +1316,7 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                               Private
                             </span>
                             <span
-                              className={s.s242}
+                              className={s.s243}
                             >
                               TEE · E2EE · ZDR
                             </span>
@@ -1324,27 +1325,27 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                       </div>
                     </div>
                     <div
-                      className={s.s243}
+                      className={s.s244}
                       style={{ '--d0': v.a4O, '--d1': v.a4Y } as CSSVars}
                     >
                       <span
-                        className={s.s244}
+                        className={s.s245}
                       >
                         ✓ Private path verified.
                       </span>
                       <span
-                        className={s.s245}
+                        className={s.s246}
                       >
                         <span
-                          className={s.s246}
+                          className={s.s247}
                         >
                           EXECUTION
                         </span>
                         <span
-                          className={s.s247}
+                          className={s.s248}
                         >
                           <span
-                            className={s.s248}
+                            className={s.s132}
                           />
                           Verified
                         </span>
@@ -1417,7 +1418,7 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                           >
                             <img
                               className={s.s263}
-                              src="https://github.com/openclaw.png?size=128"
+                              src="/logos/openclaw.svg"
                               alt="OpenClaw"
                               title="OpenClaw"
                             />
@@ -1432,7 +1433,7 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                           >
                             <img
                               className={s.s263}
-                              src="https://github.com/NousResearch.png?size=128"
+                              src="/logos/hermes.svg"
                               alt="Hermes"
                               title="Hermes"
                             />
@@ -1447,7 +1448,7 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                           >
                             <img
                               className={s.s263}
-                              src="https://github.com/All-Hands-AI.png?size=128"
+                              src="/logos/openhands.svg"
                               alt="OpenHands"
                               title="OpenHands"
                             />
@@ -1534,7 +1535,7 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                           15:18:02
                         </span>
                         <span
-                          className={s.s187}
+                          className={s.s188}
                         >
                           <span
                             className={s.s279}
@@ -1559,7 +1560,7 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                             className={s.s282}
                           >
                             <span
-                              className={s.s248}
+                              className={s.s132}
                             />
                             settled
                           </span>
@@ -1575,7 +1576,7 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                           15:17:59
                         </span>
                         <span
-                          className={s.s187}
+                          className={s.s188}
                         >
                           <span
                             className={s.s279}
@@ -1616,7 +1617,7 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                           15:17:54
                         </span>
                         <span
-                          className={s.s187}
+                          className={s.s188}
                         >
                           <span
                             className={s.s279}
@@ -1641,7 +1642,7 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                             className={s.s282}
                           >
                             <span
-                              className={s.s248}
+                              className={s.s132}
                             />
                             settled
                           </span>

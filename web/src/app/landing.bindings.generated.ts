@@ -191,6 +191,7 @@ export interface LandingBindings {
   pzLift1: unknown
   pzLift2: unknown
   pzLift3: unknown
+  pzLine: unknown
   pzOff: unknown
   pzOn1: unknown
   pzOn2: unknown

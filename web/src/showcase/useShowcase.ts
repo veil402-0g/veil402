@@ -4,10 +4,9 @@ import {
   BUDGET_COLUMNS,
   HISTORY_ACCENT_RANGE,
   HISTORY_COLUMNS,
-  MESH_GRADIENT,
-  MUTED_GRADIENT,
   initials,
 } from './data'
+import { MESH_GRADIENT, MUTED_GRADIENT } from '../ui/mesh'
 import { useFitScale } from '../ui/useFitScale'
 import { useInView } from '../ui/useInView'
 import { EASE } from '../motion/config'
@@ -25,7 +24,7 @@ const STAGE_EPSILON = 0.005
 const CELL_PCT = 6.25
 const OVER_LIMIT_CELL = 16
 const CHART_H = 400
-const CHART_CHROME = 58 + 4
+const CHART_CHROME = 46 + 4
 const BAR_MAX_PX = 270
 
 export interface BudgetColumnView {

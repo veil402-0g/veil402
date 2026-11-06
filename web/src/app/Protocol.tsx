@@ -105,6 +105,10 @@ export function Protocol({ v }: { v: LandingBindings }) {
         aria-hidden="true"
       >
         <div
+          className={s.s440}
+          aria-hidden="true"
+        />
+        <div
           className={s.s086}
           aria-hidden="true"
         />
@@ -130,15 +134,15 @@ export function Protocol({ v }: { v: LandingBindings }) {
         />
       </div>
       <div
-        className={s.s440}
+        className={s.s441}
         style={{ '--d0': v.vxOp, '--d1': v.vxRise } as CSSVars}
       >
         <div
-          className={s.s441}
+          className={s.s442}
         >
           <span />
           <button
-            className={s.s442}
+            className={s.s443}
             onClick={v.pToggle}
             aria-label="Play or pause"
           >
@@ -146,161 +150,161 @@ export function Protocol({ v }: { v: LandingBindings }) {
           </button>
         </div>
         <div
-          className={s.s443}
+          className={s.s444}
           data-pstage="1"
         >
           <div
-            className={s.s444}
+            className={s.s445}
             style={{ '--d0': v.pW, '--d1': v.pH } as CSSVars}
           >
             <div
-              className={s.s445}
+              className={s.s446}
               style={{ '--d0': v.pK } as CSSVars}
             >
               <div
-                className={s.s446}
+                className={s.s447}
               >
                 <div
-                  className={s.s447}
+                  className={s.s448}
                   style={{ '--d0': v.cap0, '--d1': v.capF0 } as CSSVars}
                 >
                   <span
-                    className={s.s448}
+                    className={s.s449}
                   >
                     Your agent
                   </span>
                   <span
-                    className={s.s449}
+                    className={s.s450}
                   />
                   <span
-                    className={s.s450}
+                    className={s.s451}
                   >
                     Any OpenAI-compatible tool or SDK. Secure access to private compute.
                   </span>
                 </div>
                 <div
-                  className={s.s451}
+                  className={s.s452}
                   style={{ '--d0': v.cap1, '--d1': v.capF1 } as CSSVars}
                 >
                   <span
-                    className={s.s448}
+                    className={s.s449}
                   >
                     Veil402 daemon
                   </span>
                   <span
-                    className={s.s452}
+                    className={s.s453}
                   >
                     YOURS
                   </span>
                   <span
-                    className={s.s450}
+                    className={s.s451}
                   >
                     private ledger · shields payments · encrypts comms · proves accounts
                   </span>
                 </div>
                 <div
-                  className={s.s453}
+                  className={s.s454}
                   style={{ '--d0': v.cap2, '--d1': v.capF2 } as CSSVars}
                 >
                   <span
-                    className={s.s448}
+                    className={s.s449}
                   >
                     Enclave
                   </span>
                   <span
-                    className={s.s452}
+                    className={s.s453}
                   >
                     THE SELLER
                   </span>
                   <span
-                    className={s.s450}
+                    className={s.s451}
                   >
                     authorises inference · gates escrow · meters usage · signs settlement
                   </span>
                 </div>
                 <div
-                  className={s.s454}
+                  className={s.s455}
                   style={{ '--d0': v.cap3, '--d1': v.capF3 } as CSSVars}
                 >
                   <span
-                    className={s.s448}
+                    className={s.s449}
                   >
                     0G Private Computer
                   </span>
                   <span
-                    className={s.s452}
+                    className={s.s453}
                   >
                     BLIND TO THE PAYER
                   </span>
                   <span
-                    className={s.s450}
+                    className={s.s451}
                   >
                     routes inference · selects TEE providers · forwards encrypted requests · handles billing
                   </span>
                 </div>
                 <div
-                  className={s.s455}
+                  className={s.s456}
                   style={{ '--d0': v.cap4, '--d1': v.capF4 } as CSSVars}
                 >
                   <span
-                    className={s.s448}
+                    className={s.s449}
                   >
                     TEE provider
                   </span>
                   <span
-                    className={s.s449}
+                    className={s.s450}
                   />
                   <span
-                    className={s.s450}
+                    className={s.s451}
                   >
                     Intel TDX · weights inside the enclave
                   </span>
                 </div>
                 <div
-                  className={s.s456}
-                />
-                <div
                   className={s.s457}
-                  style={{ '--d0': v.pgW, '--d1': v.pgTr } as CSSVars}
                 />
                 <div
                   className={s.s458}
+                  style={{ '--d0': v.pgW, '--d1': v.pgTr } as CSSVars}
                 />
                 <div
                   className={s.s459}
-                  style={{ '--d0': v.rLit } as CSSVars}
                 />
                 <div
                   className={s.s460}
+                  style={{ '--d0': v.rLit } as CSSVars}
                 />
                 <div
                   className={s.s461}
                 />
-                <span
+                <div
                   className={s.s462}
+                />
+                <span
+                  className={s.s463}
                   style={{ '--d0': v.rLabC } as CSSVars}
                 >
                   answer, streamed
                 </span>
                 <div
-                  className={s.s463}
+                  className={s.s464}
                 />
                 <div
-                  className={s.s464}
+                  className={s.s465}
                   style={{ '--d0': v.brS } as CSSVars}
                 />
                 <span
-                  className={s.s465}
+                  className={s.s466}
                   style={{ '--d0': v.stC } as CSSVars}
                 >
                   settlement, proved on Hedera
                 </span>
                 <div
-                  className={s.s466}
-                  style={{ '--d0': `1.5px solid ${v.nb0}`, '--d1': v.nbg0, '--d2': v.nsh0, '--d3': v.nan0 } as CSSVars}
+                  className={s.s467}
+                  style={{ '--d0': `2px solid ${v.nb0}`, '--d1': v.nbg0, '--d2': v.nsh0, '--d3': v.nan0 } as CSSVars}
                 >
                   <svg
-                    className={s.s467}
+                    className={s.s468}
                     width="26"
                     height="26"
                     viewBox="0 0 24 24"
@@ -320,11 +324,11 @@ export function Protocol({ v }: { v: LandingBindings }) {
                   </svg>
                 </div>
                 <div
-                  className={s.s468}
-                  style={{ '--d0': `1.5px solid ${v.nb1}`, '--d1': v.nbg1, '--d2': v.nsh1, '--d3': v.nan1 } as CSSVars}
+                  className={s.s469}
+                  style={{ '--d0': `2px solid ${v.nb1}`, '--d1': v.nbg1, '--d2': v.nsh1, '--d3': v.nan1 } as CSSVars}
                 >
                   <svg
-                    className={s.s467}
+                    className={s.s468}
                     width="26"
                     height="26"
                     viewBox="0 0 24 24"
@@ -350,11 +354,11 @@ export function Protocol({ v }: { v: LandingBindings }) {
                   </svg>
                 </div>
                 <div
-                  className={s.s469}
-                  style={{ '--d0': `1.5px solid ${v.nb2}`, '--d1': v.nbg2, '--d2': v.nsh2, '--d3': v.nan2 } as CSSVars}
+                  className={s.s470}
+                  style={{ '--d0': `2px solid ${v.nb2}`, '--d1': v.nbg2, '--d2': v.nsh2, '--d3': v.nan2 } as CSSVars}
                 >
                   <svg
-                    className={s.s467}
+                    className={s.s468}
                     width="26"
                     height="26"
                     viewBox="0 0 24 24"
@@ -374,11 +378,11 @@ export function Protocol({ v }: { v: LandingBindings }) {
                   </svg>
                 </div>
                 <div
-                  className={s.s470}
-                  style={{ '--d0': `1.5px solid ${v.nb3}`, '--d1': v.nbg3, '--d2': v.nsh3, '--d3': v.nan3 } as CSSVars}
+                  className={s.s471}
+                  style={{ '--d0': `2px solid ${v.nb3}`, '--d1': v.nbg3, '--d2': v.nsh3, '--d3': v.nan3 } as CSSVars}
                 >
                   <svg
-                    className={s.s467}
+                    className={s.s468}
                     width="26"
                     height="26"
                     viewBox="0 0 24 24"
@@ -392,11 +396,11 @@ export function Protocol({ v }: { v: LandingBindings }) {
                   </svg>
                 </div>
                 <div
-                  className={s.s471}
-                  style={{ '--d0': `1.5px solid ${v.nb4}`, '--d1': v.nbg4, '--d2': v.nsh4, '--d3': v.nan4 } as CSSVars}
+                  className={s.s472}
+                  style={{ '--d0': `2px solid ${v.nb4}`, '--d1': v.nbg4, '--d2': v.nsh4, '--d3': v.nan4 } as CSSVars}
                 >
                   <svg
-                    className={s.s467}
+                    className={s.s468}
                     width="26"
                     height="26"
                     viewBox="0 0 24 24"
@@ -422,11 +426,11 @@ export function Protocol({ v }: { v: LandingBindings }) {
                   </svg>
                 </div>
                 <div
-                  className={s.s472}
-                  style={{ '--d0': `1.5px solid ${v.nb5}`, '--d1': v.nbg5, '--d2': v.nsh5, '--d3': v.nan5 } as CSSVars}
+                  className={s.s473}
+                  style={{ '--d0': `2px solid ${v.nb5}`, '--d1': v.nbg5, '--d2': v.nsh5, '--d3': v.nan5 } as CSSVars}
                 >
                   <svg
-                    className={s.s467}
+                    className={s.s468}
                     width="26"
                     height="26"
                     viewBox="0 0 24 24"
@@ -445,31 +449,31 @@ export function Protocol({ v }: { v: LandingBindings }) {
                   </svg>
                 </div>
                 <div
-                  className={s.s473}
+                  className={s.s474}
                   style={{ '--d0': v.cap5, '--d1': v.capF5 } as CSSVars}
                 >
                   <span
-                    className={s.s149}
+                    className={s.s150}
                   >
                     <span
-                      className={s.s448}
+                      className={s.s449}
                     >
                       Shielded pool
                     </span>
                     <span
-                      className={s.s474}
+                      className={s.s475}
                     >
                       HEDERA
                     </span>
                   </span>
                   <span
-                    className={s.s475}
+                    className={s.s476}
                   >
                     shielded note · time-locked escrow · ZK settlement
                   </span>
                 </div>
                 <svg
-                  className={s.s476}
+                  className={s.s477}
                   width="1200"
                   height="430"
                   fill="none"
@@ -487,7 +491,7 @@ export function Protocol({ v }: { v: LandingBindings }) {
                     />
                   </g>
                   <g
-                    className={s.s477}
+                    className={s.s478}
                     stroke="#1230d6"
                     strokeWidth="1.5"
                     style={{ '--d0': v.teeO } as CSSVars}
@@ -504,93 +508,118 @@ export function Protocol({ v }: { v: LandingBindings }) {
                   />
                 </svg>
                 <div
-                  className={s.s478}
+                  className={s.s479}
                   style={{ '--d0': v.teeO } as CSSVars}
                 >
                   <span
                     className={s.s095}
                   >
                     <span
-                      className={s.s479}
+                      className={s.s480}
                     >
-                      ✓
+                      <svg
+                        width="9"
+                        height="9"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="#fff"
+                        strokeWidth="2.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path
+                          d="M3 8.5L6.5 12L13 4.5"
+                        />
+                      </svg>
                     </span>
                     <span
-                      className={s.s480}
+                      className={s.s481}
                     >
                       TeeML
                     </span>
                     <span
-                      className={s.s481}
+                      className={s.s482}
                     >
                       WE SELL THIS
                     </span>
                   </span>
                   <span
-                    className={s.s482}
+                    className={s.s483}
                   >
                     Weights run inside the enclave; the provider cannot read the prompt.
                   </span>
                 </div>
                 <div
-                  className={s.s483}
+                  className={s.s484}
                 >
                   <span
                     className={s.s095}
                   >
                     <span
-                      className={s.s484}
+                      className={s.s485}
                     >
-                      ✕
+                      <svg
+                        width="8"
+                        height="8"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="#8b8e97"
+                        strokeWidth="2.6"
+                        strokeLinecap="round"
+                      >
+                        <path
+                          d="M4 4l8 8M12 4l-8 8"
+                        />
+                      </svg>
                     </span>
                     <span
-                      className={s.s485}
+                      className={s.s486}
                     >
                       TeeTLS
                     </span>
                     <span
-                      className={s.s486}
+                      className={s.s487}
                     >
                       EXCLUDED
                     </span>
                   </span>
                   <span
-                    className={s.s487}
+                    className={s.s488}
                   >
                     TLS ends in an enclave, then a vendor reads the prompt.
                   </span>
                 </div>
                 <span
-                  className={s.s488}
+                  className={s.s489}
                 >
                   none
                 </span>
                 <span
-                  className={s.s489}
+                  className={s.s490}
                 >
                   read
                 </span>
                 <span
-                  className={s.s490}
+                  className={s.s491}
                 >
                   PROMPT EXPOSURE
                 </span>
                 <div
-                  className={s.s491}
+                  className={s.s492}
                   style={{ '--d0': v.pkL, '--d1': v.pkO, '--d2': v.pkTr } as CSSVars}
                 >
                   <span
-                    className={s.s492}
+                    className={s.s493}
                   >
                     {v.pkT}
                   </span>
                 </div>
                 <div
-                  className={s.s493}
+                  className={s.s494}
                   style={{ '--d0': v.ntT, '--d1': v.ntO, '--d2': v.ntTr } as CSSVars}
                 />
                 <div
-                  className={s.s494}
+                  className={s.s495}
                   style={{ '--d0': v.rpL, '--d1': v.rpO, '--d2': v.rpTr } as CSSVars}
                 />
               </div>
@@ -598,73 +627,73 @@ export function Protocol({ v }: { v: LandingBindings }) {
           </div>
         </div>
         <div
-          className={s.s495}
+          className={s.s496}
         >
           <div
-            className={s.s496}
+            className={s.s497}
           >
             <span
-              className={s.s497}
+              className={s.s498}
             >
               {v.pN} / 07
             </span>
             <div
-              className={s.s498}
+              className={s.s499}
             >
               <span
-                className={s.s499}
+                className={s.s500}
               >
                 {v.pTitle}
               </span>
               <span
-                className={s.s500}
+                className={s.s501}
               >
                 {v.pBody}
               </span>
             </div>
           </div>
           <span
-            className={s.s501}
+            className={s.s502}
             style={{ '--d0': v.ppC, '--d1': v.ppB } as CSSVars}
           >
             <span
-              className={s.s502}
+              className={s.s503}
               style={{ '--d0': v.ppD } as CSSVars}
             />
             {v.pPill}
           </span>
         </div>
         <div
-          className={s.s503}
+          className={s.s504}
         >
           <button
-            className={s.s504}
+            className={s.s505}
             onClick={v.pc0}
           >
             <span
-              className={s.s505}
+              className={s.s506}
             >
               <span
-                className={s.s506}
+                className={s.s507}
               >
                 01
               </span>
               CALL
             </span>
             <span
-              className={s.s507}
+              className={s.s508}
               aria-hidden="true"
               style={{ '--d0': v.pcf0, '--d1': v.pct0 } as CSSVars}
             >
               <span
-                className={s.s508}
+                className={s.s509}
                 style={{ '--d0': v.pgp0, '--d1': v.pgt0 } as CSSVars}
               />
               <span
-                className={s.s509}
+                className={s.s510}
               >
                 <span
-                  className={s.s506}
+                  className={s.s507}
                 >
                   01
                 </span>
@@ -673,33 +702,33 @@ export function Protocol({ v }: { v: LandingBindings }) {
             </span>
           </button>
           <button
-            className={s.s504}
+            className={s.s505}
             onClick={v.pc1}
           >
             <span
-              className={s.s505}
+              className={s.s506}
             >
               <span
-                className={s.s506}
+                className={s.s507}
               >
                 02
               </span>
               RESERVE
             </span>
             <span
-              className={s.s510}
+              className={s.s511}
               aria-hidden="true"
               style={{ '--d0': v.pcf1, '--d1': v.pct1 } as CSSVars}
             >
               <span
-                className={s.s511}
+                className={s.s512}
                 style={{ '--d0': v.pgp1, '--d1': v.pgt1 } as CSSVars}
               />
               <span
-                className={s.s509}
+                className={s.s510}
               >
                 <span
-                  className={s.s506}
+                  className={s.s507}
                 >
                   02
                 </span>
@@ -708,33 +737,33 @@ export function Protocol({ v }: { v: LandingBindings }) {
             </span>
           </button>
           <button
-            className={s.s504}
+            className={s.s505}
             onClick={v.pc2}
           >
             <span
-              className={s.s505}
+              className={s.s506}
             >
               <span
-                className={s.s506}
+                className={s.s507}
               >
                 03
               </span>
               ESCROW
             </span>
             <span
-              className={s.s512}
+              className={s.s513}
               aria-hidden="true"
               style={{ '--d0': v.pcf2, '--d1': v.pct2 } as CSSVars}
             >
               <span
-                className={s.s513}
+                className={s.s514}
                 style={{ '--d0': v.pgp2, '--d1': v.pgt2 } as CSSVars}
               />
               <span
-                className={s.s509}
+                className={s.s510}
               >
                 <span
-                  className={s.s506}
+                  className={s.s507}
                 >
                   03
                 </span>
@@ -743,33 +772,33 @@ export function Protocol({ v }: { v: LandingBindings }) {
             </span>
           </button>
           <button
-            className={s.s504}
+            className={s.s505}
             onClick={v.pc3}
           >
             <span
-              className={s.s505}
+              className={s.s506}
             >
               <span
-                className={s.s506}
+                className={s.s507}
               >
                 04
               </span>
               METER
             </span>
             <span
-              className={s.s514}
+              className={s.s515}
               aria-hidden="true"
               style={{ '--d0': v.pcf3, '--d1': v.pct3 } as CSSVars}
             >
               <span
-                className={s.s515}
+                className={s.s516}
                 style={{ '--d0': v.pgp3, '--d1': v.pgt3 } as CSSVars}
               />
               <span
-                className={s.s509}
+                className={s.s510}
               >
                 <span
-                  className={s.s506}
+                  className={s.s507}
                 >
                   04
                 </span>
@@ -778,33 +807,33 @@ export function Protocol({ v }: { v: LandingBindings }) {
             </span>
           </button>
           <button
-            className={s.s504}
+            className={s.s505}
             onClick={v.pc4}
           >
             <span
-              className={s.s505}
+              className={s.s506}
             >
               <span
-                className={s.s506}
+                className={s.s507}
               >
                 05
               </span>
               ROUTE
             </span>
             <span
-              className={s.s516}
+              className={s.s517}
               aria-hidden="true"
               style={{ '--d0': v.pcf4, '--d1': v.pct4 } as CSSVars}
             >
               <span
-                className={s.s517}
+                className={s.s518}
                 style={{ '--d0': v.pgp4, '--d1': v.pgt4 } as CSSVars}
               />
               <span
-                className={s.s509}
+                className={s.s510}
               >
                 <span
-                  className={s.s506}
+                  className={s.s507}
                 >
                   05
                 </span>
@@ -813,33 +842,33 @@ export function Protocol({ v }: { v: LandingBindings }) {
             </span>
           </button>
           <button
-            className={s.s504}
+            className={s.s505}
             onClick={v.pc5}
           >
             <span
-              className={s.s505}
+              className={s.s506}
             >
               <span
-                className={s.s506}
+                className={s.s507}
               >
                 06
               </span>
               INFER
             </span>
             <span
-              className={s.s518}
+              className={s.s519}
               aria-hidden="true"
               style={{ '--d0': v.pcf5, '--d1': v.pct5 } as CSSVars}
             >
               <span
-                className={s.s519}
+                className={s.s520}
                 style={{ '--d0': v.pgp5, '--d1': v.pgt5 } as CSSVars}
               />
               <span
-                className={s.s509}
+                className={s.s510}
               >
                 <span
-                  className={s.s506}
+                  className={s.s507}
                 >
                   06
                 </span>
@@ -848,33 +877,33 @@ export function Protocol({ v }: { v: LandingBindings }) {
             </span>
           </button>
           <button
-            className={s.s504}
+            className={s.s505}
             onClick={v.pc6}
           >
             <span
-              className={s.s505}
+              className={s.s506}
             >
               <span
-                className={s.s506}
+                className={s.s507}
               >
                 07
               </span>
               SETTLE
             </span>
             <span
-              className={s.s520}
+              className={s.s521}
               aria-hidden="true"
               style={{ '--d0': v.pcf6, '--d1': v.pct6 } as CSSVars}
             >
               <span
-                className={s.s521}
+                className={s.s522}
                 style={{ '--d0': v.pgp6, '--d1': v.pgt6 } as CSSVars}
               />
               <span
-                className={s.s509}
+                className={s.s510}
               >
                 <span
-                  className={s.s506}
+                  className={s.s507}
                 >
                   07
                 </span>

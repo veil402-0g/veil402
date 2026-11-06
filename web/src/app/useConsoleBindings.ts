@@ -651,7 +651,7 @@ export function useConsoleBindings({
       mkS: rangeIn ? (on ? 1.2 : 1) : 0,
       labO: rangeIn ? 1 : 0,
       labBg: 'transparent',
-      conH: `max(0px, calc(310px - ${barPx}))`,
+      conH: `max(0px, calc(318px - ${barPx}))`,
       cardL: `${(i / total) * 100}%`,
       cardW: `${100 / total}%`,
       cardB: `calc(${barPx} + 6px)`,

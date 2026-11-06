@@ -6,14 +6,14 @@ export function Footer({ v }: { v: LandingBindings }) {
   return (
     <>
   <footer
-    className={s.s628}
+    className={s.s629}
     data-screen-label="Footer"
   >
     <div
-      className={s.s629}
+      className={s.s630}
     >
       <div
-        className={s.s630}
+        className={s.s631}
         aria-hidden="true"
       >
         <span
@@ -21,10 +21,10 @@ export function Footer({ v }: { v: LandingBindings }) {
         />
       </div>
       <div
-        className={s.s631}
+        className={s.s632}
       >
         <div
-          className={s.s632}
+          className={s.s633}
           aria-hidden="true"
         >
           <div
@@ -53,19 +53,13 @@ export function Footer({ v }: { v: LandingBindings }) {
           />
         </div>
         <div
-          className={s.s633}
+          className={s.s634}
         >
           <div
-            className={s.s634}
+            className={s.s635}
             data-h3d="3"
             style={{ '--d0': v.dispFont, '--d1': v.dispTrack } as CSSVars}
           >
-            <span
-              className={s.s635}
-              aria-hidden="true"
-            >
-              Veil402
-            </span>
             <span
               className={s.s636}
               aria-hidden="true"
@@ -86,20 +80,26 @@ export function Footer({ v }: { v: LandingBindings }) {
             </span>
             <span
               className={s.s639}
+              aria-hidden="true"
+            >
+              Veil402
+            </span>
+            <span
+              className={s.s640}
             >
               Veil402
             </span>
           </div>
           <span
-            className={s.s640}
+            className={s.s641}
           >
             Confidential computing. Private payments. Verifiable execution.
           </span>
           <div
-            className={s.s641}
+            className={s.s642}
           >
             <a
-              className={s.s642}
+              className={s.s643}
               href="/console"
               onClick={v.openConsole}
               onMouseEnter={v.f1on}
@@ -110,7 +110,7 @@ export function Footer({ v }: { v: LandingBindings }) {
                 className={s.s058}
               >
                 <span
-                  className={s.s643}
+                  className={s.s644}
                   style={{ '--d0': v.fa1 } as CSSVars}
                 >
                   <span
@@ -127,7 +127,7 @@ export function Footer({ v }: { v: LandingBindings }) {
               </span>
             </a>
             <a
-              className={s.s642}
+              className={s.s643}
               href="#"
               onMouseEnter={v.f2on}
               onMouseLeave={v.f2off}
@@ -137,7 +137,7 @@ export function Footer({ v }: { v: LandingBindings }) {
                 className={s.s058}
               >
                 <span
-                  className={s.s644}
+                  className={s.s645}
                   style={{ '--d0': v.fa2 } as CSSVars}
                 >
                   <span
@@ -156,16 +156,16 @@ export function Footer({ v }: { v: LandingBindings }) {
           </div>
         </div>
         <div
-          className={s.s645}
+          className={s.s646}
         >
           <span
-            className={s.s646}
+            className={s.s647}
           >
             <span
-              className={s.s149}
+              className={s.s150}
             >
               <span
-                className={s.s647}
+                className={s.s648}
                 aria-hidden="true"
               >
                 <span
@@ -173,7 +173,7 @@ export function Footer({ v }: { v: LandingBindings }) {
                 />
               </span>
               <span
-                className={s.s648}
+                className={s.s649}
               >
                 Veil402
               </span>
@@ -183,28 +183,28 @@ export function Footer({ v }: { v: LandingBindings }) {
             </span>
           </span>
           <div
-            className={s.s649}
+            className={s.s650}
           >
             <a
-              className={s.s650}
+              className={s.s651}
               href="#"
             >
               DOCS
             </a>
             <a
-              className={s.s650}
+              className={s.s651}
               href="#"
             >
               SOURCE
             </a>
             <a
-              className={s.s650}
+              className={s.s651}
               href="#"
             >
               PRIVACY
             </a>
             <a
-              className={s.s650}
+              className={s.s651}
               href="#"
             >
               TERMS
