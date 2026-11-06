@@ -1,13 +1,14 @@
 use async_trait::async_trait;
 use veil402_sdk::Field;
 
-use super::{Held, Minted, Unplaced};
+use super::{Held, Minted, Unopened, Unplaced};
 use crate::core::StoreError;
 
 /// Holds the notes we own.
 ///
-/// Note ciphertexts are not decryptable yet, so nothing here can be recovered
-/// from the chain: this store is the only copy of what makes a note spendable.
+/// A convenience rather than the only copy: each note's opening is sealed to
+/// the viewing key and emitted with its commitment, so a lost store is
+/// rebuilt by scanning the pool again.
 #[async_trait]
 pub trait NoteStore: Send + Sync {
     /// Records notes before the transaction that creates them is sent.
@@ -65,6 +66,18 @@ pub trait ChainFacts: Send + Sync {
     /// The deadline of the escrow the pool holds against this nullifier, if
     /// it holds one. This is the chain's own record of our reservation.
     async fn escrow(&self, nullifier: Field) -> Result<Option<u64>, StoreError>;
+
+    /// Commitments from `first` onwards that carry a ciphertext and are not
+    /// already held, oldest first. Trial decryption happens once per leaf,
+    /// ever, so the scan does not grow with the pool.
+    async fn unopened(&self, first: u32, limit: u32) -> Result<Vec<Unopened>, StoreError>;
+
+    /// Remembers the first leaf still to scan. Leaves are numbered from
+    /// zero, so this is one past the last one read, never the last one.
+    async fn scanned(&self, first: u32) -> Result<(), StoreError>;
+
+    /// The first leaf still to scan.
+    async fn scan_mark(&self) -> Result<u32, StoreError>;
 
     /// What a settlement against this nullifier paid, once one has landed.
     /// The change a buyer is owed cannot be derived without it.

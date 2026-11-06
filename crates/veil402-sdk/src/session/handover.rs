@@ -25,6 +25,7 @@ struct Wire {
     siblings: [[u8; 32]; TREE_DEPTH],
     root: [u8; 32],
     change_seed: [u8; 32],
+    view: [u8; 32],
     seller: [u8; 20],
     deadline: u64,
     pool: [u8; 20],
@@ -57,6 +58,9 @@ pub struct Handover {
     /// Fresh per envelope, and it is the only identity in here: nothing a
     /// delegate is handed outlives the session it was handed for.
     pub change_seed: Secret,
+    /// Where the change note's opening is sealed, so the buyer finds it on
+    /// chain rather than from a record it has to keep.
+    pub view: [u8; 32],
     pub seller: Address,
     pub deadline: u64,
     pub pool: Address,
@@ -84,6 +88,7 @@ impl Handover {
             siblings: self.siblings.map(Field::to_bytes),
             root: self.root.to_bytes(),
             change_seed: self.change_seed.to_bytes(),
+            view: self.view,
             seller: self.seller.into(),
             deadline: self.deadline,
             pool: self.pool.into(),
@@ -118,6 +123,7 @@ impl Handover {
             siblings,
             root: Field::from_bytes(wire.root)?,
             change_seed: Secret::from_bytes(wire.change_seed)?,
+            view: wire.view,
             seller: Address::from(wire.seller),
             deadline: wire.deadline,
             pool: Address::from(wire.pool),

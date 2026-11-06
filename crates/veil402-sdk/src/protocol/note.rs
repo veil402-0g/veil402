@@ -1,4 +1,5 @@
 use ark_bn254::Fr;
+use borsh::{BorshDeserialize, BorshSerialize};
 use light_poseidon::{Poseidon, PoseidonBytesHasher};
 
 use super::{Field, Secret};
@@ -253,4 +254,23 @@ pub(crate) fn merkle_root(mut node: Field, index: u32, siblings: &[Field]) -> Re
         };
     }
     Ok(node)
+}
+
+/// A note's opening, sealed to the wallet that owns it.
+///
+/// Borsh because it round trips byte for byte and refuses trailing bytes,
+/// and because the pool caps a note at [`MAX_NOTE_BYTES`]: this is 73 of
+/// the 80 an HPKE envelope leaves.
+///
+/// A session note's blinding comes from its seed, so only one of the two is
+/// carried. Which it is, is the flag.
+#[derive(BorshDeserialize, BorshSerialize, Clone, Debug, Eq, PartialEq)]
+pub struct Opening {
+    pub value: u64,
+    pub asset: [u8; 32],
+    /// A session note's seed, or an ordinary note's blinding.
+    pub secret: [u8; 32],
+    /// Whether `secret` is a seed, and the note belongs to a session owner
+    /// rather than the wallet's own.
+    pub session: bool,
 }

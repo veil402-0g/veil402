@@ -195,8 +195,6 @@ pub enum StartError {
     Config(#[from] ConfigError),
     #[error(transparent)]
     Meter(#[from] MeterError),
-    #[error("the serving contract is unreachable: {0}")]
-    Serving(String),
     #[error("the proving artifacts could not be opened")]
     Artifacts,
     #[error(transparent)]
@@ -241,6 +239,21 @@ pub fn assemble(
     )))
 }
 
+/// Where attested keys are looked up, or nothing if that cannot be reached.
+///
+/// Attestation is something a receipt carries, not something metering needs,
+/// so a serving contract that is away costs the claim and not the service.
+/// Every provider then answers unattested, which is the honest result.
+async fn attesting(config: &Config) -> Arc<dyn veil402_enclave::Registry> {
+    match adapters::registrar(&config.serving_rpc, config.serving).await {
+        Ok(registrar) => Arc::new(registrar),
+        Err(error) => {
+            tracing::warn!(%error, "the serving contract is unreachable; nothing will be attested");
+            Arc::new(std::collections::HashMap::new())
+        }
+    }
+}
+
 /// Serves until the process is signalled.
 ///
 /// # Errors
@@ -253,11 +266,7 @@ pub async fn serve(config: Config) -> Result<(), StartError> {
         &config.upstream_key,
         &config.trust,
         config.ceiling,
-        Arc::new(
-            adapters::registrar(&config.serving_rpc, config.serving)
-                .await
-                .map_err(StartError::Serving)?,
-        ),
+        attesting(&config).await,
     )?);
     let service = assemble(&config, escrows, upstream)?;
     let settler = Arc::new(

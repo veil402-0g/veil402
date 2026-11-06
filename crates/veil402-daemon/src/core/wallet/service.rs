@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
 use thiserror::Error;
+use borsh::BorshDeserialize;
 use veil402_sdk::{
-    Field, MerklePath, Note, Owner, Secret, SessionKeys, Send, Spend, Transaction,
+    Field, MerklePath, Note, Opening, Owner, Secret, SessionKeys, Send, Spend, Transaction,
+    session::{Sealed, Viewing, seal_note},
 };
 
-use super::{ChainFacts, Held, Minted, NoteStore, Reconciled, Recovered};
+use super::{ChainFacts, Held, Minted, NoteStore, Reconciled, Recovered, Unopened};
 use crate::core::StoreError;
 
 /// A note still unplaced after this long means its transaction never landed.
@@ -79,7 +81,7 @@ pub struct Reseeded {
 /// Whole rather than a piece of it: the session's ceiling is whatever the
 /// note holds, so there is no size to cut to, and a remainder would only be
 /// a second output to prove and write down.
-fn reseeded(note: &Held) -> Result<(Minted, Send), veil402_sdk::Error> {
+fn reseeded(note: &Held, view: [u8; 32]) -> Result<(Minted, Send), veil402_sdk::Error> {
     let seed = Secret::random()?;
     let keys = SessionKeys::from_seed(&seed)?;
     output(
@@ -88,7 +90,50 @@ fn reseeded(note: &Held) -> Result<(Minted, Send), veil402_sdk::Error> {
         keys.owner.public()?,
         &keys.random,
         Some(&seed),
+        view,
     )
+}
+
+/// How many unopened leaves one pass tries. Bounded so a fresh wallet
+/// catching up on a long history does not hold the pass open.
+const SCAN: u32 = 512;
+
+/// Splits the encapsulated key from the ciphertext the pool carried.
+fn split(note: &[u8]) -> Option<Sealed> {
+    let (head, ciphertext) = note.split_at_checked(32)?;
+    Some(Sealed {
+        encapsulated: head.try_into().ok()?,
+        ciphertext: ciphertext.to_vec(),
+    })
+}
+
+/// Seals a note's opening to the wallet that will own it, so the note can
+/// be found again from the viewing key alone.
+///
+/// A session note's blinding comes from its seed, so the seed is what
+/// travels and the blinding is derived back from it.
+fn sealed(
+    view: [u8; 32],
+    value: u64,
+    asset: Field,
+    random: &Secret,
+    seed: Option<&Secret>,
+) -> Result<Vec<u8>, veil402_sdk::Error> {
+    let opening = Opening {
+        value,
+        asset: asset.to_bytes(),
+        secret: seed.unwrap_or(random).to_bytes(),
+        session: seed.is_some(),
+    };
+    let sealed = seal_note(
+        view,
+        &borsh::to_vec(&opening)
+            .map_err(|_| veil402_sdk::Error::Transaction("a note opening will not encode"))?,
+    )?;
+    let mut bytes = Vec::with_capacity(32 + sealed.ciphertext.len());
+    bytes.extend_from_slice(&sealed.encapsulated);
+    bytes.extend_from_slice(&sealed.ciphertext);
+    Ok(bytes)
 }
 
 /// One output, as the row to keep and the send to prove. Both carry the same
@@ -99,6 +144,7 @@ fn output(
     owner: Field,
     random: &Secret,
     seed: Option<&Secret>,
+    view: [u8; 32],
 ) -> Result<(Minted, Send), veil402_sdk::Error> {
     let kept = mint(
         asset,
@@ -112,7 +158,7 @@ fn output(
         owner,
         value,
         Secret::from_bytes(random.to_bytes())?,
-        Vec::new(),
+        sealed(view, value, asset, random, seed)?,
     )?;
     Ok((kept, created))
 }
@@ -166,6 +212,12 @@ pub struct WalletService {
 }
 
 impl WalletService {
+    /// Where a sender seals a note's opening so this wallet can find it.
+    #[must_use]
+    pub fn view(&self) -> [u8; 32] {
+        Viewing::new(&self.owner.view).public()
+    }
+
     #[must_use]
     pub const fn new(notes: Arc<dyn NoteStore>, chain: Arc<dyn ChainFacts>, owner: Owner) -> Self {
         Self {
@@ -243,7 +295,7 @@ impl WalletService {
         merkle: MerklePath,
         now: u64,
     ) -> Result<Reseeded, WalletError> {
-        let (minted, send) = reseeded(note).map_err(|_| WalletError::Owner)?;
+        let (minted, send) = reseeded(note, self.view()).map_err(|_| WalletError::Owner)?;
         let session = minted.commitment;
         self.notes.remember(&[minted], now).await?;
         let input = Spend {
@@ -330,6 +382,70 @@ impl WalletService {
         let change = minted.first().map(|note| note.commitment);
         self.notes.remember(&minted, now).await?;
         Ok(change.map_or(Recovered::Nothing, Recovered::Change))
+    }
+
+    /// Finds notes on chain that this wallet owns but has no record of.
+    ///
+    /// Every opening is sealed to the viewing key and emitted beside its
+    /// commitment, so a wallet that lost its database — or never had one —
+    /// recovers by opening what it can and ignoring what it cannot. Each
+    /// leaf is tried once, ever, so the scan does not grow with the pool.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError::Store`] when the store cannot be read.
+    pub async fn discover(&self, now: u64) -> Result<u32, WalletError> {
+        let viewing = Viewing::new(&self.owner.view);
+        let from = self.chain.scan_mark().await?;
+        let unopened = self.chain.unopened(from, SCAN).await?;
+        let mut found = 0;
+        let mut next = from;
+        for leaf in &unopened {
+            next = next.max(leaf.leaf_index.saturating_add(1));
+            if let Some(minted) = self.opened(&viewing, leaf)? {
+                self.notes.remember(&[minted], now).await?;
+                found += 1;
+            }
+        }
+        if next > from {
+            self.chain.scanned(next).await?;
+        }
+        Ok(found)
+    }
+
+    /// One commitment, if it opens to a note this wallet owns.
+    ///
+    /// A ciphertext that will not open was sealed to somebody else, which is
+    /// the ordinary case. One that opens onto another commitment was sealed
+    /// to us dishonestly, and is refused rather than written down.
+    fn opened(&self, viewing: &Viewing, leaf: &Unopened) -> Result<Option<Minted>, WalletError> {
+        let Some(sealed) = split(&leaf.note) else {
+            return Ok(None);
+        };
+        let Ok(plain) = viewing.open(&sealed) else {
+            return Ok(None);
+        };
+        let Ok(opening) = Opening::try_from_slice(&plain) else {
+            return Ok(None);
+        };
+        let asset = Field::from_bytes(opening.asset).map_err(|_| WalletError::Owner)?;
+        let secret = Secret::from_bytes(opening.secret).map_err(|_| WalletError::Owner)?;
+        let (owner, random, seed) = if opening.session {
+            let keys = SessionKeys::from_seed(&secret).map_err(|_| WalletError::Owner)?;
+            (
+                keys.owner.public().map_err(|_| WalletError::Owner)?,
+                keys.random,
+                Some(secret),
+            )
+        } else {
+            (
+                self.owner.public().map_err(|_| WalletError::Owner)?,
+                secret,
+                None,
+            )
+        };
+        let minted = mint(asset, opening.value, owner, random, seed).map_err(|_| WalletError::Owner)?;
+        Ok((minted.commitment == leaf.commitment).then_some(minted))
     }
 
     /// Catches the notes up with the chain: places the ones the index has

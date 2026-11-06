@@ -7,7 +7,7 @@ use hpke::{
     setup_receiver, setup_sender, single_shot_open, single_shot_seal,
 };
 
-use crate::{client::Error, evm::PoolClient};
+use crate::{client::Error, evm::PoolClient, protocol::Secret};
 
 type Kem = X25519HkdfSha256;
 type Private = <Kem as hpke::Kem>::PrivateKey;
@@ -29,6 +29,9 @@ const PROMPT: &[u8] = b"veil402:prompt:v1";
 /// What comes back. Sealed to a key the buyer minted for this one request, so
 /// the host between them relays an answer it cannot read.
 const REPLY: &[u8] = b"veil402:reply:v1";
+
+/// Separates a note's opening from every other envelope sealed here.
+const NOTE: &[u8] = b"veil402:note:v1";
 
 /// An envelope only its recipient can open.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -386,4 +389,48 @@ fn encrypt(public: &Public, info: &[u8], payload: &[u8]) -> Result<Sealed, Error
         encapsulated: key,
         ciphertext,
     })
+}
+
+/// The key a wallet's own notes are sealed to.
+///
+/// Derived from the viewing secret, which is already what finds notes — the
+/// nullifier key comes from the same place. Without it a wallet can see
+/// every commitment on chain and tell none of them apart, which is why
+/// losing the database loses the balance.
+pub struct Viewing(EnclaveKey);
+
+impl Viewing {
+    #[must_use]
+    pub fn new(view: &Secret) -> Self {
+        Self(EnclaveKey::from_ikm(&view.to_bytes()))
+    }
+
+    /// What a sender seals to. Public, and useless for spending.
+    #[must_use]
+    pub fn public(&self) -> [u8; 32] {
+        self.0.public()
+    }
+
+    /// Opens a note sealed to this wallet.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Handover`] when it was sealed to another key, which
+    /// for a scan is the ordinary answer rather than a fault.
+    pub fn open(&self, sealed: &Sealed) -> Result<Vec<u8>, Error> {
+        self.0.unseal(sealed, NOTE)
+    }
+}
+
+/// Seals a note's opening to the wallet that will own it.
+///
+/// # Errors
+///
+/// Returns [`Error::Handover`] when the key is malformed or sealing fails.
+pub fn seal_note(view: [u8; 32], payload: &[u8]) -> Result<Sealed, Error> {
+    encrypt(
+        &Public::from_bytes(&view).map_err(|_| Error::Handover("viewing key is malformed"))?,
+        NOTE,
+        payload,
+    )
 }

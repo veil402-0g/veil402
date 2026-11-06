@@ -4,6 +4,7 @@ use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions, sqlite::SqliteRow};
 use veil402_sdk::{Field, Secret, StoredNode};
 
 use crate::core::agent::{Audit, Charge, Filed};
+use crate::core::wallet::Unopened;
 use crate::core::{
     agent::{Agent, AgentStore, Registered},
     envelope::{EnvelopeStore, SubmissionStore},
@@ -75,8 +76,9 @@ impl SqliteStore {
                  PRIMARY KEY (level, idx)
              );
              CREATE TABLE IF NOT EXISTS cursor (
-                 id    INTEGER PRIMARY KEY CHECK (id = 1),
-                 block INTEGER NOT NULL
+                 id      INTEGER PRIMARY KEY CHECK (id = 1),
+                 block   INTEGER NOT NULL,
+                 scanned INTEGER NOT NULL DEFAULT 0
              );
              INSERT OR IGNORE INTO cursor (id, block) VALUES (1, 0);
              CREATE TABLE IF NOT EXISTS owned (
@@ -118,6 +120,20 @@ impl SqliteStore {
         .execute(&pool)
         .await
         .map_err(|_| StoreError::Unavailable)?;
+
+        // `CREATE TABLE IF NOT EXISTS` leaves an older database on its old
+        // columns, so added ones are applied separately. Adding a column
+        // that is already there is the ordinary case, not a fault.
+        for addition in [
+            "ALTER TABLE cursor  ADD COLUMN scanned   INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE charges ADD COLUMN nullifier BLOB",
+            "ALTER TABLE charges ADD COLUMN delivered BLOB",
+            "ALTER TABLE charges ADD COLUMN witness   TEXT",
+            "ALTER TABLE charges ADD COLUMN sequence  INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE charges ADD COLUMN model     TEXT",
+        ] {
+            let _ = sqlx::query(addition).execute(&pool).await;
+        }
 
         Ok(Self { pool })
     }
@@ -334,6 +350,53 @@ impl ChainFacts for SqliteStore {
 
     async fn is_spent(&self, nullifier: Field) -> Result<bool, StoreError> {
         self.nullified(nullifier).await
+    }
+
+    async fn unopened(&self, after: u32, limit: u32) -> Result<Vec<Unopened>, StoreError> {
+        sqlx::query(
+            "SELECT leaf_index, commitment, note FROM commitments
+             WHERE leaf_index >= ? AND length(note) > 0
+               AND commitment NOT IN (SELECT commitment FROM owned)
+             ORDER BY leaf_index LIMIT ?",
+        )
+        .bind(i64::from(after))
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| StoreError::Unavailable)?
+        .iter()
+        .map(|row| {
+            Ok(Unopened {
+                leaf_index: leaf(row, "leaf_index")?,
+                commitment: Field::from_bytes(
+                    digest(row, "commitment")?
+                        .try_into()
+                        .map_err(|_| StoreError::Corrupt)?,
+                )
+                .map_err(|_| StoreError::Corrupt)?,
+                note: row.get("note"),
+            })
+        })
+        .collect()
+    }
+
+    async fn scanned(&self, leaf: u32) -> Result<(), StoreError> {
+        sqlx::query("UPDATE cursor SET scanned = MAX(scanned, ?) WHERE id = 1")
+            .bind(i64::from(leaf))
+            .execute(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        Ok(())
+    }
+
+    async fn scan_mark(&self) -> Result<u32, StoreError> {
+        let row = sqlx::query("SELECT scanned FROM cursor WHERE id = 1")
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        row.map_or(Ok(0), |row| {
+            u32::try_from(row.get::<i64, _>("scanned")).map_err(|_| StoreError::Corrupt)
+        })
     }
 
     async fn escrow(&self, nullifier: Field) -> Result<Option<u64>, StoreError> {
