@@ -53,5 +53,5 @@ prover/veil402-gnark/veil402-gnark
 # aider leaves these beside the repo it edits
 .aider*
 
-# Harness scratch (worktrees, local state)
-.claude/
+# Worktrees live inside the repo; never commit one into it
+.claude/worktrees/
