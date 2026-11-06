@@ -14,7 +14,7 @@ use common::{COST, Fallible, MODEL, serving};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
-use veil402_daemon::adapters::router;
+use veil402_daemon::{adapters::router, core::envelope::EnclaveError};
 
 const NOW: u64 = 1_900_000_000;
 
@@ -219,5 +219,86 @@ async fn an_answer_that_was_not_streamed_comes_back_whole() -> Fallible {
     let agent = fixture.agents.authenticate(&issued.key).await?;
     assert_eq!(agent.spent, COST);
     assert_eq!(agent.calls, 1);
+    Ok(())
+}
+
+/// An upstream's own error envelope. It already speaks the shape a client
+/// parses, and `code` is what the clients agents are built on turn into
+/// shrinking the context rather than retrying for ever.
+const THEIRS: &str = r#"{"error":{"message":"your messages exceed the context window","type":"invalid_request_error","code":"context_length_exceeded"}}"#;
+
+fn refused(status: u16, retry_after: Option<u64>) -> EnclaveError {
+    EnclaveError::Upstream {
+        status,
+        retry_after,
+        body: THEIRS.as_bytes().to_vec(),
+    }
+}
+
+#[tokio::test]
+async fn a_refusal_about_the_request_reaches_the_agent_whole() -> Fallible {
+    let fixture = serving(1).await?;
+    let issued = fixture.agents.issue("aider", None, NOW).await?;
+
+    fixture.enclave.refusing(refused(400, None));
+    let response = router(fixture.api())
+        .oneshot(asking(&issued.key, true))
+        .await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        text(response.into_body()).await?,
+        THEIRS,
+        "the upstream's words were rewritten"
+    );
+
+    let agent = fixture.agents.authenticate(&issued.key).await?;
+    assert_eq!(agent.spent, 0, "a refusal cost the agent something");
+    assert_eq!(agent.calls, 0);
+    Ok(())
+}
+
+/// Its own number rather than ours: a rate limit we guess at is one we hit
+/// again.
+#[tokio::test]
+async fn a_rate_limit_carries_the_wait_the_upstream_asked_for() -> Fallible {
+    let fixture = serving(1).await?;
+    let issued = fixture.agents.issue("aider", None, NOW).await?;
+    fixture.enclave.refusing(refused(429, Some(90)));
+
+    let response = router(fixture.api())
+        .oneshot(asking(&issued.key, true))
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.headers().get(header::RETRY_AFTER).expect("wait"), "90");
+    assert_eq!(text(response.into_body()).await?, THEIRS);
+    Ok(())
+}
+
+/// A refusal about the seller's own account is not the agent's to act on:
+/// told `insufficient_balance`, it would send its user to top up the wrong
+/// one.
+#[tokio::test]
+async fn a_refusal_about_the_seller_is_not_told_in_the_seller_s_voice() -> Fallible {
+    let fixture = serving(1).await?;
+    let issued = fixture.agents.issue("aider", None, NOW).await?;
+    fixture.enclave.refusing(EnclaveError::Upstream {
+        status: 402,
+        retry_after: None,
+        body: br#"{"error":{"message":"the AI provider balance is empty","type":"insufficient_quota","code":"insufficient_balance"}}"#.to_vec(),
+    });
+
+    let response = router(fixture.api())
+        .oneshot(asking(&issued.key, true))
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = text(response.into_body()).await?;
+    assert!(
+        !body.contains("insufficient_balance"),
+        "the seller's account reached the agent: {body}"
+    );
+    let refusal: Value = serde_json::from_str(&body)?;
+    assert_eq!(refusal["error"]["code"], "upstream_unavailable");
     Ok(())
 }

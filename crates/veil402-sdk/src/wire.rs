@@ -130,6 +130,19 @@ pub struct MeteredBody {
     pub attestation: B256,
 }
 
+/// An upstream's refusal, carried without being read.
+///
+/// The status stays on the response, where it says nothing about the prompt.
+/// The words are sealed to the key the buyer minted for the call, because
+/// they might.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RefusedBody {
+    /// Seconds the upstream asked to be left alone for.
+    pub retry_after: Option<u64>,
+    pub head: String,
+    pub sealed: String,
+}
+
 /// A settlement, as much of it as the sender needs.
 ///
 /// Not the proof: the chain verifies that, and the daemon only broadcasts.

@@ -2,7 +2,7 @@ use axum::{
     Json,
     http::{
         HeaderName, HeaderValue, StatusCode,
-        header::{RETRY_AFTER, WWW_AUTHENTICATE},
+        header::{CONTENT_TYPE, RETRY_AFTER, WWW_AUTHENTICATE},
     },
     response::{IntoResponse, Response},
 };
@@ -25,12 +25,28 @@ const SOON: u64 = 5;
 /// 429 that repeating cannot change.
 const SHOULD_RETRY: &str = "x-should-retry";
 
+/// Statuses on which an upstream is talking about the request rather than
+/// about the seller. Only these reach the agent in the upstream's own words:
+/// the rest are our account, our provider, or our configuration, and saying
+/// so in the upstream's voice would send an agent to fix the wrong thing.
+const PASSED: [u16; 5] = [400, 404, 408, 413, 422];
+
 /// A refusal in the shape every `OpenAI` client already parses.
 pub struct Refusal {
     status: StatusCode,
-    detail: Detail,
+    said: Said,
     /// Seconds to wait, when waiting is what helps.
     after: Option<u64>,
+}
+
+/// Whose words the agent is reading.
+enum Said {
+    Ours(Detail),
+    /// The upstream's own, byte for byte. It already speaks the shape an
+    /// agent parses, and rewriting it would lose the code a client decides
+    /// on — `context_length_exceeded` is the difference between an agent
+    /// shrinking its context and an agent retrying for ever.
+    Theirs(Vec<u8>),
 }
 
 #[derive(Serialize)]
@@ -56,12 +72,39 @@ impl Refusal {
     ) -> Self {
         Self {
             status,
-            detail: Detail {
+            said: Said::Ours(Detail {
                 message: message.into(),
                 kind,
                 code,
-            },
+            }),
             after: None,
+        }
+    }
+
+    /// What the seller's upstream said, when it said something the agent can
+    /// act on.
+    ///
+    /// A refusal about the seller's own account or provider is not one: an
+    /// agent told `insufficient_balance` would send its user to top up the
+    /// wrong account.
+    fn upstream(status: u16, retry_after: Option<u64>, body: Vec<u8>) -> Self {
+        let rated = status == StatusCode::TOO_MANY_REQUESTS.as_u16();
+        if !(rated || PASSED.contains(&status)) || !speaks(&body) {
+            let mut refusal = Self::at(
+                StatusCode::SERVICE_UNAVAILABLE,
+                API,
+                Some("upstream_unavailable"),
+                format!("the seller could not buy this call: its upstream answered {status}"),
+            );
+            refusal.after = Some(SOON);
+            return refusal;
+        }
+        Self {
+            status: StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY),
+            said: Said::Theirs(body),
+            // Its own number rather than ours: a rate limit we guess at is
+            // one we hit again.
+            after: rated.then(|| retry_after.unwrap_or(SOON)),
         }
     }
 
@@ -141,8 +184,13 @@ impl From<EnvelopeError> for Refusal {
             EnvelopeError::Wallet(WalletError::Empty) => {
                 Self::unavailable("no note is held to open an envelope against")
             }
-            // The seller refused, and we have its words rather than its
-            // status, so its refusal reads as ours.
+            EnvelopeError::Enclave(EnclaveError::Upstream {
+                status,
+                retry_after,
+                body,
+            }) => Self::upstream(status, retry_after, body),
+            // The seller refused in words of its own, which are about the
+            // seller rather than about the request.
             EnvelopeError::Enclave(EnclaveError::Refused(_)) => {
                 Self::at(StatusCode::BAD_GATEWAY, API, None, said)
             }
@@ -156,10 +204,18 @@ impl IntoResponse for Refusal {
     fn into_response(self) -> Response {
         let Self {
             status,
-            detail,
+            said,
             after,
         } = self;
-        let mut response = (status, Json(Fault { error: detail })).into_response();
+        let mut response = match said {
+            Said::Ours(detail) => (status, Json(Fault { error: detail })).into_response(),
+            Said::Theirs(body) => (
+                status,
+                [(CONTENT_TYPE, HeaderValue::from_static("application/json"))],
+                body,
+            )
+                .into_response(),
+        };
         let headers = response.headers_mut();
         if status == StatusCode::UNAUTHORIZED {
             headers.insert(WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
@@ -178,4 +234,11 @@ impl IntoResponse for Refusal {
         }
         response
     }
+}
+
+/// Whether an upstream answered in the shape a client parses. One that did
+/// not would reach the agent as a JSON content type over something else.
+fn speaks(body: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(body)
+        .is_ok_and(|said| said.get("error").is_some())
 }

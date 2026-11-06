@@ -10,8 +10,8 @@ use veil402_sdk::{
     session::Sealed,
     session::{Exchange, Inbound, Recipient},
     wire::{
-        AcceptBody, Action, AgreeBody, CallBody, MeteredBody, Offer, Prompt, Reply, SessionBody,
-        SettlementBody, bytes, encode, field,
+        AcceptBody, Action, AgreeBody, CallBody, MeteredBody, Offer, Prompt, RefusedBody, Reply,
+        SessionBody, SettlementBody, bytes, encode, field,
     },
 };
 
@@ -74,9 +74,13 @@ impl RemoteEnclave {
 /// worth another try.
 async fn refusal(response: Response) -> EnclaveError {
     let status = response.status();
-    let Ok(reply) = response.json::<Reply<serde_json::Value>>().await else {
-        return EnclaveError::Refused(format!("the gateway answered {status}"));
-    };
+    match response.json::<Reply<serde_json::Value>>().await {
+        Err(_) => EnclaveError::Refused(format!("the gateway answered {status}")),
+        Ok(reply) => instructed(reply, status.as_u16()),
+    }
+}
+
+fn instructed(reply: Reply<serde_json::Value>, status: u16) -> EnclaveError {
     let said = reply.error.unwrap_or_else(|| status.to_string());
     match reply.action {
         Some(Action::Retry) => EnclaveError::Unknown,
@@ -85,6 +89,27 @@ async fn refusal(response: Response) -> EnclaveError {
         Some(Action::Pay) => EnclaveError::CeilingReached,
         _ => EnclaveError::Refused(said),
     }
+}
+
+/// Opens the words an upstream refused with.
+///
+/// They were sealed to this call's own key before they left the enclave, so
+/// a relay that kept a copy kept nothing it can read.
+fn upstream(status: u16, refused: &RefusedBody, exchange: &Exchange) -> EnclaveError {
+    let opened = bytes(&refused.head)
+        .ok()
+        .and_then(|head| <[u8; 32]>::try_from(head).ok())
+        .and_then(|head| exchange.inbound(head).ok())
+        .zip(bytes(&refused.sealed).ok())
+        .and_then(|(mut inbound, sealed)| inbound.frame(&sealed).ok());
+    opened.map_or_else(
+        || EnclaveError::Refused(format!("the upstream refused with {status}, unreadably")),
+        |frame| EnclaveError::Upstream {
+            status,
+            retry_after: refused.retry_after,
+            body: frame.payload,
+        },
+    )
 }
 
 /// Unwraps the envelope every reply carries.
@@ -194,7 +219,20 @@ impl Enclave for RemoteEnclave {
         // The status is the last thing the gateway can say plainly: after it,
         // everything is a frame.
         if !response.status().is_success() {
-            return Err(refusal(response).await);
+            let status = response.status().as_u16();
+            let Ok(reply) = response.json::<Reply<serde_json::Value>>().await else {
+                return Err(EnclaveError::Refused(format!(
+                    "the gateway answered {status}"
+                )));
+            };
+            return Err(reply
+                .result
+                .as_ref()
+                .and_then(|carried| serde_json::from_value::<RefusedBody>(carried.clone()).ok())
+                .map_or_else(
+                    || instructed(reply.clone(), status),
+                    |refused| upstream(status, &refused, &exchange),
+                ));
         }
         Ok(reading(exchange, response))
     }

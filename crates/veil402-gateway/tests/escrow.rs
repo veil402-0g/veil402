@@ -69,7 +69,7 @@ fn gateway(
             rpc: "http://127.0.0.1:0".to_owned(),
         },
         escrows,
-        Arc::new(support::Upstream { frames: 2, breaks: false }),
+        Arc::new(support::Upstream { frames: 2, breaks: false, ..support::Upstream::default() }),
     )?)
 }
 

@@ -27,6 +27,14 @@ fn gateway(
     frames: usize,
     breaks: bool,
 ) -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
+    refusing(frames, breaks, None)
+}
+
+fn refusing(
+    frames: usize,
+    breaks: bool,
+    refuses: Option<u16>,
+) -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
     let state = tempfile::tempdir()?;
     Ok(assemble(
         &Config {
@@ -51,7 +59,11 @@ fn gateway(
             confirmations: 0,
         },
         backing(DEADLINE)?,
-        Arc::new(support::Upstream { frames, breaks }),
+        Arc::new(support::Upstream {
+            frames,
+            breaks,
+            refuses,
+        }),
     )?)
 }
 
@@ -231,4 +243,45 @@ fn what_a_call_is_admitted_for_is_what_it_is_billed() {
     let wei = Pricing::new(1_000_000_000_000, 2_500);
     assert_eq!(wei.charge(1), 1_250_000_000_000);
     assert_eq!(wei.affords(1_250_000_000_000), 1);
+}
+
+/// A refusal is an answer of a kind, and this side is not entitled to read
+/// it either. The status travels plainly, because it says nothing about the
+/// prompt; the words travel sealed, because they could.
+#[tokio::test]
+async fn an_upstream_refusal_keeps_its_status_and_loses_none_of_its_words() -> Fallible {
+    let service = refusing(0, false, Some(400))?;
+    let delegated = delegate(&service).await?;
+    let asked = support::asked(&delegated.sealing, 40)?;
+
+    let (status, body) = chat(service, delegated.nullifier, &asked.sealed, "call").await?;
+
+    assert_eq!(status, 400, "the upstream's own verdict");
+    assert!(
+        !body.contains("context_length_exceeded"),
+        "the host read the refusal: {body}"
+    );
+    let reply: serde_json::Value = serde_json::from_str(&body)?;
+    assert_eq!(reply["action"], "fail", "nothing about retrying helps");
+    let carried = &reply["result"];
+    assert_eq!(carried["retry_after"], 42, "the upstream's own number");
+    assert_eq!(
+        carried["head"].as_str().map(str::len),
+        Some(64),
+        "no key to open the words with"
+    );
+
+    // And the buyer, who holds the other half, reads them exactly.
+    let head: [u8; 32] = veil402_sdk::wire::bytes(carried["head"].as_str().unwrap_or_default())?
+        .try_into()
+        .map_err(|_| "a malformed key")?;
+    let opened = asked
+        .exchange
+        .inbound(head)?
+        .frame(&veil402_sdk::wire::bytes(
+            carried["sealed"].as_str().unwrap_or_default(),
+        )?)?;
+    assert_eq!(opened.payload, support::REFUSAL.as_bytes());
+    assert!(opened.last, "a refusal is the whole of what there is to say");
+    Ok(())
 }

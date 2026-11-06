@@ -93,12 +93,16 @@ pub enum Attested {
 pub enum UpstreamError {
     #[error("the upstream is unreachable")]
     Unavailable,
-    #[error("the upstream is rate limiting")]
-    RateLimited,
-    /// The upstream's own refusal, kept whole. Theirs is already the shape an
-    /// agent expects, so translating it would only lose detail.
+    /// The upstream's own refusal, kept whole. Theirs is already the shape
+    /// an agent expects, and rewriting it would lose the code a client
+    /// decides on.
     #[error("the upstream refused with {status}")]
-    Refused { status: u16, body: Vec<u8> },
+    Refused {
+        status: u16,
+        body: Vec<u8>,
+        /// Seconds it asked to be left alone for.
+        retry_after: Option<u64>,
+    },
     /// The call could cost more than the envelope has left. Refused before
     /// anything is sent, because an upstream prices a call only once it has
     /// finished serving it.

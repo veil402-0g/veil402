@@ -92,11 +92,15 @@ impl Escrows for Pool {
 ///
 /// Length rather than a constant so a suite can tell one call's bill from
 /// another's, which is what the restart tests actually assert on.
+#[derive(Default)]
 pub struct Upstream {
     pub frames: usize,
     /// Give up after the frames instead of billing, the way a provider that
     /// drops mid-answer would.
     pub breaks: bool,
+    /// Refuse before a byte is served, the way one does for a request it
+    /// will not take.
+    pub refuses: Option<u16>,
 }
 
 #[async_trait]
@@ -121,6 +125,13 @@ impl veil402_enclave::Upstream for Upstream {
         >,
         veil402_enclave::UpstreamError,
     > {
+        if let Some(status) = self.refuses {
+            return Err(veil402_enclave::UpstreamError::Refused {
+                status,
+                body: REFUSAL.as_bytes().to_vec(),
+                retry_after: Some(42),
+            });
+        }
         let cost = ask.body.len() as u64;
         if cost > ask.budget {
             return Err(veil402_enclave::UpstreamError::Unaffordable);
@@ -140,6 +151,10 @@ impl veil402_enclave::Upstream for Upstream {
         Ok(futures_util::stream::iter(served).boxed())
     }
 }
+
+/// What a refusing upstream says. `OpenAI`'s own envelope, because that is
+/// what every upstream worth relaying speaks.
+pub const REFUSAL: &str = r#"{"error":{"message":"too long","type":"invalid_request_error","code":"context_length_exceeded"}}"#;
 
 /// The seed every gateway in these suites derives its keys from.
 pub const ROOT: [u8; 32] = [7; 32];
@@ -239,12 +254,31 @@ pub struct Delegated {
 
 /// A request of a given size, sealed the way a daemon seals one.
 pub fn asking(sealing: &Recipient, size: usize) -> Result<Sealed, Box<dyn std::error::Error>> {
+    Ok(asked(sealing, size)?.sealed)
+}
+
+/// A sealed request, and the channel its answer comes back over.
+pub struct Asked {
+    pub sealed: Sealed,
+    pub exchange: Exchange,
+}
+
+/// The same request, for a caller that means to read what comes back.
+///
+/// # Errors
+///
+/// Returns an error when the request will not seal.
+pub fn asked(sealing: &Recipient, size: usize) -> Result<Asked, Box<dyn std::error::Error>> {
+    let exchange = Exchange::open();
     let prompt = Prompt {
         body: format!(r#"{{"model":"stub","messages":[{{"role":"user","content":"{}"}}]}}"#,
                       "x".repeat(size))
             .into_bytes(),
-        reply_to: Exchange::open().public(),
+        reply_to: exchange.public(),
     };
-    Ok(sealing.seal_prompt(&borsh::to_vec(&prompt)?)?)
+    Ok(Asked {
+        sealed: sealing.seal_prompt(&borsh::to_vec(&prompt)?)?,
+        exchange,
+    })
 }
 

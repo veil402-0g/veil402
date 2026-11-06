@@ -66,7 +66,7 @@ fn gateway() -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
             confirmations: 0,
         },
         Arc::new(support::Pool::empty()),
-        Arc::new(support::Upstream { frames: 2, breaks: false }),
+        Arc::new(support::Upstream { frames: 2, breaks: false, ..support::Upstream::default() }),
     )?)
 }
 

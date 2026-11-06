@@ -17,11 +17,13 @@ use serde::Deserialize;
 use veil402_sdk::{
     Field,
     session::Sealed,
-    wire::{AcceptBody, AgreeBody, CallBody, Offer, SessionBody, SettlementBody, encode},
+    wire::{
+        AcceptBody, AgreeBody, CallBody, Offer, RefusedBody, SessionBody, SettlementBody, encode,
+    },
 };
 
 use super::primitives::{Response, malformed};
-use crate::core::{Billed, MeteringService, Opened, Serving};
+use crate::core::{Billed, MeterError, MeteringService, Opened, Serving};
 
 /// Carries the key every frame opens under. Sent once, before any of them.
 const HEAD: &str = "head";
@@ -101,6 +103,21 @@ async fn chat(
             relayed(service, nullifier, attempt, sealed, opened).into_response()
         }
         Ok(Serving::Owing(challenge)) => Response::owing(challenge).into_response(),
+        Err(MeterError::Upstream {
+            status,
+            retry_after,
+            head,
+            sealed,
+        }) => Response::carrying(
+            RefusedBody {
+                retry_after,
+                head: encode(&head),
+                sealed: encode(&sealed),
+            },
+            axum::http::StatusCode::from_u16(status)
+                .unwrap_or(axum::http::StatusCode::BAD_GATEWAY),
+        )
+        .into_response(),
         Err(error) => Response::<()>::from(error).into_response(),
     }
 }

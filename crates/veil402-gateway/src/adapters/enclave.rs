@@ -155,7 +155,7 @@ impl Meters for Enclave {
         // Asked for before a byte is sent, and refused here rather than
         // part-way through: an upstream prices a call once it has served it,
         // so there is no later moment to stop at.
-        let frames = self
+        let frames = match self
             .upstream
             .ask(Ask {
                 model: model(&prompt.body)?,
@@ -163,7 +163,26 @@ impl Meters for Enclave {
                 budget,
             })
             .await
-            .map_err(declined)?;
+        {
+            Ok(frames) => frames,
+            // A refusal is an answer of a kind, and the buyer is the only
+            // one entitled to read it.
+            Err(UpstreamError::Refused {
+                status,
+                body,
+                retry_after,
+            }) => {
+                let mut outbound = EnclaveKey::reply_stream(prompt.reply_to).map_err(refused)?;
+                let head = outbound.head();
+                return Err(MeterError::Upstream {
+                    status,
+                    retry_after,
+                    head,
+                    sealed: outbound.frame(&body, true).map_err(refused)?,
+                });
+            }
+            Err(other) => return Err(declined(other)),
+        };
 
         let outbound = EnclaveKey::reply_stream(prompt.reply_to).map_err(refused)?;
         let head = outbound.head();
@@ -363,9 +382,6 @@ fn witnessed(receipt: &Receipt) -> B256 {
 fn declined(error: UpstreamError) -> MeterError {
     match error {
         UpstreamError::Unaffordable => MeterError::CeilingReached,
-        UpstreamError::RateLimited | UpstreamError::Unavailable => {
-            MeterError::Refused(error.to_string())
-        }
         other => MeterError::Refused(other.to_string()),
     }
 }

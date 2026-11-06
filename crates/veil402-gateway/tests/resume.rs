@@ -46,7 +46,7 @@ fn gateway(
             confirmations: 0,
         },
         pool_state,
-        Arc::new(support::Upstream { frames: 2, breaks: false }),
+        Arc::new(support::Upstream { frames: 2, breaks: false, ..support::Upstream::default() }),
     )?)
 }
 

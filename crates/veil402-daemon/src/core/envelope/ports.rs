@@ -86,6 +86,14 @@ pub enum EnclaveError {
     /// Serving this call would take the envelope past what its note can pay.
     #[error("the envelope's ceiling is reached")]
     CeilingReached,
+    /// The seller's upstream refused, in its own words. They came back
+    /// sealed, so the host that relayed them never read them.
+    #[error("the upstream refused with {status}")]
+    Upstream {
+        status: u16,
+        retry_after: Option<u64>,
+        body: Vec<u8>,
+    },
     #[error("the enclave refused: {0}")]
     Refused(String),
 }

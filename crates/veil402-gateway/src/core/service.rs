@@ -48,6 +48,16 @@ pub enum MeterError {
     Reused,
     #[error("refused: {0}")]
     Refused(String),
+    /// The seller's upstream refused, in its own words. The status is out
+    /// here because it says nothing about the prompt; the words are sealed
+    /// to the buyer, because they could.
+    #[error("the upstream refused with {status}")]
+    Upstream {
+        status: u16,
+        retry_after: Option<u64>,
+        head: [u8; 32],
+        sealed: Vec<u8>,
+    },
 }
 
 /// A call under way, or what it would take to be allowed one.

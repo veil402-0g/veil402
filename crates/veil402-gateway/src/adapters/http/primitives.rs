@@ -34,6 +34,20 @@ impl<T> Response<T> {
         }
     }
 
+    /// A refusal that still carries something: an upstream's own words,
+    /// sealed to the buyer that asked.
+    pub fn carrying(result: T, status: StatusCode) -> Self {
+        Self {
+            reply: Reply {
+                status: Status::Error,
+                result: Some(result),
+                error: Some("the upstream refused".to_owned()),
+                action: Some(Action::Fail),
+            },
+            status,
+        }
+    }
+
     /// A buyer with no envelope is told what one would take, not that
     /// something went wrong.
     pub fn owing(challenge: T) -> Self {
@@ -57,7 +71,7 @@ impl<T: Serialize> IntoResponse for Response<T> {
 ///
 /// The action is the point: a status says what went wrong, and the only
 /// question the daemon has is what to do next.
-const fn verdict(error: &MeterError) -> (StatusCode, Action) {
+fn verdict(error: &MeterError) -> (StatusCode, Action) {
     match error {
         // The enclave restarted and lost its sessions. The delegation is
         // still valid and the escrow still stands, so handing it over again
@@ -78,6 +92,12 @@ const fn verdict(error: &MeterError) -> (StatusCode, Action) {
         MeterError::Reused | MeterError::Refused(_) => {
             (StatusCode::UNPROCESSABLE_ENTITY, Action::Fail)
         }
+        // The upstream's own verdict, passed on rather than re-decided:
+        // this side cannot read the words that explain it.
+        MeterError::Upstream { status, .. } => (
+            StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY),
+            Action::Fail,
+        ),
     }
 }
 

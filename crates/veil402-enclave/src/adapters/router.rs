@@ -10,7 +10,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use eventsource_stream::Eventsource;
 use futures_util::{StreamExt, future, stream};
-use reqwest::{Client, Response, StatusCode};
+use reqwest::{Client, Response};
 use serde_json::Value;
 use tokio::sync::RwLock;
 
@@ -284,11 +284,16 @@ async fn refused(response: Response) -> Result<Response, UpstreamError> {
     if status.is_success() {
         return Ok(response);
     }
-    if status == StatusCode::TOO_MANY_REQUESTS {
-        return Err(UpstreamError::RateLimited);
-    }
+    // A rate limit included: its body names the code a client decides on,
+    // and its header says how long to wait rather than how long we guess.
+    let retry_after = response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok());
     Err(UpstreamError::Refused {
         status: status.as_u16(),
         body: response.bytes().await.unwrap_or_default().to_vec(),
+        retry_after,
     })
 }

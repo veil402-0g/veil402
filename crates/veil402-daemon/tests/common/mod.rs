@@ -344,6 +344,7 @@ pub struct Vouching {
     signer: PrivateKeySigner,
     held: Mutex<Vec<Field>>,
     frames: usize,
+    refusal: Mutex<Option<EnclaveError>>,
 }
 
 impl Vouching {
@@ -357,7 +358,13 @@ impl Vouching {
             signer,
             held: Mutex::new(Vec::new()),
             frames,
+            refusal: Mutex::new(None),
         })
+    }
+
+    /// Makes every call from here on refuse the way an upstream would.
+    pub fn refusing(&self, refusal: EnclaveError) {
+        *self.refusal.lock().expect("refusal") = Some(refusal);
     }
 
     #[must_use]
@@ -409,6 +416,9 @@ impl Enclave for Vouching {
         _: &str,
     ) -> Result<futures_util::stream::BoxStream<'static, Result<Piece, EnclaveError>>, EnclaveError>
     {
+        if let Some(refusal) = self.refusal.lock().expect("refusal").clone() {
+            return Err(refusal);
+        }
         let mut pieces: Vec<Result<Piece, EnclaveError>> = (0..self.frames)
             .map(|frame| {
                 Ok(Piece::Body(
