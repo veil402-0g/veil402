@@ -36,6 +36,11 @@ use crate::core::{
 /// and the buyer never settles its own envelope.
 const BUFFER: u64 = 120;
 
+/// Mirrors `Pool.SETTLE_GRACE`. An escrow stops reserving its note once the
+/// deadline and this have both gone by, so up to here it is still open and
+/// a settlement landing late still counts.
+const GRACE: u64 = 60;
+
 /// How long a submission may take to land, and its change to be placed,
 /// before the attempt is abandoned.
 const PATIENCE: Duration = Duration::from_mins(2);
@@ -250,6 +255,13 @@ impl EnvelopeService {
         ) else {
             return Ok(None);
         };
+        // An escrow the chain no longer treats as reserving its note is not
+        // open, whatever the registry still remembers. `serve` has always
+        // read it this way; without the same check here a dead envelope is
+        // reported as the one taking calls.
+        if self.broadcast.timestamp().await? > deadline.saturating_add(GRACE) {
+            return Ok(None);
+        }
         Ok(Some(Open {
             nullifier,
             seller: self.terms.seller,
