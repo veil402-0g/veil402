@@ -1778,6 +1778,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                 ×
               </button>
             </div>
+            {!v.hasIssued ? (<>
             <label
               className={s.s261}
             >
@@ -1840,6 +1841,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                 {v.freeF}
               </span>
             </div>
+            </>) : null}
             {v.mError ? (
               <>
               <span
@@ -1869,18 +1871,14 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                     <span className={s.keyPanelId}>{v.issuedId}</span>
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className={s.keyReveal}
-                  data-shown={v.keyShown ? 'true' : undefined}
-                  onClick={v.revealKey}
-                  aria-label={v.keyShown ? 'API key' : 'Reveal the API key'}
-                >
-                  <code className={s.keyRevealValue}>{v.issuedKey}</code>
-                  <span className={s.keyRevealCover} aria-hidden="true">
-                    <span className={s.keyRevealWord}>Reveal</span>
-                  </span>
-                </button>
+                <div className={s.keyReveal}>
+                  <code className={s.keyRevealValue}>
+                    {v.keyShown ? v.issuedKey : v.keyMasked}
+                  </code>
+                  <button type="button" className={s.keyToggle} onClick={v.toggleKey}>
+                    {v.showBtnLabel}
+                  </button>
+                </div>
                 <span className={s.keyPanelNote}>
                   Kept as a hash. Nothing can show it again.
                 </span>

@@ -1022,6 +1022,9 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
       setFundOpen(true)
     },
     openMandate: () => {
+      setIssued(null)
+      setShown(false)
+      setCopied(false)
       setMandateOpen(true)
       setForm((f) => ({ ...f, mError: '' }))
     },
@@ -1105,7 +1108,12 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     // what happened, rather than saying "done".
     copyBtnLabel: copied ? 'Key copied' : 'Copy key',
     keyShown: shown,
-    revealKey: () => setShown(true),
+    // Masked, not hidden: enough of it to recognise which key this is
+    // without the secret on a screen that may be shared. Copying never
+    // needs it shown.
+    keyMasked: issued ? `${issued.key.slice(0, 20)}${'•'.repeat(18)}${issued.key.slice(-6)}` : '',
+    toggleKey: () => setShown((on) => !on),
+    showBtnLabel: shown ? 'Hide' : 'Show',
     hasIssued: !!issued,
     copyIssued: () => {
       if (!issued) return
