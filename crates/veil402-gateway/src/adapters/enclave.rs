@@ -112,7 +112,7 @@ impl Meters for Enclave {
             .collect())
     }
 
-    fn agree(&self, session: &Session) -> Result<AgreeBody, MeterError> {
+    async fn agree(&self, session: &Session) -> Result<AgreeBody, MeterError> {
         let key = self.keyring.handover(session.nullifier);
         let announcement = self
             .signer

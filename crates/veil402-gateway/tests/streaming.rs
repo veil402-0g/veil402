@@ -23,14 +23,14 @@ use support::{Asked, DEADLINE, ROOT, asked, asking, backing, delegate, pool};
 
 type Fallible = Result<(), Box<dyn std::error::Error>>;
 
-fn gateway(
+async fn gateway(
     frames: usize,
     breaks: bool,
 ) -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
-    refusing(frames, breaks, None)
+    refusing(frames, breaks, None).await
 }
 
-fn refusing(
+async fn refusing(
     frames: usize,
     breaks: bool,
     refuses: Option<u16>,
@@ -42,7 +42,8 @@ fn refusing(
             serving: alloy::primitives::Address::ZERO,
             fee_cap: 20_000_000_000_000,
             pool: pool()?,
-            root: ROOT,
+            root: Some(ROOT),
+            enclave: None,
             worker: "/nonexistent/worker".into(),
             artifacts: std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../prover/veil402-gnark/artifacts/transaction-v4"),
@@ -67,7 +68,8 @@ fn refusing(
             breaks,
             refuses,
         }),
-    )?)
+    )
+    .await?)
 }
 
 /// Posts one call and returns the status and whatever came back.
@@ -93,7 +95,7 @@ async fn chat(
 /// The shape the daemon parses, and what asking twice gets it.
 #[tokio::test]
 async fn a_relayed_stream_is_billed_once_and_its_key_cannot_be_spent_again() -> Fallible {
-    let service = gateway(3, false)?;
+    let service = gateway(3, false).await?;
     let delegated = delegate(&service).await?;
     let asked = asking(&delegated.sealing, 40)?;
 
@@ -143,7 +145,7 @@ async fn a_relayed_stream_is_billed_once_and_its_key_cannot_be_spent_again() -> 
 /// sent — or a relay that dropped one on the way — does not match.
 #[tokio::test]
 async fn a_bill_binds_the_frames_the_buyer_received() -> Fallible {
-    let service = gateway(3, false)?;
+    let service = gateway(3, false).await?;
     let delegated = delegate(&service).await?;
     let Asked { sealed, exchange } = asked(&delegated.sealing, 40)?;
 
@@ -201,7 +203,7 @@ async fn a_client_that_leaves_still_pays_for_what_it_asked_for() -> Fallible {
     // really does block on one that is no longer there. An answer small
     // enough to sit in the buffer would be delivered either way and prove
     // nothing.
-    let service = gateway(64, false)?;
+    let service = gateway(64, false).await?;
     let delegated = delegate(&service).await?;
     let asked = asking(&delegated.sealing, 40)?;
 
@@ -259,7 +261,7 @@ fn billed(stream: &str) -> Result<MeteredBody, Box<dyn std::error::Error>> {
 /// disconnection leaves whoever is debugging it nothing at all.
 #[tokio::test]
 async fn a_stream_that_breaks_says_why() -> Fallible {
-    let service = gateway(2, true)?;
+    let service = gateway(2, true).await?;
     let delegated = delegate(&service).await?;
 
     let (status, stream) = chat(
@@ -307,7 +309,7 @@ fn what_a_call_is_admitted_for_is_what_it_is_billed() {
 /// prompt; the words travel sealed, because they could.
 #[tokio::test]
 async fn an_upstream_refusal_keeps_its_status_and_loses_none_of_its_words() -> Fallible {
-    let service = refusing(0, false, Some(400))?;
+    let service = refusing(0, false, Some(400)).await?;
     let delegated = delegate(&service).await?;
     let asked = support::asked(&delegated.sealing, 40)?;
 

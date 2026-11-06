@@ -120,8 +120,8 @@ impl MeteringService {
     /// # Errors
     ///
     /// Returns [`MeterError::Refused`] when signing fails.
-    pub fn agree(&self, session: &Session) -> Result<AgreeBody, MeterError> {
-        self.meters.agree(session)
+    pub async fn agree(&self, session: &Session) -> Result<AgreeBody, MeterError> {
+        self.meters.agree(session).await
     }
 
     /// # Errors

@@ -446,7 +446,8 @@ async fn serve(
             serving: alloy::primitives::Address::ZERO,
             fee_cap: 20_000_000_000_000,
             pool: *pool,
-            root,
+            root: Some(root),
+            enclave: None,
         worker: worker()?,
         artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
             seller,
@@ -470,7 +471,8 @@ async fn serve(
         // is not the thing under test, and a provider that has to be up for
         // it to run is a flake waiting to happen.
         Arc::new(Priced),
-    )?;
+    )
+    .await?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let served = format!("http://{}", listener.local_addr()?);
     let app = router(service);

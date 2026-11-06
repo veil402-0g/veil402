@@ -224,7 +224,7 @@ pub struct RefusedBody {
 /// A settlement, as much of it as the sender needs.
 ///
 /// Not the proof: the chain verifies that, and the daemon only broadcasts.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(BorshDeserialize, BorshSerialize, Clone, Debug, Deserialize, Serialize)]
 pub struct SettlementBody {
     pub key: String,
     pub calldata: String,
@@ -234,7 +234,7 @@ pub struct SettlementBody {
 ///
 /// Derived from what the enclave can buy rather than configured beside it:
 /// two lists of models that can disagree is one list too many.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(BorshDeserialize, BorshSerialize, Clone, Debug, Deserialize, Serialize)]
 pub struct Offer {
     pub model: String,
     /// Pool units per million tokens.

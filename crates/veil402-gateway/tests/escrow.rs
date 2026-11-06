@@ -42,7 +42,7 @@ fn signer() -> Result<Address, Box<dyn std::error::Error>> {
     Ok(Keyring::new(RootSeed::from_bytes(ROOT)).signer()?.address())
 }
 
-fn gateway(
+async fn gateway(
     state: &Path,
     escrows: Arc<support::Pool>,
 ) -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
@@ -52,7 +52,8 @@ fn gateway(
             serving: alloy::primitives::Address::ZERO,
             fee_cap: 20_000_000_000_000,
             pool: pool()?,
-            root: ROOT,
+            root: Some(ROOT),
+            enclave: None,
             worker: "/nonexistent/worker".into(),
             artifacts: Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../prover/veil402-gnark/artifacts/transaction-v4"),
@@ -73,7 +74,8 @@ fn gateway(
         },
         escrows,
         Arc::new(support::Upstream { frames: 2, breaks: false, ..support::Upstream::default() }),
-    )?)
+    )
+    .await?)
 }
 
 struct Delegation {
@@ -84,7 +86,7 @@ struct Delegation {
 /// A delegation whose arithmetic is impeccable: the seed really owns the
 /// note, and the path really reaches the root. The only question left is
 /// whether the pool has ever heard of any of it.
-fn delegate(service: &MeteringService) -> Result<Delegation, Box<dyn std::error::Error>> {
+async fn delegate(service: &MeteringService) -> Result<Delegation, Box<dyn std::error::Error>> {
     let client = pool()?;
     let seed = Secret::random()?;
     let keys = SessionKeys::from_seed(&seed)?;
@@ -101,7 +103,7 @@ fn delegate(service: &MeteringService) -> Result<Delegation, Box<dyn std::error:
         seller: seller(),
         deadline: DEADLINE,
     };
-    let agreed = service.agree(&session)?;
+    let agreed = service.agree(&session).await?;
     let handover = Handover {
         seed,
         value: VALUE,
@@ -133,8 +135,8 @@ fn delegate(service: &MeteringService) -> Result<Delegation, Box<dyn std::error:
 
 async fn accepted(pool_state: support::Pool) -> Result<Result<(), MeterError>, Box<dyn std::error::Error>> {
     let state = tempfile::tempdir()?;
-    let service = gateway(state.path(), Arc::new(pool_state))?;
-    let delegation = delegate(&service)?;
+    let service = gateway(state.path(), Arc::new(pool_state)).await?;
+    let delegation = delegate(&service).await?;
     Ok(service
         .accept(&delegation.sealed, delegation.session)
         .await)

@@ -172,7 +172,8 @@ pub struct Opened {
 /// The meter both sides trust.
 ///
 /// A trait because it runs in this process today and behind a vsock once
-/// there is hardware: that move must change one adapter and nothing else.
+/// there is hardware. The move cost one widening: `agree` was synchronous,
+/// and nothing synchronous can make a round trip.
 #[async_trait]
 pub trait Meters: Send + Sync {
     /// The address the registry must vouch for, and the one an escrow has to
@@ -192,7 +193,7 @@ pub trait Meters: Send + Sync {
     /// # Errors
     ///
     /// Returns [`MeterError`] when the meter will not sign.
-    fn agree(&self, session: &Session) -> Result<AgreeBody, MeterError>;
+    async fn agree(&self, session: &Session) -> Result<AgreeBody, MeterError>;
 
     /// Takes a delegation, after checking it against the escrow it names.
     /// # Errors

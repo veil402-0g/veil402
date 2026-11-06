@@ -47,6 +47,7 @@ const IDEMPOTENCY: &str = "idempotency-key";
 
 pub fn router(service: Arc<MeteringService>) -> Router {
     Router::new()
+        .route("/healthz", get(|| async { axum::http::StatusCode::OK }))
         .route("/v1/catalogue", get(catalogue))
         .route("/v1/sessions/agree", post(agree))
         .route("/v1/sessions/accept", post(accept))
@@ -66,7 +67,7 @@ async fn agree(
     let Ok(session) = body.parse() else {
         return malformed("nullifier");
     };
-    service.agree(&session).map_or_else(Into::into, Response::ok)
+    service.agree(&session).await.map_or_else(Into::into, Response::ok)
 }
 
 async fn accept(

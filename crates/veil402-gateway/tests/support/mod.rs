@@ -206,7 +206,7 @@ pub async fn delegate(service: &MeteringService) -> Result<Delegated, Box<dyn st
         deadline: DEADLINE,
     };
 
-    let agreed = service.agree(&session)?;
+    let agreed = service.agree(&session).await?;
     let handover = Handover {
         seed,
         value: VALUE,

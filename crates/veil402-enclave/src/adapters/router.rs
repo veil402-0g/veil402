@@ -88,12 +88,39 @@ impl Router {
         ceiling: u32,
         vouched: Arc<dyn Registry>,
     ) -> Result<Self, UpstreamError> {
+        Self::via(base, key, trust, ceiling, vouched, None)
+    }
+
+    /// The same upstream, reached through a local hop.
+    ///
+    /// Only the address is overridden. The client still speaks to the real
+    /// hostname and still checks the real certificate, so TLS terminates
+    /// here and the hop carries ciphertext — which is the only arrangement
+    /// an enclave can use, since it has no network of its own.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UpstreamError::Unavailable`] when the client cannot be built.
+    pub fn via(
+        base: &str,
+        key: &str,
+        trust: &str,
+        ceiling: u32,
+        vouched: Arc<dyn Registry>,
+        through: Option<std::net::SocketAddr>,
+    ) -> Result<Self, UpstreamError> {
+        let mut client = Client::builder().pool_idle_timeout(IDLE).read_timeout(STALL);
+        if let Some(address) = through {
+            let host = base
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .split('/')
+                .next()
+                .unwrap_or_default();
+            client = client.resolve(host, address);
+        }
         Ok(Self {
-            client: Client::builder()
-                .pool_idle_timeout(IDLE)
-                .read_timeout(STALL)
-                .build()
-                .map_err(|_| UpstreamError::Unavailable)?,
+            client: client.build().map_err(|_| UpstreamError::Unavailable)?,
             base: base.trim_end_matches('/').to_owned(),
             key: key.to_owned(),
             trust: trust.to_owned(),
