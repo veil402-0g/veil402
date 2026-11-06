@@ -1,0 +1,5 @@
+.env.b
+*.log
+*.db
+*.db-*
+*.redb
