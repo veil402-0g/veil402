@@ -58,6 +58,7 @@ fn refusing(
             multicall: alloy::primitives::Address::repeat_byte(0xCA),
             wallet_state: std::path::PathBuf::from("/nonexistent/wallet.redb"),
             confirmations: 0,
+            vouched: std::collections::HashMap::new(),
         },
         backing(DEADLINE)?,
         Arc::new(support::Upstream {

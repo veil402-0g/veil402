@@ -440,6 +440,7 @@ async fn serve(
     let escrows = Arc::new(veil402_gateway::adapters::connect(&var("RPC_URL")?, pool.address()).await?);
     let service = veil402_gateway::app::assemble(
         &veil402_gateway::app::Config {
+            vouched: std::collections::HashMap::new(),
             fee_cap: 20_000_000_000_000,
             pool: *pool,
             root,

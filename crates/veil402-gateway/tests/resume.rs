@@ -25,6 +25,7 @@ fn gateway(
 ) -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
     Ok(assemble(
         &Config {
+            vouched: std::collections::HashMap::new(),
             fee_cap: 20_000_000_000_000,
             pool: pool()?,
             root: ROOT,

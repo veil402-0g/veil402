@@ -5,18 +5,23 @@
 //! body to the provider's own enclave is a second adapter beside this one,
 //! and the port is shaped so nothing above has to know which is in use.
 
-use std::time::Duration;
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use alloy::primitives::{Address, Signature, eip191_hash_message};
 use async_trait::async_trait;
-use eventsource_stream::Eventsource;
-use futures_util::{StreamExt, future, stream};
+use eventsource_stream::{Event, Eventsource, EventStreamError};
+use futures_util::{StreamExt, stream, stream::BoxStream};
 use reqwest::{Client, Response};
+use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
 use crate::core::ports::{
-    Ask, Attested, Listing, Receipt, Served, Tokens, Upstream, UpstreamError,
+    Ask, Attested, Attestor, Listing, Receipt, Served, Tokens, Upstream, UpstreamError,
 };
+
+/// Names the signature a provider holds for a call it served.
+const RESPONSE_KEY: &str = "zg-res-key";
 
 /// Where a router reports what a call cost.
 const TRACE: &str = "x_0g_trace";
@@ -43,6 +48,14 @@ const SCALE: u32 = 12;
 /// session, which is where the handshake would otherwise be paid again.
 const IDLE: Duration = Duration::from_secs(90);
 
+/// How long a provider may take to say what it signed.
+///
+/// Short, and far below [`STALL`]: the answer is already out, but the bill
+/// rides on the same frame, so a provider that hangs here would hold up
+/// settlement rather than delivery. Measured round trip is under half a
+/// second.
+const VOUCH: Duration = Duration::from_secs(5);
+
 /// How long a stream may say nothing at all before it is abandoned.
 ///
 /// Per read rather than per request: a whole-request timeout would cut off
@@ -60,13 +73,22 @@ pub struct Router {
     ceiling: u32,
     /// Prices, as of the first call that needed them.
     catalogue: RwLock<Vec<Listing>>,
+    /// Providers whose signing key has been attested out of band, and where
+    /// to ask each for the signature over a call it served.
+    vouched: Arc<HashMap<Address, Attestor>>,
 }
 
 impl Router {
     /// # Errors
     ///
     /// Returns [`UpstreamError::Unavailable`] when the client cannot be built.
-    pub fn new(base: &str, key: &str, trust: &str, ceiling: u32) -> Result<Self, UpstreamError> {
+    pub fn new(
+        base: &str,
+        key: &str,
+        trust: &str,
+        ceiling: u32,
+        vouched: HashMap<Address, Attestor>,
+    ) -> Result<Self, UpstreamError> {
         Ok(Self {
             client: Client::builder()
                 .pool_idle_timeout(IDLE)
@@ -78,6 +100,7 @@ impl Router {
             trust: trust.to_owned(),
             ceiling,
             catalogue: RwLock::new(Vec::new()),
+            vouched: Arc::new(vouched),
         })
     }
 
@@ -149,22 +172,23 @@ impl Upstream for Router {
         )
         .await?;
 
+        // Which call this was, so the provider can be asked afterwards what
+        // it signed for it.
+        let served = response
+            .headers()
+            .get(RESPONSE_KEY)
+            .and_then(|key| key.to_str().ok())
+            .map(ToOwned::to_owned);
+        let vouching = Vouching {
+            client: self.client.clone(),
+            vouched: self.vouched.clone(),
+            served,
+        };
+
         if !streaming(&response) {
-            return Ok(stream::iter(whole(response).await?).boxed());
+            return Ok(stream::iter(whole(response, &vouching).await?).boxed());
         }
-        Ok(response
-            .bytes_stream()
-            .eventsource()
-            .scan(Tokens::default(), |tokens, event| {
-                future::ready(match event {
-                    Ok(event) => framed(&event.data, tokens),
-                    // A stall arrives here as a decode failure rather than a
-                    // timeout, so the shape of the error is no guide to what
-                    // happened. Either way the stream is over.
-                    Err(_) => Some(Err(UpstreamError::Unavailable)),
-                })
-            })
-            .boxed())
+        Ok(relaying(response, vouching))
     }
 }
 
@@ -196,8 +220,115 @@ fn framed(data: &str, tokens: &mut Tokens) -> Option<Result<Served, UpstreamErro
     )
 }
 
+/// What it takes to ask a provider what it signed, carried alongside the
+/// stream it signed for.
+#[derive(Clone)]
+struct Vouching {
+    client: Client,
+    vouched: Arc<HashMap<Address, Attestor>>,
+    served: Option<String>,
+}
+
+/// What the provider says it signed over the call.
+#[derive(Deserialize)]
+struct Signed {
+    text: String,
+    signature: String,
+}
+
+impl Vouching {
+    /// Whether the answer came from the key an attested quote named.
+    ///
+    /// The signature is fetched after the answer, so nothing here is on the
+    /// path a caller waits on, and only from the endpoint pinned beside the
+    /// signer — a URL this side chose, not one the reply suggested.
+    async fn attest(&self, provider: Option<Address>) -> Attested {
+        let (Some(provider), Some(served)) = (provider, self.served.as_ref()) else {
+            return Attested::Absent;
+        };
+        let Some(attestor) = self.vouched.get(&provider) else {
+            return Attested::Absent;
+        };
+        let signed = self
+            .client
+            .get(format!(
+                "{}/v1/proxy/signature/{served}",
+                attestor.endpoint.trim_end_matches('/')
+            ))
+            .timeout(VOUCH)
+            .send()
+            .await
+            .ok();
+        let Some(signed) = signed.filter(|reply| reply.status().is_success()) else {
+            return Attested::Absent;
+        };
+        let Ok(signed) = signed.json::<Signed>().await else {
+            return Attested::Absent;
+        };
+        if recovers(&signed, attestor.signer) {
+            Attested::Verified
+        } else {
+            Attested::Failed
+        }
+    }
+}
+
+/// Whether the signature over what the provider says it served recovers to
+/// the key its quote bound to hardware.
+fn recovers(signed: &Signed, attested: Address) -> bool {
+    let Ok(bytes) = alloy::hex::decode(signed.signature.trim_start_matches("0x")) else {
+        return false;
+    };
+    Signature::try_from(bytes.as_slice())
+        .and_then(|signature| {
+            signature.recover_address_from_prehash(&eip191_hash_message(signed.text.as_bytes()))
+        })
+        .is_ok_and(|recovered| recovered == attested)
+}
+
+/// Relays the upstream's frames, and asks who signed the answer once it ends.
+fn relaying(
+    response: Response,
+    vouching: Vouching,
+) -> BoxStream<'static, Result<Served, UpstreamError>> {
+    struct Reading {
+        frames: BoxStream<'static, Result<Event, EventStreamError<reqwest::Error>>>,
+        tokens: Tokens,
+        vouching: Vouching,
+    }
+    stream::unfold(
+        Reading {
+            frames: response.bytes_stream().eventsource().boxed(),
+            tokens: Tokens::default(),
+            vouching,
+        },
+        |mut reading| async move {
+            // A stall arrives as a decode failure rather than a timeout, so
+            // the shape of the error is no guide to what happened. Either
+            // way the stream is over.
+            let Ok(event) = reading.frames.next().await? else {
+                return Some((Err(UpstreamError::Unavailable), reading));
+            };
+            match framed(&event.data, &mut reading.tokens) {
+                None => None,
+                // The answer is complete, so there is now something to ask
+                // the provider what it signed.
+                Some(Ok(Served::Done(mut receipt))) => {
+                    receipt.attested = reading.vouching.attest(receipt.provider).await;
+                    Some((Ok(Served::Done(receipt)), reading))
+                }
+                Some(served) => Some((served, reading)),
+            }
+        },
+    )
+    .boxed()
+}
+
 /// A whole answer, as the two frames a streamed one would have ended with.
-async fn whole(response: Response) -> Result<Vec<Result<Served, UpstreamError>>, UpstreamError> {
+async fn whole(
+    response: Response,
+    vouching: &Vouching,
+) -> Result<Vec<Result<Served, UpstreamError>>, UpstreamError> {
     let body = response
         .bytes()
         .await
@@ -211,10 +342,9 @@ async fn whole(response: Response) -> Result<Vec<Result<Served, UpstreamError>>,
         .ok_or(UpstreamError::Malformed("an answer with no bill"))?;
     let served = serde_json::to_vec(&answer)
         .map_err(|_| UpstreamError::Malformed("an answer that will not re-encode"))?;
-    Ok(vec![
-        Ok(Served::Frame(served)),
-        Ok(Served::Done(receipt(&trace, tokens)?)),
-    ])
+    let mut closing = receipt(&trace, tokens)?;
+    closing.attested = vouching.attest(closing.provider).await;
+    Ok(vec![Ok(Served::Frame(served)), Ok(Served::Done(closing))])
 }
 
 fn receipt(trace: &Value, tokens: Tokens) -> Result<Receipt, UpstreamError> {

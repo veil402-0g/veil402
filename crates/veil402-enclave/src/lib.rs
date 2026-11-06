@@ -4,4 +4,6 @@ pub mod adapters;
 pub mod core;
 
 pub use core::{Call, Error, Meter, Recorded, record, replay, sign_lock};
-pub use core::ports::{Ask, Attested, Listing, Served, Receipt, Tokens, Upstream, UpstreamError};
+pub use core::ports::{
+    Ask, Attested, Attestor, Listing, Receipt, Served, Tokens, Upstream, UpstreamError,
+};

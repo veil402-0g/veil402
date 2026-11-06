@@ -75,6 +75,19 @@ pub struct Tokens {
     pub completion: u64,
 }
 
+/// A provider whose signing key has been attested, and where to ask it for
+/// the signature over a call.
+///
+/// Pinned by configuration rather than discovered: the quote that binds this
+/// key to real hardware is verified out of band, and pinning the endpoint
+/// with it means this side never fetches from a URL somebody else chose.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Attestor {
+    pub endpoint: String,
+    /// What the attested quote's `report_data` named.
+    pub signer: Address,
+}
+
 /// Whether anything vouches for the answer.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Attested {

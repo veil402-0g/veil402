@@ -12,7 +12,8 @@ use futures_util::{
 };
 use tokio::sync::RwLock;
 use veil402_enclave::{
-    Ask, Call, Meter, Receipt, Served, Upstream, UpstreamError, record as journal, sign_lock,
+    Ask, Attested, Call, Meter, Receipt, Served, Upstream, UpstreamError, record as journal,
+    sign_lock,
 };
 use veil402_sdk::{
     Field, Veil,
@@ -330,6 +331,14 @@ async fn bill(relay: &mut Relay, receipt: &Receipt) -> Result<Metering, MeterErr
             owed,
             billed = cost,
             "a call cost more than it was admitted for"
+        );
+    }
+    // A provider that offered a signature which did not recover is a
+    // different thing from one that offered none, and worth saying so.
+    if receipt.attested == Attested::Failed {
+        tracing::warn!(
+            provider = ?receipt.provider,
+            "a provider's signature did not match its attested key"
         );
     }
     let attestation = witnessed(receipt);

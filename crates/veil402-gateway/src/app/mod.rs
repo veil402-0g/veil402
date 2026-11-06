@@ -1,12 +1,15 @@
 //! Composition root: builds the gateway from its configuration and serves it.
 
-use std::{env, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap, env, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc,
+    time::Duration,
+};
 
 use alloy::{hex, primitives::Address};
 use thiserror::Error;
 use tokio::time::sleep;
 use tower_http::trace::TraceLayer;
-use veil402_enclave::{Upstream, adapters::Router};
+use veil402_enclave::{Attestor, Upstream, adapters::Router};
 use veil402_sdk::{
     Config as Proving, Veil,
     evm::PoolClient,
@@ -54,6 +57,9 @@ pub enum ConfigError {
 pub struct Config {
     /// Most this gateway will pay per unit of gas, in wei.
     pub fee_cap: u128,
+    /// Providers whose signing key an attested quote has been checked
+    /// against, out of band, and where each answers for what it signed.
+    pub vouched: HashMap<Address, Attestor>,
     pub pool: PoolClient,
     /// Seed every enclave key derives from. On real hardware this comes from
     /// KMS gated on attestation; here it is configuration.
@@ -129,6 +135,7 @@ impl Config {
         .map_err(|_| ConfigError::Invalid("VEIL_POOL"))?;
         Ok(Self {
             fee_cap: parsed("VEIL_MAX_FEE_GWEI", MAX_FEE_GWEI)? * GWEI,
+            vouched: vouched(&env::var("VEIL_TEE_PROVIDERS").unwrap_or_default())?,
             pool,
             root: hex::decode(required("VEIL_ROOT_SEED")?)
                 .map_err(|_| ConfigError::Invalid("VEIL_ROOT_SEED"))?
@@ -175,6 +182,38 @@ const MAX_FEE_GWEI: u128 = 20_000;
 
 /// Gwei, in wei.
 const GWEI: u128 = 1_000_000_000;
+
+/// Reads the providers whose attestation an operator has already checked.
+///
+/// `<provider>|<endpoint>|<signer>`, semicolon separated. Pinned rather than
+/// discovered: the quote binding a signer to real hardware is verified out
+/// of band, and naming the endpoint here means a reply can never send this
+/// side somewhere of its choosing.
+fn vouched(configured: &str) -> Result<HashMap<Address, Attestor>, ConfigError> {
+    configured
+        .split(';')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| {
+            let [provider, endpoint, signer] = *entry.split('|').collect::<Vec<_>>() else {
+                return Err(ConfigError::Invalid("VEIL_TEE_PROVIDERS"));
+            };
+            Ok((
+                provider
+                    .trim()
+                    .parse()
+                    .map_err(|_| ConfigError::Invalid("VEIL_TEE_PROVIDERS"))?,
+                Attestor {
+                    endpoint: endpoint.trim().to_owned(),
+                    signer: signer
+                        .trim()
+                        .parse()
+                        .map_err(|_| ConfigError::Invalid("VEIL_TEE_PROVIDERS"))?,
+                },
+            ))
+        })
+        .collect()
+}
 
 #[derive(Debug, Error)]
 pub enum StartError {
@@ -238,6 +277,7 @@ pub async fn serve(config: Config) -> Result<(), StartError> {
         &config.upstream_key,
         &config.trust,
         config.ceiling,
+        config.vouched.clone(),
     )?);
     let service = assemble(&config, escrows, upstream)?;
     let settler = Arc::new(
