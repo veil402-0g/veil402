@@ -379,7 +379,9 @@ export function Hero({ v }: { v: LandingBindings }) {
             </a>
             <a
               className={s.s057}
-              href="#"
+              href="https://github.com/veil402-0g/veil402"
+              target="_blank"
+              rel="noopener"
               onMouseEnter={v.h2on}
               onMouseLeave={v.h2off}
             >

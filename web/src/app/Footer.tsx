@@ -128,7 +128,9 @@ export function Footer({ v }: { v: LandingBindings }) {
             </a>
             <a
               className={s.s643}
-              href="#"
+              href="https://github.com/veil402-0g/veil402"
+              target="_blank"
+              rel="noopener"
               onMouseEnter={v.f2on}
               onMouseLeave={v.f2off}
             >
@@ -193,7 +195,9 @@ export function Footer({ v }: { v: LandingBindings }) {
             </a>
             <a
               className={s.s651}
-              href="#"
+              href="https://github.com/veil402-0g/veil402"
+              target="_blank"
+              rel="noopener"
             >
               SOURCE
             </a>
