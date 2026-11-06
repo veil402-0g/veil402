@@ -2458,129 +2458,103 @@
   word-break: break-all;
 }
 
-/* Shielding is an allowance, a transfer and an inclusion. Each is a lane the
-   page's own gradient fills across, with a cutout riding its leading edge. */
+/* One track, a checkpoint per step: the fill reaches whatever is happening
+   now, so where it stops is the answer rather than a percentage. */
 .steps {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
+  padding: 4px 0 2px;
 }
 
-.step {
+.track {
   position: relative;
-  height: 52px;
+  height: 56px;
   border-radius: 999px;
+  background: #f4f6fd;
+  box-shadow: inset 0 0 0 1px #e9ecf6;
   overflow: hidden;
-  background: #eef0f4;
-  display: flex;
-  align-items: center;
-  opacity: var(--d0);
-  transition: opacity .4s ease;
 }
 
-.stepFill {
+.trackFill {
   position: absolute;
   inset: 0;
+  border-radius: 999px;
   background-image: radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);
   background-repeat: no-repeat;
-  background-size: var(--d1) 100%;
-  transition: background-size .7s cubic-bezier(.65,0,.25,1);
+  background-size: var(--d0) 100%;
+  transition: background-size .8s cubic-bezier(.65,0,.25,1);
 }
 
-/* The cutout, not a dot drawn on top: it reads as the gradient parting. */
-.stepKnob {
+.trackDot {
   position: absolute;
   top: 50%;
-  left: clamp(26px,var(--d1),calc(100% - 26px));
+  left: var(--d0);
+  transform: translate(-50%,-50%);
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: #fff;
-  transform: translate(-50%,-50%);
-  transition: left .7s cubic-bezier(.65,0,.25,1);
+  display: grid;
+  place-items: center;
+  background: var(--d1);
+  color: var(--d2);
+  box-shadow: inset 0 0 0 1px var(--d3);
+  font-size: 13px;
+  line-height: 1;
+  transition: background .4s ease,color .4s ease,box-shadow .4s ease;
 }
 
-.stepLabel {
-  position: relative;
-  z-index: 2;
-  padding-left: 22px;
-  font-size: 14px;
-  letter-spacing: -0.01em;
-  color: var(--d2);
+.trackLabels {
+  display: flex;
+}
+
+.trackLabel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.trackNum {
+  font: 500 10px 'JetBrains Mono',monospace;
+  letter-spacing: .08em;
+  color: var(--d0);
   transition: color .4s ease;
 }
 
-.stepMark {
-  position: relative;
-  z-index: 2;
-  margin-left: auto;
-  padding-right: 22px;
-  font: 500 10.5px 'JetBrains Mono',monospace;
-  letter-spacing: .08em;
+.trackName {
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
   color: var(--d0);
+  transition: color .4s ease;
+}
+
+/* A running checkpoint breathes: the chain says only "not yet". */
+@keyframes vdot {
+  0%, 100% { transform: translate(-50%,-50%) scale(1); }
+  50% { transform: translate(-50%,-50%) scale(1.14); }
+}
+
+.trackDot[data-run='true'] {
+  animation: vdot 1.7s ease-in-out infinite;
 }
 
 .stepDone {
   font: 400 11px 'JetBrains Mono',monospace;
   color: #1230d6;
   letter-spacing: .02em;
-  padding: 8px 0 4px;
+  padding: 2px 0 4px;
 }
 
 .stepFailed {
   font: 400 11px 'JetBrains Mono',monospace;
   color: #ff4d1a;
   letter-spacing: .02em;
-  padding: 8px 0 4px;
+  padding: 2px 0 4px;
   word-break: break-word;
 }
 
-/* A running step cannot say how far along it is — the chain answers only
-   "not yet" — so it sweeps instead of holding a figure that means nothing. */
-@keyframes vlane {
-  0%, 100% { background-size: 30% 100%; }
-  50% { background-size: 78% 100%; }
-}
-
-@keyframes vlaneknob {
-  0%, 100% { left: 30%; }
-  50% { left: 78%; }
-}
-
-@keyframes vsheen {
-  0% { transform: translateX(-60%); }
-  100% { transform: translateX(260%); }
-}
-
-.step[data-run='true'] .stepFill {
-  animation: vlane 2.1s cubic-bezier(.65,0,.35,1) infinite;
-}
-
-.step[data-run='true'] .stepKnob {
-  animation: vlaneknob 2.1s cubic-bezier(.65,0,.35,1) infinite;
-  transition: none;
-}
-
-.stepSheen {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 38%;
-  z-index: 1;
-  pointer-events: none;
-  background: linear-gradient(100deg,transparent,rgba(255,255,255,.42),transparent);
-  animation: vsheen 2.1s cubic-bezier(.4,0,.2,1) infinite;
-}
-
-.step[data-run='true'] .stepMark {
-  animation: vpulse 2.1s ease-in-out infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .step[data-run='true'] .stepFill,
-  .step[data-run='true'] .stepKnob,
-  .step[data-run='true'] .stepMark,
-  .stepSheen {
-    animation: none;
-  }
+  .trackDot[data-run='true'] { animation: none; }
 }

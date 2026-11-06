@@ -1684,22 +1684,38 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
             </div>
             {v.depositing ? (
               <div className={s.steps}>
-                {v.depositSteps.map((st, i) => (
-                  <div
-                    key={i}
-                    className={s.step}
-                    data-run={st.running ? 'true' : undefined}
-                    style={{ '--d0': st.op, '--d1': st.fillW, '--d2': st.ink } as CSSVars}
-                  >
-                    <span className={s.stepFill} />
-                    {st.running ? <span className={s.stepSheen} /> : null}
-                    {st.knobOn ? <span className={s.stepKnob} /> : null}
-                    <span className={s.stepLabel}>{st.label}</span>
-                    <span className={s.stepMark} style={{ '--d0': st.tone } as CSSVars}>
+                <div className={s.track} style={{ '--d0': v.depositFill } as CSSVars}>
+                  <span className={s.trackFill} />
+                  {v.depositSteps.map((st, i) => (
+                    <span
+                      key={i}
+                      className={s.trackDot}
+                      data-run={st.running ? 'true' : undefined}
+                      style={
+                        {
+                          '--d0': st.left,
+                          '--d1': st.dotBg,
+                          '--d2': st.dotFg,
+                          '--d3': st.ring,
+                        } as CSSVars
+                      }
+                    >
                       {st.mark}
                     </span>
-                  </div>
-                ))}
+                  ))}
+                </div>
+                <div className={s.trackLabels}>
+                  {v.depositSteps.map((st, i) => (
+                    <span key={i} className={s.trackLabel}>
+                      <span className={s.trackNum} style={{ '--d0': st.numFg } as CSSVars}>
+                        {st.num}
+                      </span>
+                      <span className={s.trackName} style={{ '--d0': st.labelFg } as CSSVars}>
+                        {st.label}
+                      </span>
+                    </span>
+                  ))}
+                </div>
                 {v.depositDone ? (
                   <span className={s.stepDone}>{v.depositAmountF} USDC shielded</span>
                 ) : null}

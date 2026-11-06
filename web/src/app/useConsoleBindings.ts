@@ -1042,26 +1042,32 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     depositError: depositing?.error ?? '',
     depositAmountF: depositing ? money(depositing.amount / 10 ** (config?.decimals ?? 6)) : '',
     depositNote: depositing?.stage === 'done' ? 'one note committed' : 'shielding',
+    // One track, a checkpoint per step. The fill reaches the circle of
+    // whatever is happening now, so a running step is a place on the bar
+    // rather than a percentage nothing reported.
+    depositFill: (() => {
+      if (depositing?.stage === 'done') return '100%'
+      const at = depositing ? STEPS.findIndex((x) => x.key === depositing.stage) : -1
+      return at < 0 ? '0%' : `${((at + 0.5) / STEPS.length) * 100}%`
+    })(),
     depositSteps: STEPS.map((step, i) => {
       const at = depositing ? STEPS.findIndex((x) => x.key === depositing.stage) : -1
       const finished = depositing?.stage === 'done' || (at >= 0 && i < at)
       const active = at === i && depositing?.stage !== 'failed'
       const broke = depositing?.stage === 'failed' && at === i
-      // The gradient is revealed rather than drawn, the way every other
-      // filled surface here works; the knob rides its leading edge.
-      const fill = finished ? 100 : active ? 58 : 0
       return {
-        label: step.label,
-        mark: finished ? '✓' : broke ? '!' : String(i + 1).padStart(2, '0'),
-        fillW: `${fill}%`,
-        knobAt: `${fill}%`,
-        knobOn: finished || active || broke,
-        // A step in flight has no percentage to report — the chain says
-        // only "not yet" — so it sweeps rather than claiming a figure.
+        label: broke ? `(${step.label})` : active ? `(${step.label})` : step.label,
+        num: String(i + 1),
+        left: `${((i + 0.5) / STEPS.length) * 100}%`,
+        mark: finished ? '✓' : broke ? '!' : active ? '✓' : '+',
         running: active,
-        tone: broke ? '#ff4d1a' : '#0d0e12',
-        ink: finished || active ? '#fff' : broke ? '#ff4d1a' : '#8b8e97',
-        op: finished || active || broke ? 1 : 0.45,
+        // A checkpoint behind the fill is white on the gradient; one ahead
+        // of it is a faint outline on the empty track.
+        dotBg: finished || active ? '#fff' : broke ? '#ff4d1a' : '#f4f6fd',
+        dotFg: broke ? '#fff' : finished || active ? '#1230d6' : '#c4c8d4',
+        ring: finished || active || broke ? 'transparent' : '#e3e5ea',
+        numFg: finished || active ? '#1230d6' : broke ? '#ff4d1a' : '#c4c8d4',
+        labelFg: finished || active ? '#0d0e12' : broke ? '#ff4d1a' : '#8b8e97',
       }
     }),
     closeDeposit: () => {
