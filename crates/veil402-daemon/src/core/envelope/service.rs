@@ -300,13 +300,23 @@ impl EnvelopeService {
             return Ok(newest);
         }
         if let Some(nullifier) = known {
-            // An envelope the enclave never took has nothing to settle: its
-            // lock did not land, so no escrow stands and no change is owed.
-            // The registry remembers it either way, because a lock whose
-            // fate is unknown must keep its change seed.
-            match self.settle(nullifier, false).await {
-                Ok(()) | Err(EnvelopeError::Enclave(EnclaveError::Unknown)) => {}
-                Err(refused) => return Err(refused),
+            // Only an envelope the pool still holds a reservation for can
+            // be settled. One whose lock never landed, or whose deadline
+            // went by while nobody asked for anything, has nothing left to
+            // pay out, and the pool refuses a settlement against either.
+            // The registry keeps its change seed regardless, since a lock
+            // whose fate is unknown may yet have landed.
+            let now = self.broadcast.timestamp().await?;
+            if self
+                .wallet
+                .escrow(nullifier)
+                .await?
+                .is_some_and(|deadline| deadline > now)
+            {
+                match self.settle(nullifier, false).await {
+                    Ok(()) | Err(EnvelopeError::Enclave(EnclaveError::Unknown)) => {}
+                    Err(refused) => return Err(refused),
+                }
             }
         }
         Ok(self
@@ -417,7 +427,11 @@ impl EnvelopeService {
             .wallet
             .reserve(self.terms.pool.asset(), wanted, now)
             .await?;
-        if note.seed.is_some() {
+        // A nullifier the pool has escrowed once can never be escrowed
+        // again, whatever became of that envelope. So a note whose session
+        // ended without settling has to become a different note before it
+        // can open another, seed or no seed.
+        if note.seed.is_some() && self.wallet.escrow(note.nullifier).await?.is_none() {
             return Ok(note);
         }
         let witness = self.index.witness(&[note.leaf]).await?;
