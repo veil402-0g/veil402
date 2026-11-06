@@ -1,0 +1,41 @@
+{
+    "choices": [
+        {
+            "finish_reason": "stop",
+            "index": 0,
+            "logprobs": null,
+            "matched_stop": 248046,
+            "message": {
+                "content": "\n\npong",
+                "reasoning_content": "Here's a thinking process:\n\n1.  **Analyze User Input:** The user says \"Reply with exactly: pong\".\n2.  **Identify Constraint:** The instruction is strict: \"exactly: pong\". This means I should output only the word \"pong\" and nothing else.\n3.  **Formulate Response:** I will output exactly \"pong\" as requested.\n4.  **Verify Constraint:** Does the response match exactly? Yes. No extra text, no greetings, no explanations.\n5.  **Output Generation:** pong\n",
+                "role": "assistant",
+                "tool_calls": null
+            }
+        }
+    ],
+    "created": 1793355844,
+    "id": "chatcmpl-c587a735-f142-437d-bc89-8b151e73511b",
+    "metadata": {
+        "weight_version": "default"
+    },
+    "model": "0gm-1.0-35b-a3b",
+    "object": "chat.completion",
+    "usage": {
+        "completion_tokens": 120,
+        "prompt_tokens": 35,
+        "prompt_tokens_details": null,
+        "reasoning_tokens": 117,
+        "total_tokens": 155
+    },
+    "x_0g_trace": {
+        "billing": {
+            "currency": "usd",
+            "input_cost": "3",
+            "output_cost": "58",
+            "total_cost": "61",
+            "total_cost_usd_micro": "61"
+        },
+        "provider": "0x4870CbC4D07d6Ac2EE5aA865588e5985FE77a4E9",
+        "request_id": "d763051d-7fee-49d6-ae52-17fce8600f7a"
+    }
+}
