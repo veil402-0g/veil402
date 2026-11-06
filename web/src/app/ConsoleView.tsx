@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, type CSSProperties } from 'react'
 import type { CSSVars } from '../ui/css-vars'
 import type { ConsoleBindings } from './useConsoleBindings'
 import s from './console.module.css'
@@ -1674,6 +1674,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                     </span>
                     <span
                       className={s.s227}
+                      style={{ '--amt-len': v.selV.amountF.length } as CSSProperties}
                     >
                       {v.loading ? <Skel w={70} h={20} r={4} /> : v.selV.amountF}
                     </span>

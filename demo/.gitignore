@@ -1,0 +1,8 @@
+.env.b
+# The template it is made from, which the root's .env* rule would sweep up.
+!.env.b.example
+*.log
+*.db
+*.db-*
+*.redb
+*.sol

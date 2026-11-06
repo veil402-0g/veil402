@@ -2185,6 +2185,7 @@
   gap: 8px;
   padding: 0 10% 0 24%;
   box-sizing: border-box;
+  container-type: inline-size;
 }
 
 .s225 {
@@ -2200,10 +2201,15 @@
 }
 
 .s227 {
-  font-size: 38px;
+  /* Scales with the circle (cqi) and shrinks as the number gets longer
+     (--amt-len), capped at 38px, so a big amount never overflows the circle. */
+  font-size: min(38px, calc(150cqi / var(--amt-len, 4)));
   font-weight: 300;
   letter-spacing: -0.04em;
   line-height: 1;
+  max-width: 100%;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .s228 {

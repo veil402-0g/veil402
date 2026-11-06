@@ -10,6 +10,7 @@ use crate::core::{
     envelope::{EnvelopeStore, SubmissionStore},
     StoreError,
     index::{Batch, Commitment, IndexStore, Locked},
+    receipts::{Direction, Receipt, Receipts},
     wallet::{ChainFacts, Deposit, Held, Minted, NoteStore, Unplaced},
 };
 
@@ -122,6 +123,13 @@ impl SqliteStore {
                  witness     TEXT,
                  sequence    INTEGER NOT NULL DEFAULT 0,
                  model       TEXT
+             );
+             CREATE TABLE IF NOT EXISTS receipts (
+                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                 direction  TEXT    NOT NULL,
+                 amount     INTEGER NOT NULL,
+                 commitment BLOB    NOT NULL,
+                 at         INTEGER NOT NULL
              );",
         )
         .execute(&pool)
@@ -711,6 +719,50 @@ impl NoteStore for SqliteStore {
             .await
             .map(|_| ())
             .map_err(|_| StoreError::Unavailable)
+    }
+}
+
+#[async_trait]
+impl Receipts for SqliteStore {
+    async fn record(&self, receipt: &Receipt) -> Result<(), StoreError> {
+        let direction = match receipt.direction {
+            Direction::Paid => "paid",
+            Direction::Received => "received",
+        };
+        sqlx::query("INSERT INTO receipts (direction, amount, commitment, at) VALUES (?, ?, ?, ?)")
+            .bind(direction)
+            .bind(integer(receipt.amount)?)
+            .bind(receipt.commitment.to_bytes().to_vec())
+            .bind(integer(receipt.at)?)
+            .execute(&self.pool)
+            .await
+            .map(|_| ())
+            .map_err(|_| StoreError::Unavailable)
+    }
+
+    async fn receipts(&self, limit: u32) -> Result<Vec<Receipt>, StoreError> {
+        sqlx::query(
+            "SELECT direction, amount, commitment, at FROM receipts
+             ORDER BY at DESC, id DESC LIMIT ?",
+        )
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| StoreError::Unavailable)?
+        .into_iter()
+        .map(|row| {
+            let direction = match row.get::<String, _>("direction").as_str() {
+                "paid" => Direction::Paid,
+                _ => Direction::Received,
+            };
+            Ok(Receipt {
+                direction,
+                amount: count(&row, "amount")?,
+                commitment: field(row.get("commitment"))?,
+                at: count(&row, "at")?,
+            })
+        })
+        .collect()
     }
 }
 

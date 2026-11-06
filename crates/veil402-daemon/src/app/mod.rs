@@ -34,6 +34,8 @@ use crate::{
         },
         treasury::TreasuryService,
         index::{IndexError, IndexService},
+        payment::PaymentService,
+        receipts::{Direction, Receipt, Receipts},
         wallet::{Deposit, Minted, WalletError, WalletService},
     },
 };
@@ -478,6 +480,8 @@ pub struct Daemon {
     envelopes: Option<Arc<EnvelopeService>>,
     api: Option<Serving>,
     retry: Retry,
+    /// Records payments found while scanning, so the console can show them.
+    receipts: Option<Arc<dyn Receipts>>,
 }
 
 /// The agent API, and where it answers from.
@@ -539,12 +543,22 @@ impl Daemon {
         let agents = Arc::new(AgentService::new(store.clone()));
         let keys = owner(&config.owner)?;
         let wallet = Arc::new(WalletService::new(store.clone(), store.clone(), config.owner));
+        let prover = Arc::new(LocalProver::new(veil, pool));
+        let receipts: Arc<dyn Receipts> = store.clone();
+        let payment = Arc::new(PaymentService::new(
+            wallet.clone(),
+            index.clone(),
+            prover.clone(),
+            sending.clone(),
+            receipts.clone(),
+            pool,
+        ));
         let envelopes = Arc::new(EnvelopeService::new(
             wallet.clone(),
             index.clone(),
             enclave,
             sending,
-            Arc::new(LocalProver::new(veil, pool)),
+            prover,
             store,
             Terms {
                 pool,
@@ -568,6 +582,8 @@ impl Daemon {
                     envelopes: envelopes.clone(),
                     index: index.clone(),
                     wallet: wallet.clone(),
+                    payment,
+                    receipts: receipts.clone(),
                     funding: Arc::new(Purse::new(provider, config.token, broadcast.account())),
                     treasury: Arc::new(TreasuryService::new(
                         wallet.clone(),
@@ -591,6 +607,7 @@ impl Daemon {
                     .filter_map(|origin| HeaderValue::from_str(origin).ok())
                     .collect(),
             }),
+            receipts: Some(receipts),
             ..Self::new(index, wallet, config.retry).serving(envelopes)
         })
     }
@@ -604,6 +621,7 @@ impl Daemon {
             envelopes: None,
             api: None,
             retry,
+            receipts: None,
         }
     }
 
@@ -667,6 +685,22 @@ impl Daemon {
         // Before reconciling: a note found on chain this pass should be
         // placed in the same one rather than waiting for the next.
         let found = self.wallet.discover(now()).await?;
+        if let Some(receipts) = &self.receipts {
+            let at = now();
+            for received in &found {
+                if let Err(error) = receipts
+                    .record(&Receipt {
+                        direction: Direction::Received,
+                        amount: received.value,
+                        commitment: received.commitment,
+                        at,
+                    })
+                    .await
+                {
+                    tracing::warn!(%error, "a received payment was not recorded");
+                }
+            }
+        }
         let seen = self.wallet.reconcile(now()).await?;
         // A seller settles for itself when a deadline nears, so an envelope
         // can be spent without us asking. Its change is still ours.
@@ -679,7 +713,7 @@ impl Daemon {
             placed = seen.placed,
             spent = seen.spent,
             escrowed = seen.escrowed,
-            found,
+            found = found.len(),
             "synced"
         );
         if seen.stale > 0 {

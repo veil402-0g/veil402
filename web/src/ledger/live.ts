@@ -100,8 +100,14 @@ function event(entry: Event, decimals: number): Tx {
     nullifier: entry.nullifier ?? '',
     t: millis(entry.at),
     // An escrow opens against the seller, not for any one agent, so it is the
-    // envelope that acts here.
-    agent: entry.label ?? (entry.kind === 'deposit' ? 'Treasury' : 'Envelope'),
+    // envelope that acts here. A payment names the counterparty instead.
+    agent:
+      entry.label ??
+      (entry.kind === 'deposit'
+        ? 'Treasury'
+        : entry.kind === 'paid' || entry.kind === 'received'
+          ? entry.vendor
+          : 'Envelope'),
     vendor: entry.vendor,
     amount: scaled(entry.amount, decimals),
     kind: entry.kind as TxKind,

@@ -88,6 +88,14 @@ pub struct Deposit {
     pub at: u64,
 }
 
+/// A note the scan found on chain that this wallet owns but had no record
+/// of — an incoming payment, as far as a healthy wallet is concerned.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Received {
+    pub value: u64,
+    pub commitment: Field,
+}
+
 /// A commitment the wallet has not yet tried to open.
 #[derive(Clone, Debug)]
 pub struct Unopened {

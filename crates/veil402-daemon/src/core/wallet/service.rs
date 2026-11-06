@@ -4,11 +4,12 @@ use thiserror::Error;
 use borsh::BorshDeserialize;
 use veil402_sdk::{
     Field, MerklePath, Note, Opening, Owner, Secret, SessionKeys, Send, Spend, Transaction,
-    session::{Sealed, Viewing, seal_note},
+    session::{PaymentAddress, Sealed, Viewing, seal_note},
 };
 
 use super::{
-    ChainFacts, Deposit, Held, Holdings, Minted, NoteStore, Reconciled, Recovered, Unopened,
+    ChainFacts, Deposit, Held, Holdings, Minted, NoteStore, Received, Reconciled, Recovered,
+    Unopened,
 };
 use crate::core::StoreError;
 
@@ -36,6 +37,8 @@ pub enum WalletError {
     Empty,
     #[error("the owner key cannot derive a nullifier")]
     Owner,
+    #[error("{0}")]
+    Unpayable(&'static str),
 }
 
 impl WalletError {
@@ -67,6 +70,18 @@ pub fn choose(held: &[Held], wanted: u64) -> Result<usize, WalletError> {
         .or_else(|| held.iter().enumerate().max_by_key(|(_, note)| note.value))
         .map(|(position, _)| position)
         .ok_or(WalletError::Empty)
+}
+
+/// What a payment produced: the transaction to prove and broadcast, the
+/// recipient's commitment (what the sender tracks and shows), and the
+/// sender's change, if the note did not go whole.
+pub struct Paid {
+    pub transaction: Transaction,
+    pub recipient_commitment: Field,
+    /// The recipient note's blinding. Only the payer knows it, so presenting
+    /// it to the payee proves who made a payment the chain shows to no one.
+    pub recipient_blinding: [u8; 32],
+    pub change: Option<Field>,
 }
 
 /// A wallet note given an identity of its own.
@@ -218,6 +233,100 @@ impl WalletService {
     #[must_use]
     pub fn view(&self) -> [u8; 32] {
         Viewing::new(&self.owner.view).public()
+    }
+
+    /// This wallet's public identity, half of the address it is paid at.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError::Owner`] when the key will not derive.
+    pub fn identity(&self) -> Result<Field, WalletError> {
+        self.owner.public().map_err(|_| WalletError::Owner)
+    }
+
+    /// The address another wallet pays this one at: its identity and the key
+    /// a payment is sealed to.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError::Owner`] when the key will not derive.
+    pub fn address(&self) -> Result<PaymentAddress, WalletError> {
+        Ok(PaymentAddress::new(self.identity()?, self.view()))
+    }
+
+    /// Pays `amount` from `note` to `to`, returning the remainder as change.
+    ///
+    /// The recipient's output is sealed to their viewing key, so only they
+    /// discover it, and the change is sealed to this wallet and written down
+    /// before the transaction is built — nothing recovers it afterwards.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError::Unpayable`] when the amount is zero or no single
+    /// note covers it, or [`WalletError`] when the store or the key fails.
+    pub async fn pay(
+        &self,
+        note: &Held,
+        merkle: MerklePath,
+        to: &PaymentAddress,
+        amount: u64,
+        now: u64,
+    ) -> Result<Paid, WalletError> {
+        if amount == 0 {
+            return Err(WalletError::Unpayable("a payment must be greater than zero"));
+        }
+        if amount > note.value {
+            return Err(WalletError::Unpayable("no single note covers the payment"));
+        }
+
+        let recipient_random = Secret::random().map_err(|_| WalletError::Owner)?;
+        let (recipient_minted, recipient) = output(
+            note.asset,
+            amount,
+            to.owner,
+            &recipient_random,
+            None,
+            to.view,
+        )
+        .map_err(|_| WalletError::Owner)?;
+        let recipient_commitment = recipient_minted.commitment;
+        let recipient_blinding = recipient_random.to_bytes();
+
+        let mut sends = vec![recipient];
+        let change = if note.value > amount {
+            let (minted, send) = output(
+                note.asset,
+                note.value - amount,
+                self.identity()?,
+                &Secret::random().map_err(|_| WalletError::Owner)?,
+                None,
+                self.view(),
+            )
+            .map_err(|_| WalletError::Owner)?;
+            let commitment = minted.commitment;
+            self.notes.remember(&[minted], now).await?;
+            sends.push(send);
+            Some(commitment)
+        } else {
+            None
+        };
+
+        let input = Spend {
+            note: Note {
+                value: note.value,
+                asset: note.asset,
+                random: Secret::from_bytes(note.random.to_bytes())
+                    .map_err(|_| WalletError::Owner)?,
+            },
+            owner: self.owner_for(note)?,
+            merkle,
+        };
+        Ok(Paid {
+            transaction: Transaction::new(vec![input], sends).map_err(|_| WalletError::Owner)?,
+            recipient_commitment,
+            recipient_blinding,
+            change,
+        })
     }
 
     #[must_use]
@@ -446,17 +555,20 @@ impl WalletService {
     /// # Errors
     ///
     /// Returns [`WalletError::Store`] when the store cannot be read.
-    pub async fn discover(&self, now: u64) -> Result<u32, WalletError> {
+    pub async fn discover(&self, now: u64) -> Result<Vec<Received>, WalletError> {
         let viewing = Viewing::new(&self.owner.view);
         let from = self.chain.scan_mark().await?;
         let unopened = self.chain.unopened(from, SCAN).await?;
-        let mut found = 0;
+        let mut found = Vec::new();
         let mut next = from;
         for leaf in &unopened {
             next = next.max(leaf.leaf_index.saturating_add(1));
             if let Some(minted) = self.opened(&viewing, leaf)? {
+                found.push(Received {
+                    value: minted.value,
+                    commitment: minted.commitment,
+                });
                 self.notes.remember(&[minted], now).await?;
-                found += 1;
             }
         }
         if next > from {

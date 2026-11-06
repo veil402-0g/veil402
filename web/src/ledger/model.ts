@@ -1,7 +1,14 @@
 // The shape every panel in the console reads. What fills it comes from the
 // daemon; see `live.ts`.
 
-export type TxKind = 'settled' | 'escrow' | 'deposit' | 'revoke' | 'refund'
+export type TxKind =
+  | 'settled'
+  | 'escrow'
+  | 'deposit'
+  | 'revoke'
+  | 'refund'
+  | 'paid'
+  | 'received'
 
 export const KIND_LABEL: Record<TxKind, string> = {
   settled: 'settled',
@@ -9,6 +16,8 @@ export const KIND_LABEL: Record<TxKind, string> = {
   deposit: 'deposit',
   revoke: 'mandate revoked',
   refund: 'escrow refunded',
+  paid: 'paid an agent',
+  received: 'received from an agent',
 }
 
 export const AMOUNT_SIGN: Record<TxKind, string> = {
@@ -17,6 +26,8 @@ export const AMOUNT_SIGN: Record<TxKind, string> = {
   deposit: '+',
   revoke: '',
   refund: '−',
+  paid: '−',
+  received: '+',
 }
 
 export type AgentStatus = 'active' | 'paused' | 'revoked'
