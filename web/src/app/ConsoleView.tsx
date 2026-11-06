@@ -1682,12 +1682,52 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                 </span>
               </div>
             </div>
-            <button
-              className={s.s259}
-              onClick={v.confirmFund}
-            >
-              {v.fundBtnLabel}
-            </button>
+            {v.depositing ? (
+              <div className={s.steps}>
+                {v.depositSteps.map((st, i) => (
+                  <div key={i} className={s.step} style={{ '--d0': st.op } as CSSVars}>
+                    <span
+                      className={s.stepMark}
+                      style={
+                        { '--d0': st.bg, '--d1': st.fg, '--d2': st.ring } as CSSVars
+                      }
+                    >
+                      {st.mark}
+                    </span>
+                    <span className={s.stepText}>
+                      <span className={s.stepLabel}>{st.label}</span>
+                      <span className={s.stepNote}>{st.note}</span>
+                    </span>
+                    <span className={s.stepBar}>
+                      <span
+                        className={s.stepFill}
+                        style={{ '--d0': st.barW } as CSSVars}
+                      />
+                    </span>
+                  </div>
+                ))}
+                {v.depositDone ? (
+                  <span className={s.stepDone}>
+                    {v.depositAmountF} USDC shielded · one note committed
+                  </span>
+                ) : null}
+                {v.depositFailed ? (
+                  <span className={s.stepFailed}>{v.depositError}</span>
+                ) : null}
+                {v.depositDone || v.depositFailed ? (
+                  <button className={s.s259} onClick={v.closeDeposit}>
+                    Done
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <button
+                className={s.s259}
+                onClick={v.confirmFund}
+              >
+                {v.fundBtnLabel}
+              </button>
+            )}
           </div>
         </div>
         </>
@@ -1831,16 +1871,8 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
           <div
             className={s.s270}
           >
-            <span
-              className={s.s244}
-            >
-              {v.toast.title}
-            </span>
-            <span
-              className={s.s172}
-            >
-              {v.toast.sub}
-            </span>
+            <span className={s.toastTitle}>{v.toast.title}</span>
+            <span className={s.toastSub}>{v.toast.sub}</span>
           </div>
         </div>
         </>

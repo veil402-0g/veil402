@@ -12,6 +12,7 @@ mod activity;
 mod agents;
 mod audit;
 mod config;
+mod deposit;
 mod dto;
 mod error;
 mod envelope;
@@ -30,6 +31,7 @@ pub fn router(console: Console) -> Router {
     Router::new()
         .route("/config", get(config::config))
         .route("/pool", get(pool::pool))
+        .route("/deposit", get(deposit::progress).post(deposit::start))
         .route("/envelope", get(envelope::envelope))
         .route("/activity", get(activity::activity))
         .route("/audit", get(audit::audit))

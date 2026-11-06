@@ -72,6 +72,17 @@ export interface Pool {
   last_deposit: { amount: number; at: number } | null
 }
 
+export type Stage = 'approving' | 'shielding' | 'placing' | 'done' | 'failed'
+
+/** A deposit in flight, or the last one there was. */
+export interface Progress {
+  stage: Stage
+  amount: number
+  started: number
+  commitment: string | null
+  error: string | null
+}
+
 export interface Mandate {
   id: string
   label: string
@@ -171,6 +182,9 @@ export interface Client {
   activity(limit?: number): Promise<Event[]>
   audit(scope?: AuditScope): Promise<Page<Call>>
   issue(mandate: { label: string; budget?: number | undefined; models?: string[] | undefined }): Promise<Granted>
+  /** Starts a deposit. It outlives the request; watch `depositProgress`. */
+  deposit(amount: number): Promise<void>
+  depositProgress(): Promise<Progress | null>
   revoke(id: string): Promise<void>
   pause(id: string, paused: boolean): Promise<void>
 }
@@ -217,6 +231,9 @@ export function client(base: string = BASE): Client {
     audit: (scope = {}) => send<Page<Call>>(`/audit${query({ ...scope })}`),
     issue: (mandate) =>
       send<Granted>('/agents', { method: 'POST', body: JSON.stringify(mandate) }),
+    deposit: (amount) =>
+      send<void>('/deposit', { method: 'POST', body: JSON.stringify({ amount }) }),
+    depositProgress: () => send<Progress | null>('/deposit'),
     revoke: (id) => send<void>(`/agents/${id}`, { method: 'DELETE' }),
     pause: (id, paused) =>
       send<void>(`/agents/${id}/${paused ? 'pause' : 'resume'}`, { method: 'POST' }),

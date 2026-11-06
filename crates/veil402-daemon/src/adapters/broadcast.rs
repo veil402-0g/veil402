@@ -7,6 +7,7 @@ use alloy::{
     eips::BlockId,
     primitives::{Address, Bytes, U256},
     providers::{Provider, ProviderBuilder},
+    sol,
 };
 use async_trait::async_trait;
 use veil402_sdk::Field;
@@ -19,7 +20,10 @@ use walletkit::{
     core::wallet::{GasEnvelope, HandleId, TxIntent, TxStatus},
 };
 
-use crate::core::envelope::{Broadcaster, ChainError, Landed, SubmissionStore};
+use crate::core::{
+    envelope::{Broadcaster, ChainError, Landed, SubmissionStore},
+    treasury::Funder,
+};
 
 /// How often the sending engine is turned over: rebroadcast, confirm, bump.
 /// On its own clock, because a transaction in flight needs attention
@@ -42,6 +46,8 @@ pub struct PoolBroadcaster<P> {
     provider: P,
     submissions: Arc<dyn SubmissionStore>,
     pool: Address,
+    /// The pooled token, which a deposit must be allowed to move.
+    token: Address,
     chain_id: u64,
 }
 
@@ -58,16 +64,17 @@ pub struct PoolBroadcaster<P> {
 pub async fn open(
     rpc: &str,
     key: &str,
-    pool: Address,
+    contracts: [Address; 2],
     state: &std::path::Path,
     submissions: Arc<dyn SubmissionStore>,
     confirmations: u64,
     fee_cap: u128,
 ) -> Result<PoolBroadcaster<impl Provider + 'static>, ChainError> {
+    let [pool, token] = contracts;
     let signer = LocalSigner::from_private_key(key)
         .map_err(|error| ChainError::Refused(error.to_string()))?;
     let policy = DefaultPolicyEngine::new(
-        vec![Box::new(TargetAllowlist::new([pool]))],
+        vec![Box::new(TargetAllowlist::new([pool, token]))],
         Arc::new(SystemClock),
     )
     .with_fee_caps(GasEnvelope {
@@ -102,6 +109,7 @@ pub async fn open(
         provider,
         submissions,
         pool,
+        token,
         chain_id,
     })
 }
@@ -116,6 +124,82 @@ impl<P> PoolBroadcaster<P> {
     #[must_use]
     pub fn account(&self) -> Address {
         self.wallet.account()
+    }
+
+    /// Sends one call and waits for it to land.
+    ///
+    /// The daemon's own engine, not a second one beside it: two engines
+    /// over one key hand the chain two transactions claiming one nonce.
+    /// Nothing ticks it here because the driver loop already does.
+    async fn sent(&self, to: Address, calldata: Vec<u8>) -> Result<(), ChainError> {
+        let intent = TxIntent::call(
+            self.chain_id,
+            self.wallet.account(),
+            to,
+            U256::ZERO,
+            Bytes::from(calldata),
+        );
+        let sent = self
+            .wallet
+            .send(&intent)
+            .await
+            .map_err(|error| ChainError::Refused(error.to_string()))?;
+        let since = Instant::now();
+        loop {
+            match self
+                .wallet
+                .status(sent.id)
+                .await
+                .map_err(|_| ChainError::Unavailable)?
+            {
+                Some(TxStatus::Confirmed { .. }) => return Ok(()),
+                Some(TxStatus::Failed { reason }) => return Err(ChainError::Refused(reason)),
+                Some(TxStatus::Replaced | TxStatus::Dropped) => {
+                    return Err(ChainError::Refused("the call never landed".into()));
+                }
+                _ if since.elapsed() > PATIENCE => {
+                    return Err(ChainError::Refused("the call was not taken in time".into()));
+                }
+                _ => tokio::time::sleep(POLL).await,
+            }
+        }
+    }
+}
+
+sol! {
+    #[sol(rpc)]
+    interface IAllowance {
+        function approve(address spender, uint256 value) external returns (bool);
+        function allowance(address owner, address spender) external view returns (uint256);
+    }
+}
+
+#[async_trait]
+impl<P: Provider + Send + Sync> Funder for PoolBroadcaster<P> {
+    fn account(&self) -> Address {
+        self.wallet.account()
+    }
+
+    async fn allow(&self, spender: Address, amount: u64) -> Result<bool, ChainError> {
+        let token = IAllowance::new(self.token, &self.provider);
+        let standing = token
+            .allowance(self.wallet.account(), spender)
+            .call()
+            .await
+            .map_err(|error| ChainError::Refused(error.to_string()))?;
+        if standing >= U256::from(amount) {
+            return Ok(false);
+        }
+        self.sent(
+            self.token,
+            token.approve(spender, U256::MAX).calldata().to_vec(),
+        )
+        .await
+        .map(|()| true)
+    }
+
+    async fn send(&self, to: Address, calldata: Vec<u8>) -> Result<(), ChainError> {
+        self.sent(to, calldata).await
     }
 }
 

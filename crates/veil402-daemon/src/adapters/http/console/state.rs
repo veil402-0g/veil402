@@ -9,6 +9,7 @@ use crate::core::{
     agent::AgentService,
     envelope::EnvelopeService,
     index::{Funding, IndexService},
+    treasury::TreasuryService,
     wallet::WalletService,
 };
 
@@ -65,10 +66,7 @@ impl Settings {
             session,
             window,
             features: Features {
-                // Shielding pulls tokens from the sender and needs the
-                // transaction engine the running daemon already holds, so
-                // it stays a command until that is hoisted.
-                deposit: false,
+                deposit: true,
                 disclose: false,
                 pause: true,
             },
@@ -85,5 +83,7 @@ pub struct Console {
     pub wallet: Arc<WalletService>,
     /// What is left to shield, for a console offering to shield it.
     pub funding: Arc<dyn Funding>,
+    /// Shields it, and says how far along that is.
+    pub treasury: Arc<TreasuryService>,
     pub settings: Arc<Settings>,
 }

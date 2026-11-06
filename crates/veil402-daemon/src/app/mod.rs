@@ -30,6 +30,7 @@ use crate::{
         StoreError,
         agent::AgentService,
         envelope::{ChainError, EnclaveError, EnvelopeError, EnvelopeService, Terms},
+        treasury::TreasuryService,
         index::{IndexError, IndexService},
         wallet::{Deposit, Minted, WalletError, WalletService},
     },
@@ -472,7 +473,7 @@ impl Daemon {
             adapters::broadcaster(
                 &config.rpc,
                 &config.signer,
-                config.pool,
+                [config.pool, config.token],
                 &config.wallet_state,
                 store.clone(),
                 config.window.confirmations,
@@ -504,6 +505,7 @@ impl Daemon {
         let enclave = Arc::new(RemoteEnclave::new(&config.gateway, pool)?);
 
         let agents = Arc::new(AgentService::new(store.clone()));
+        let keys = owner(&config.owner)?;
         let wallet = Arc::new(WalletService::new(store.clone(), store.clone(), config.owner));
         let envelopes = Arc::new(EnvelopeService::new(
             wallet.clone(),
@@ -535,6 +537,12 @@ impl Daemon {
                     index: index.clone(),
                     wallet: wallet.clone(),
                     funding: Arc::new(Purse::new(provider, config.token, broadcast.account())),
+                    treasury: Arc::new(TreasuryService::new(
+                        wallet.clone(),
+                        broadcast.clone(),
+                        pool,
+                        keys,
+                    )),
                     settings: Arc::new(Settings::new(
                         chain_id,
                         config.pool,

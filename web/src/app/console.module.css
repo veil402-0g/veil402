@@ -184,6 +184,12 @@
   background: #fff;
   display: flex;
   flex-direction: column;
+  /* The layout was drawn for about this much room. Past it the panels only
+     stretch, which thins everything out; a wide screen gets margins rather
+     than a thinner console. */
+  max-width: 1600px;
+  width: 100%;
+  margin-inline: auto;
 }
 
 
@@ -2353,21 +2359,22 @@
   left: 50%;
   bottom: 28px;
   transform: translateX(-50%);
-  background: radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);
-  box-shadow: 0 20px 50px -20px rgba(13,30,120,.6);
+  background: #0d0e12;
   color: #fff;
-  padding: 14px 18px;
+  padding: 13px 18px;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   z-index: 30;
+  max-width: min(560px,calc(100vw - 32px));
   animation: vin .25s ease-out;
-  box-shadow: 0 12px 30px -10px rgba(0,0,0,.5);
+  box-shadow: 0 14px 34px -12px rgba(13,14,18,.45);
 }
 
 .s269 {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
   background: var(--d0);
 }
 
@@ -2437,4 +2444,98 @@
   font: 500 11.5px 'JetBrains Mono',monospace;
   letter-spacing: .08em;
   text-transform: uppercase;
+}
+
+.toastTitle {
+  font-size: 13px;
+  letter-spacing: -0.01em;
+}
+
+.toastSub {
+  font: 400 10.5px 'JetBrains Mono',monospace;
+  letter-spacing: .02em;
+  color: rgba(255,255,255,.58);
+  word-break: break-all;
+}
+
+/* Shielding takes an allowance, a transfer and an inclusion; each is a step
+   somebody is watching, so each says where it has got to. */
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  opacity: var(--d0);
+  transition: opacity .3s ease;
+}
+
+.stepMark {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--d0);
+  color: var(--d1);
+  box-shadow: inset 0 0 0 1px var(--d2);
+  font: 500 10.5px 'JetBrains Mono',monospace;
+  transition: background .3s ease,color .3s ease,box-shadow .3s ease;
+}
+
+.stepText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stepLabel {
+  font-size: 13px;
+  letter-spacing: -0.01em;
+  color: #0d0e12;
+}
+
+.stepNote {
+  font: 400 10px 'JetBrains Mono',monospace;
+  letter-spacing: .02em;
+  color: #8b8e97;
+}
+
+.stepBar {
+  flex-shrink: 0;
+  width: 64px;
+  height: 2px;
+  background: #eef0f4;
+  overflow: hidden;
+}
+
+.stepFill {
+  display: block;
+  height: 100%;
+  width: var(--d0);
+  background: #1230d6;
+  transition: width .5s cubic-bezier(.65,0,.25,1);
+}
+
+.stepDone {
+  font: 400 11px 'JetBrains Mono',monospace;
+  color: #1230d6;
+  letter-spacing: .02em;
+  padding: 6px 0 10px;
+}
+
+.stepFailed {
+  font: 400 11px 'JetBrains Mono',monospace;
+  color: #ff4d1a;
+  letter-spacing: .02em;
+  padding: 6px 0 10px;
+  word-break: break-word;
 }

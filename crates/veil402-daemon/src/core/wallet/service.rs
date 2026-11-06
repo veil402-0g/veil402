@@ -344,6 +344,16 @@ impl WalletService {
         Ok(self.notes.by_nullifier(nullifier).await?)
     }
 
+    /// Seals a plain note's opening to this wallet's own viewing key, so a
+    /// scan can find it again when the store is gone.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError::Owner`] when the opening will not encode.
+    pub fn seal(&self, value: u64, asset: Field, random: &Secret) -> Result<Vec<u8>, WalletError> {
+        sealed(self.view(), value, asset, random, None).map_err(|_| WalletError::Owner)
+    }
+
     /// What this wallet is worth, across how many notes.
     ///
     /// # Errors

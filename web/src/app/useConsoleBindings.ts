@@ -20,7 +20,7 @@ import {
   type Totals,
 } from '../ledger/model'
 import { useViewTransition } from '../transition/context'
-import { ApiError, client, type Bootstrap } from '../api/client'
+import { ApiError, client, type Bootstrap, type Progress, type Stage } from '../api/client'
 import { CADENCE, fold, snapshot } from '../ledger/live'
 import { forget, keyFor, masked, remember } from '../api/keys'
 
@@ -43,7 +43,6 @@ const RANGE_OVER_CELL = 16
 const PLOT_GROUP = 9
 
 const PROOF_MS = 1400
-const FUND_MS = 1100
 const TOAST_MS = 3400
 
 type Scope = 'tx' | 'agent' | 'range'
@@ -69,6 +68,14 @@ function explain(error: unknown): string {
     ? error.message
     : 'the daemon is not answering on this address'
 }
+
+
+/** The steps a deposit goes through, in the order they happen. */
+const STEPS: { key: Stage; label: string; note: string }[] = [
+  { key: 'approving', label: 'Allowance', note: 'letting the pool move the tokens' },
+  { key: 'shielding', label: 'Shielding', note: 'the transfer itself' },
+  { key: 'placing', label: 'Committing', note: 'writing the note down' },
+]
 
 /** Fractions of what there is, which is more use than a figure typed here. */
 function shares(of: number): { label: string; amount: string }[] {
@@ -101,6 +108,8 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
   const [ledger, setLedger] = useState<Ledger>(seedEmpty)
   const [now, setNow] = useState(() => Date.now())
   const [config, setConfig] = useState<Bootstrap | null>(null)
+  /** How the deposit in flight is getting on. */
+  const [depositing, setDepositing] = useState<Progress | null>(null)
   /** The key a mandate was just issued with. The one moment it exists. */
   const [issued, setIssued] = useState<{ id: string; name: string; key: string } | null>(null)
   /** Bumped when the keyring changes, so the rows re-read it. */
@@ -188,6 +197,25 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     const id = window.setInterval(() => void refresh(), CADENCE.activity)
     return () => window.clearInterval(id)
   }, [refresh])
+
+  useEffect(() => {
+    const running = depositing && depositing.stage !== 'done' && depositing.stage !== 'failed'
+    if (!running) return
+    const id = window.setInterval(() => {
+      api
+        .depositProgress()
+        .then((at) => {
+          if (!at) return
+          setDepositing(at)
+          if (at.stage === 'done' || at.stage === 'failed') {
+            setForm((f) => ({ ...f, funding: false }))
+            void refresh()
+          }
+        })
+        .catch(() => undefined)
+    }, 1200)
+    return () => window.clearInterval(id)
+  }, [api, depositing, refresh])
 
   useEffect(() => {
     const id = window.setTimeout(() => setRangeIn(true), 350)
@@ -761,42 +789,24 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
 
   const confirmFund = () => {
     const amount = amountOf(form.fundAmount)
-    if (!amount || form.funding) return
-    if (!config?.features.deposit) {
-      const command = `cargo run -p veil402-daemon -- deposit ${Math.round(
-        amount * 10 ** (config?.decimals ?? 6),
-      )}`
-      void navigator.clipboard?.writeText(command)
-      setFundOpen(false)
-      notify('Deposit runs from the command line', `${command} — copied`)
-      return
-    }
+    if (!amount || form.funding || !config) return
     setForm((f) => ({ ...f, funding: true }))
-    window.setTimeout(() => {
-      setForm((f) => ({ ...f, funding: false }))
-      setFundOpen(false)
-      setLedger((l) => ({
-        ...l,
-        balance: l.balance + amount,
-        notes: l.notes + 1,
-        lastDeposit: { amount, t: Date.now() },
-        feed: [
-          {
-            id: `tx_${randomHex(6)}`,
-            commit: randomHex(64),
-            nullifier: randomHex(64),
-            t: Date.now(),
-            agent: 'Treasury',
-            vendor: 'Shielded pool',
-            amount,
-            kind: 'deposit' as const,
-            tokens: 0,
-          },
-          ...l.feed,
-        ],
-      }))
-      notify(`Pool funded · +${money(amount)} USDC`, '1 note committed · Hedera consensus 2.9s')
-    }, FUND_MS)
+    const units = Math.round(amount * 10 ** config.decimals)
+    api
+      .deposit(units)
+      .then(() => {
+        setDepositing({
+          stage: 'approving',
+          amount: units,
+          started: Math.floor(Date.now() / 1000),
+          commitment: null,
+          error: null,
+        })
+      })
+      .catch((error: unknown) => {
+        setForm((f) => ({ ...f, funding: false }))
+        notify('Deposit refused', explain(error), '#ff4d1a')
+      })
   }
 
   const confirmMandate = () => {
@@ -1026,11 +1036,33 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
       label,
       pick: () => setForm((f) => ({ ...f, mBudget: amount })),
     })),
-    fundBtnLabel: form.funding
-      ? 'Generating deposit proof…'
-      : config?.features.deposit
-        ? `Deposit ${form.fundAmount} USDC`
-        : 'Copy deposit command',
+    depositing: !!depositing,
+    depositDone: depositing?.stage === 'done',
+    depositFailed: depositing?.stage === 'failed',
+    depositError: depositing?.error ?? '',
+    depositAmountF: depositing ? money(depositing.amount / 10 ** (config?.decimals ?? 6)) : '',
+    depositSteps: STEPS.map((step, i) => {
+      const at = depositing ? STEPS.findIndex((x) => x.key === depositing.stage) : -1
+      const finished = depositing?.stage === 'done' || (at >= 0 && i < at)
+      const active = at === i && depositing?.stage !== 'failed'
+      const broke = depositing?.stage === 'failed' && at === i
+      return {
+        label: step.label,
+        note: step.note,
+        mark: finished ? '✓' : broke ? '!' : String(i + 1).padStart(2, '0'),
+        bg: finished ? '#1230d6' : active ? '#0d0e12' : broke ? '#ff4d1a' : '#fff',
+        fg: finished || active || broke ? '#fff' : '#8b8e97',
+        ring: finished ? '#1230d6' : broke ? '#ff4d1a' : '#e3e5ea',
+        barW: finished ? '100%' : active ? '55%' : '0%',
+        op: finished || active || broke ? 1 : 0.5,
+      }
+    }),
+    closeDeposit: () => {
+      setDepositing(null)
+      setFundOpen(false)
+      setForm((f) => ({ ...f, funding: false }))
+    },
+    fundBtnLabel: form.funding ? 'Shielding…' : `Shield ${form.fundAmount} USDC`,
     confirmFund,
 
     mName: form.mName,

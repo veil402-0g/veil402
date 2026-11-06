@@ -275,6 +275,29 @@ impl Funding for Unfunded {
     }
 }
 
+#[async_trait]
+impl veil402_daemon::core::treasury::Funder for Unfunded {
+    fn account(&self) -> Address {
+        Address::ZERO
+    }
+
+    async fn allow(
+        &self,
+        _: Address,
+        _: u64,
+    ) -> Result<bool, veil402_daemon::core::envelope::ChainError> {
+        Ok(false)
+    }
+
+    async fn send(
+        &self,
+        _: Address,
+        _: Vec<u8>,
+    ) -> Result<(), veil402_daemon::core::envelope::ChainError> {
+        Err(veil402_daemon::core::envelope::ChainError::Unavailable)
+    }
+}
+
 /// A broadcaster that sends nothing.
 ///
 /// The sync loop's subject is the index and the notes; what it writes is
@@ -304,6 +327,7 @@ use alloy::{
     primitives::Address,
     signers::{SignerSync, local::PrivateKeySigner},
 };
+use veil402_daemon::core::treasury::TreasuryService;
 use veil402_daemon::{
     adapters::{Api, Console, Settings, SqliteStore, router},
     core::{
@@ -539,6 +563,15 @@ impl Fixture {
             index: self.index.clone(),
             wallet: self.wallet.clone(),
             funding: Arc::new(Unfunded),
+            treasury: Arc::new(TreasuryService::new(
+                self.wallet.clone(),
+                Arc::new(Unfunded),
+                pool().expect("pool"),
+                Owner {
+                    spend: Secret::random().expect("spend"),
+                    view: Secret::random().expect("view"),
+                },
+            )),
             settings: Arc::new(Settings::new(1, seller(), seller(), seller(), seller(), CEILING, WINDOW)),
         }
     }
