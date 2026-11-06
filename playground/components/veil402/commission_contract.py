@@ -77,20 +77,21 @@ class CommissionContractComponent(Component):
                 },
             )
             if code == 200:
-                head = f"Delivered {out.get('contract') or 'a contract'}"
+                contract = out.get("contract") or "a contract"
+                head = f"### ✅ Delivered **{contract}**"
                 if out.get("address"):
-                    head += f" @ {out['address']}"
-                lines = [head]
+                    head += f"\n`{out['address']}`"
+                lines = [head, ""]
                 if out.get("network"):
-                    lines.append(f"network: {out['network']}")
+                    lines.append(f"- **network:** {out['network']}")
                 if out.get("explorerUrl"):
-                    lines.append(f"explorer: {out['explorerUrl']}")
+                    lines.append(f"- **explorer:** {out['explorerUrl']}")
                 lines.append(
-                    f"paid {price / 1_000_000:.2f} USDC privately — on chain only a commitment, "
-                    f"no sender, recipient, or amount"
+                    f"- 💸 **paid {price / 1_000_000:.2f} USDC privately** — on chain this is only a "
+                    f"commitment: *no sender, no recipient, no amount*"
                 )
                 if out.get("source"):
-                    lines += ["", out["source"]]
+                    lines += ["", "```solidity", out["source"].rstrip(), "```"]
                 self.status = "done"
                 return Message(text="\n".join(lines))
             time.sleep(2)
