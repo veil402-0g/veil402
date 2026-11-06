@@ -78,6 +78,9 @@ pub fn choose(held: &[Held], wanted: u64) -> Result<usize, WalletError> {
 pub struct Paid {
     pub transaction: Transaction,
     pub recipient_commitment: Field,
+    /// The recipient note's blinding. Only the payer knows it, so presenting
+    /// it to the payee proves who made a payment the chain shows to no one.
+    pub recipient_blinding: [u8; 32],
     pub change: Option<Field>,
 }
 
@@ -276,16 +279,18 @@ impl WalletService {
             return Err(WalletError::Unpayable("no single note covers the payment"));
         }
 
+        let recipient_random = Secret::random().map_err(|_| WalletError::Owner)?;
         let (recipient_minted, recipient) = output(
             note.asset,
             amount,
             to.owner,
-            &Secret::random().map_err(|_| WalletError::Owner)?,
+            &recipient_random,
             None,
             to.view,
         )
         .map_err(|_| WalletError::Owner)?;
         let recipient_commitment = recipient_minted.commitment;
+        let recipient_blinding = recipient_random.to_bytes();
 
         let mut sends = vec![recipient];
         let change = if note.value > amount {
@@ -319,6 +324,7 @@ impl WalletService {
         Ok(Paid {
             transaction: Transaction::new(vec![input], sends).map_err(|_| WalletError::Owner)?,
             recipient_commitment,
+            recipient_blinding,
             change,
         })
     }

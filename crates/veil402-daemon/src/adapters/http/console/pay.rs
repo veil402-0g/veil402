@@ -24,6 +24,8 @@ pub struct Asked {
 #[derive(Debug, Serialize)]
 pub struct Sent {
     pub recipient_commitment: String,
+    /// The payer's proof of this payment, to hand to the payee.
+    pub blinding: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub change: Option<String>,
 }
@@ -36,6 +38,7 @@ pub async fn pay(State(console): State<Console>, Json(asked): Json<Asked>) -> Ap
     let sent = console.payment.pay(to, asked.amount, now()).await?;
     Ok(Response::ok(Sent {
         recipient_commitment: wire::encode(&sent.recipient_commitment.to_bytes()),
+        blinding: wire::encode(&sent.blinding),
         change: sent.change.map(|change| wire::encode(&change.to_bytes())),
     }))
 }

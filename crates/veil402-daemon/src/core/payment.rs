@@ -61,6 +61,8 @@ impl PayError {
 /// What a sent payment produced.
 pub struct Sent {
     pub recipient_commitment: Field,
+    /// The recipient note's blinding, the payer's proof of this payment.
+    pub blinding: [u8; 32],
     pub change: Option<Field>,
 }
 
@@ -136,6 +138,7 @@ impl PaymentService {
             .await?;
         Ok(Sent {
             recipient_commitment: paid.recipient_commitment,
+            blinding: paid.recipient_blinding,
             change: paid.change,
         })
     }
