@@ -29,6 +29,20 @@ const DOT_ROWS = 6
 const DOT_COLS = 72
 const DOT_N = DOT_ROWS * DOT_COLS
 
+/** The agent table pages rather than scrolls. */
+const AGENTS_PER_PAGE = 7
+
+/** The status orb: a flat two-stop disc, not a lit sphere. */
+function orb(dark: string, light: string): string {
+  return `linear-gradient(150deg,${dark} 0%,${light} 100%)`
+}
+
+/** First, last and a window around the current page; the rest collapses. */
+function pageWindow(at: number, pages: number): number[] {
+  const near = [0, pages - 1, at, at - 1, at + 1].filter((p) => p >= 0 && p < pages)
+  return [...new Set(near)].sort((a, b) => a - b)
+}
+
 /** Mini timeline: 45 buckets of 20s. */
 const TL_COLS = 45
 const TL_ROWS = 6
@@ -120,6 +134,9 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
   const [shown, setShown] = useState(false)
   /** Bumped when the keyring changes, so the rows re-read it. */
   const [keyring, setKeyring] = useState(0)
+
+  const [agentQuery, setAgentQuery] = useState('')
+  const [agentPage, setAgentPage] = useState(0)
   /** What stopped the daemon answering, in words the operator can act on. */
   const [offline, setOffline] = useState('')
 
@@ -157,6 +174,10 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
   useEffect(() => () => window.clearTimeout(toastTimer.current), [])
 
   const api = useMemo(() => client(), [])
+
+  // Settings and the first snapshot land in one await, so an unset config is
+  // exactly "nothing has been read yet" — not "the pool holds nothing".
+  const loading = config === null && offline === ''
 
   // Only to keep relative times moving; the ledger itself advances when the
   // daemon says it has.
@@ -364,7 +385,28 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
   const heldFor = (agentId: string) =>
     ledger.sessions.filter((x) => x.agentId === agentId).reduce((q, x) => q + x.escrow, 0)
 
-  const agentRows = ledger.agents.map((a) => {
+  // Live mandates first and widest allowance on top, because that is the
+  // order an operator scans in; the spent ones sink.
+  const rank = (status: string) => (status === 'active' ? 0 : status === 'paused' ? 1 : 2)
+  const ceiling = (budget: number | null) => budget ?? Number.POSITIVE_INFINITY
+  const ordered = [...ledger.agents].sort(
+    (a, b) => rank(a.status) - rank(b.status) || ceiling(b.budget) - ceiling(a.budget),
+  )
+
+  const needle = agentQuery.trim().toLowerCase()
+  const matching = needle
+    ? ordered.filter(
+        (a) => a.name.toLowerCase().includes(needle) || a.id.toLowerCase().includes(needle),
+      )
+    : ordered
+  const pages = Math.max(Math.ceil(matching.length / AGENTS_PER_PAGE), 1)
+  // Revoking the last row of the last page, or typing a narrower search,
+  // leaves the stored page past the end.
+  const at = Math.min(agentPage, pages - 1)
+  const from = at * AGENTS_PER_PAGE
+  const paged = matching.slice(from, from + AGENTS_PER_PAGE)
+
+  const agentRows = paged.map((a) => {
     void keyring
     const known = keyFor(a.id)
     const held = heldFor(a.id)
@@ -372,20 +414,30 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     const revoked = a.status === 'revoked'
     const hot = pct >= 0.95 && !revoked
 
+    // Orange is the alarm, and only one state is alarming: a mandate about to
+    // run dry. Revoked is a decision already taken, so it recedes.
     let statusLabel = 'Active'
-    let statusColor = '#0d0e12'
+    let statusInk = '#0d0e12'
+    let statusOrb = orb('#9cbaf4', '#d2dffb')
+    let statusLive = false
     if (revoked) {
       statusLabel = 'Revoked'
-      statusColor = '#ff4d1a'
+      statusInk = '#8b8e97'
+      statusOrb = orb('#ccd0da', '#e3e6ed')
     } else if (a.status === 'paused') {
       statusLabel = 'Paused'
-      statusColor = '#8b8e97'
+      statusInk = '#8b8e97'
+      statusOrb = orb('#a3a6ae', '#c9ccd4')
     } else if (pct >= 0.95) {
       statusLabel = 'Near limit'
-      statusColor = '#ff4d1a'
+      statusInk = '#ff4d1a'
+      statusOrb = orb('#ff7a4d', '#ffb49a')
+      statusLive = true
     } else if (held > 0 || now - a.last < 60e3) {
       statusLabel = 'Metering'
-      statusColor = '#1230d6'
+      statusInk = '#1230d6'
+      statusOrb = orb('#3d74ea', '#93b5f3')
+      statusLive = true
     }
 
     const TICKS = 50
@@ -419,7 +471,9 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
       }%`,
       barColor: revoked ? '#c4c8d4' : hot ? '#ff4d1a' : '#1230d6',
       statusLabel,
-      statusColor,
+      statusInk,
+      statusLive,
+      statusOrb,
       lastF: relative(now - a.last),
       opacity: revoked ? 0.5 : 1,
       canRevoke: !revoked,
@@ -633,7 +687,7 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
 
   // --- stacked budget columns ---------------------------------------------
 
-  const agentCols = ledger.agents.map((a) => {
+  const agentCols = paged.map((a) => {
     const held = heldFor(a.id)
     const pct = a.budget ? a.spent / a.budget : 0
     const revoked = a.status === 'revoked'
@@ -680,7 +734,7 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
 
   const pctOfCeiling = (v: number) => `${((Math.min(v, RANGE_CEILING) / RANGE_CEILING) * 100).toFixed(2)}%`
 
-  const rangeCols = ledger.agents.map((a, i) => {
+  const rangeCols = paged.map((a, i) => {
     const held = heldFor(a.id)
     const revoked = a.status === 'revoked'
     const paused = a.status === 'paused'
@@ -725,7 +779,7 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     const projTop = dead ? lo : Math.min(hi, 1)
     const on = hoverRange === i
     const dim = hoverRange != null && !on
-    const total = ledger.agents.length || 1
+    const total = paged.length || 1
 
     return {
       tagF: revoked ? 'REVOKED' : paused ? 'PAUSED' : `TODAY ${Math.round(pct * 100)}%`,
@@ -756,7 +810,7 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
       projF: `${Math.round(projected * 100)}%`,
       lc: dead ? '#8b8e97' : over ? '#ff4d1a' : '#1230d6',
 
-      cx: `${((i * PLOT_GROUP + 4.5) / (ledger.agents.length * PLOT_GROUP || 1)) * 100}%`,
+      cx: `${((i * PLOT_GROUP + 4.5) / (paged.length * PLOT_GROUP || 1)) * 100}%`,
       grow: rangeIn ? 'scaleY(1)' : 'scaleY(0)',
       dl: `${i * 90}ms`,
       dl2: `${i * 90 + 450}ms`,
@@ -780,8 +834,8 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
       barO: dim ? 0.45 : 1,
       tO: rangeIn ? 1 : 0,
       enter: () => setHoverRange(i),
-      left: `${((i * PLOT_GROUP) / (ledger.agents.length * PLOT_GROUP || 1)) * 100}%`,
-      w: `${(PLOT_GROUP / (ledger.agents.length * PLOT_GROUP || 1)) * 100}%`,
+      left: `${((i * PLOT_GROUP) / (paged.length * PLOT_GROUP || 1)) * 100}%`,
+      w: `${(PLOT_GROUP / (paged.length * PLOT_GROUP || 1)) * 100}%`,
       bandO: on ? 1 : 0,
       bandS: on ? 'scaleY(1)' : 'scaleY(.6)',
       op: dim ? 0.35 : revoked ? 0.5 : 1,
@@ -909,24 +963,49 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     statOff: () => setHoverStat(null),
 
     agentRows,
+    agentQuery,
+    setAgentQuery: (e: ChangeEvent<HTMLInputElement>) => {
+      setAgentQuery(e.target.value)
+      setAgentPage(0)
+    },
+    clearAgentQuery: () => {
+      setAgentQuery('')
+      setAgentPage(0)
+    },
+    hasAgentQuery: needle !== '',
+    agentNoMatch: matching.length === 0,
+    agentPager: matching.length > 0,
+    // A short last page would otherwise pull the whole page up under the cursor.
+    agentFillers: pages > 1 ? Array.from({ length: AGENTS_PER_PAGE - paged.length }, (_, i) => i) : [],
+    agentRange: matching.length === 0 ? '' : `${from + 1}-${from + paged.length} of ${matching.length}`,
+    agentPageItems: pageWindow(at, pages).flatMap((p, i, all) => {
+      const item = { gap: false, label: String(p + 1), current: p === at, go: () => setAgentPage(p) }
+      return i > 0 && p - all[i - 1]! > 1
+        ? [{ gap: true, label: '', current: false, go: () => {} }, item]
+        : [item]
+    }),
+    canAgentPrev: at > 0,
+    canAgentNext: at < pages - 1,
+    agentPrev: () => setAgentPage(Math.max(at - 1, 0)),
+    agentNext: () => setAgentPage(Math.min(at + 1, pages - 1)),
     agentN: ledger.agents.length,
     agentA: ledger.agents.filter((a) => a.status === 'active').length,
-    hasAgents: ledger.agents.length > 0,
-    noAgents: ledger.agents.length === 0,
+    hasAgents: loading || ledger.agents.length > 0,
+    noAgents: !loading && ledger.agents.length === 0,
     agentCols,
     spentPctAll: budgetAll ? Math.round((T.spent / budgetAll) * 100) : 0,
 
     rangeCols,
     rangeOff: () => setHoverRange(null),
-    chartRange: agentChart === 'Range',
-    chartColumns: agentChart !== 'Range',
+    chartRange: agentChart === 'Range' && paged.length > 0,
+    chartColumns: agentChart !== 'Range' && paged.length > 0,
 
     stages,
     stOff: () => setHoverStage(null),
     tlCols,
 
-    hasSessions: ledger.sessions.length > 0,
-    noSessions: ledger.sessions.length === 0,
+    hasSessions: loading || ledger.sessions.length > 0,
+    noSessions: !loading && ledger.sessions.length === 0,
     sessionRows,
     sessionCount: ledger.sessions.length,
     sessionWord: ledger.sessions.length === 1 ? 'session' : 'sessions',
@@ -935,8 +1014,8 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     escInt,
     escDec,
 
-    hasFeed: ledger.feed.length > 0,
-    noFeed: ledger.feed.length === 0,
+    hasFeed: loading || ledger.feed.length > 0,
+    noFeed: !loading && ledger.feed.length === 0,
     feedRows,
     liveLabel: offline ? 'OFFLINE' : 'LIVE',
     livePulse: createElement('span', {
@@ -1147,6 +1226,7 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     confirmMandate,
 
     offline,
+    loading,
 
     toast,
   }

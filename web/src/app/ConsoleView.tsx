@@ -4,6 +4,27 @@ import type { ConsoleBindings } from './useConsoleBindings'
 import s from './console.module.css'
 
 
+/** A value the daemon has not answered for yet. */
+function Skel({ w, h, r = 3 }: { w: number | string; h: number; r?: number }) {
+  return (
+    <span
+      className={s.skel}
+      style={{ '--d0': typeof w === 'number' ? `${w}px` : w, '--d1': `${h}px`, '--d2': `${r}px` } as CSSVars}
+    />
+  )
+}
+
+/** A list the daemon has not answered for yet. */
+function SkelRows({ n, h }: { n: number; h: number }) {
+  return (
+    <div className={s.skelRows}>
+      {Array.from({ length: n }, (_, i) => (
+        <Skel key={i} w="100%" h={h} r={4} />
+      ))}
+    </div>
+  )
+}
+
 export function ConsoleView({ v }: { v: ConsoleBindings }) {
   return (
     <>
@@ -107,7 +128,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                     <span
                       className={s.s030}
                     >
-                      {v.noteCount}
+                      {v.loading ? <Skel w={26} h={16} /> : v.noteCount}
                     </span>
                     <span
                       className={s.s031}
@@ -121,7 +142,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                     <span
                       className={s.s032}
                     >
-                      {v.anonSet}
+                      {v.loading ? <Skel w={42} h={16} /> : v.anonSet}
                     </span>
                     <span
                       className={s.s031}
@@ -143,13 +164,13 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                     className={s.s035}
                     style={{ '--d0': `${v.balG},100% 100%` } as CSSVars}
                   >
-                    {v.balInt}
+                    {v.loading ? <Skel w={236} h={88} r={6} /> : v.balInt}
                   </span>
                   <span
                     className={s.s036}
                     style={{ '--d0': `${v.balG},100% 100%` } as CSSVars}
                   >
-                    .{v.balDec}
+                    {v.loading ? <Skel w={74} h={40} r={5} /> : <>.{v.balDec}</>}
                   </span>
                 </div>
                 <div
@@ -163,12 +184,12 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                   <span
                     className={s.s039}
                   >
-                    {v.lastDeposit}
+                    {v.loading ? <Skel w={128} h={11} /> : v.lastDeposit}
                   </span>
                   <span
                     className={s.s039}
                   >
-                    {v.walletF}
+                    {v.loading ? <Skel w={172} h={11} /> : v.walletF}
                   </span>
                 </div>
               </div>
@@ -237,13 +258,13 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                     className={s.s051}
                     style={{ '--d0': st.valC } as CSSVars}
                   >
-                    {st.value}
+                    {v.loading ? <Skel w={86} h={24} r={4} /> : st.value}
                   </div>
                   <div
                     className={s.s052}
                     style={{ '--d0': st.subC } as CSSVars}
                   >
-                    {st.sub}
+                    {v.loading ? <Skel w={104} h={10} /> : st.sub}
                   </div>
                 </div>
                 </Fragment>
@@ -259,12 +280,12 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
               <span
                 className={s.s055}
               >
-                Each dot is {v.dotUnit} of funded capital — where every unit currently sits.
+                Each dot is {v.loading ? <Skel w={62} h={10} /> : v.dotUnit} of funded capital — where every unit currently sits.
               </span>
               <span
                 className={s.s056}
               >
-                total funded {v.totalFunded}
+                total funded {v.loading ? <Skel w={52} h={10} /> : v.totalFunded}
               </span>
             </div>
             <div
@@ -287,7 +308,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                     className={s.s060}
                     style={{ '--d0': sg.pc } as CSSVars}
                   >
-                    {sg.pct}
+                    {v.loading ? <Skel w={24} h={10} /> : sg.pct}
                   </span>
                 </div>
                 </Fragment>
@@ -296,9 +317,11 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
             <div
               className={s.s061}
             >
+              {v.loading ? <Skel w="100%" h={93} r={6} /> : null}
               <div
                 className={s.s062}
                 onMouseLeave={v.dotOff}
+                hidden={v.loading}
               >
                 {v.dots.map((d, i) => (
                   <Fragment key={i}>
@@ -352,7 +375,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                       <span
                         className={s.s030}
                       >
-                        {v.agentN}
+                        {v.loading ? <Skel w={20} h={16} /> : v.agentN}
                       </span>
                       <span
                         className={s.s031}
@@ -366,7 +389,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                       <span
                         className={s.s032}
                       >
-                        {v.agentA}
+                        {v.loading ? <Skel w={20} h={16} /> : v.agentA}
                       </span>
                       <span
                         className={s.s031}
@@ -417,6 +440,30 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                   </div>
                   </>
                 ) : null}
+                <label
+                  className={s.agentSearch}
+                >
+                  <input
+                    className={s.agentSearchInput}
+                    value={v.agentQuery}
+                    onChange={v.setAgentQuery}
+                    placeholder="Search mandates"
+                    aria-label="Search mandates"
+                  />
+                  {v.hasAgentQuery ? (
+                    <button
+                      className={s.agentSearchClear}
+                      onClick={v.clearAgentQuery}
+                      aria-label="Clear search"
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                  <span
+                    className={s.agentSearchGlass}
+                    aria-hidden="true"
+                  />
+                </label>
                 <button
                   className={s.s044}
                   onClick={v.openMandate}
@@ -716,6 +763,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                 </span>
                 <span />
               </div>
+              {v.loading ? <SkelRows n={5} h={54} /> : null}
               {v.agentRows.map((a, i) => (
                 <Fragment key={i}>
                 <div
@@ -777,12 +825,12 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                     </span>
                   </div>
                   <span
-                    className={s.s139}
-                    style={{ '--d0': a.statusColor } as CSSVars}
+                    className={a.statusLive ? s.statusPillLive : s.statusPill}
+                    style={{ '--d0': a.statusInk } as CSSVars}
                   >
                     <span
-                      className={s.s140}
-                      style={{ '--d0': a.statusColor } as CSSVars}
+                      className={s.statusDot}
+                      style={{ '--d0': a.statusOrb } as CSSVars}
                     />
                     {a.statusLabel}
                   </span>
@@ -828,6 +876,106 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                 </div>
                 </Fragment>
               ))}
+              {v.agentFillers.map((i) => (
+                <div
+                  key={`filler-${i}`}
+                  className={s.rowFiller}
+                  aria-hidden="true"
+                >
+                  <div
+                    className={s.s129}
+                  >
+                    <span
+                      className={s.s130}
+                    />
+                    <div
+                      className={s.s131}
+                    >
+                      <span
+                        className={s.s132}
+                      >
+                        &nbsp;
+                      </span>
+                      <span
+                        className={s.s133}
+                      >
+                        &nbsp;
+                      </span>
+                    </div>
+                  </div>
+                  <div
+                    className={s.s134}
+                  >
+                    <span
+                      className={s.s135}
+                    >
+                      &nbsp;
+                    </span>
+                    <span
+                      className={s.s116}
+                    >
+                      &nbsp;
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {v.agentNoMatch ? (
+                <div
+                  className={s.agentEmpty}
+                >
+                  No mandate matches that search.
+                </div>
+              ) : null}
+              {v.agentPager ? (
+                <div
+                  className={s.pager}
+                >
+                  <button
+                    className={s.pagerArrow}
+                    onClick={v.agentPrev}
+                    disabled={!v.canAgentPrev}
+                    aria-label="Previous page"
+                  >
+                    ‹
+                  </button>
+                  <div
+                    className={s.pagerPages}
+                  >
+                    {v.agentPageItems.map((p, i) => (
+                      <Fragment key={i}>
+                      {p.gap ? (
+                        <span
+                          className={s.pagerGap}
+                        >
+                          …
+                        </span>
+                      ) : (
+                        <button
+                          className={p.current ? s.pagerPageOn : s.pagerPage}
+                          onClick={p.go}
+                          aria-current={p.current}
+                        >
+                          {p.label}
+                        </button>
+                      )}
+                      </Fragment>
+                    ))}
+                  </div>
+                  <button
+                    className={s.pagerArrow}
+                    onClick={v.agentNext}
+                    disabled={!v.canAgentNext}
+                    aria-label="Next page"
+                  >
+                    ›
+                  </button>
+                  <span
+                    className={s.pagerCount}
+                  >
+                    {v.agentRange}
+                  </span>
+                </div>
+              ) : null}
               </>
             ) : null}
             {v.noAgents ? (
@@ -940,12 +1088,12 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                   <span
                     className={s.s162}
                   >
-                    {v.settledInt}
+                    {v.loading ? <Skel w={132} h={62} r={5} /> : v.settledInt}
                   </span>
                   <span
                     className={s.s163}
                   >
-                    .{v.settledDec}
+                    {v.loading ? <Skel w={46} h={28} r={4} /> : <>.{v.settledDec}</>}
                   </span>
                 </div>
                 <div
@@ -1011,6 +1159,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                 <div
                   className={s.s170}
                 >
+                  {v.loading ? <SkelRows n={3} h={46} /> : null}
                   {v.feedRows.map((f, i) => (
                     <Fragment key={i}>
                     <div
@@ -1145,12 +1294,12 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                   <span
                     className={s.s162}
                   >
-                    {v.escInt}
+                    {v.loading ? <Skel w={132} h={62} r={5} /> : v.escInt}
                   </span>
                   <span
                     className={s.s163}
                   >
-                    .{v.escDec}
+                    {v.loading ? <Skel w={46} h={28} r={4} /> : <>.{v.escDec}</>}
                   </span>
                 </div>
                 <div
@@ -1164,7 +1313,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                   <span
                     className={s.s184}
                   >
-                    locked in {v.sessionCount} {v.sessionWord}
+                    locked in {v.loading ? <Skel w={86} h={10} /> : `${v.sessionCount} ${v.sessionWord}`}
                   </span>
                 </div>
               </div>
@@ -1209,7 +1358,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                         className={s.s192}
                         style={{ '--d0': st.vc } as CSSVars}
                       >
-                        {st.value}
+                        {v.loading ? <Skel w={54} h={22} r={4} /> : st.value}
                       </span>
                       <span
                         className={s.s193}
@@ -1227,6 +1376,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                 <div
                   className={s.s170}
                 >
+                  {v.loading ? <SkelRows n={3} h={46} /> : null}
                   {v.sessionRows.map((se, i) => (
                     <Fragment key={i}>
                     <div
@@ -1400,7 +1550,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                         <span
                           className={s.s223}
                         >
-                          {r.v}
+                          {v.loading ? <Skel w={92} h={10} /> : r.v}
                         </span>
                       </div>
                       </Fragment>
@@ -1422,12 +1572,12 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                     <span
                       className={s.s175}
                     >
-                      → {v.selV.vendor}
+                      → {v.loading ? <Skel w={88} h={10} /> : v.selV.vendor}
                     </span>
                     <span
                       className={s.s227}
                     >
-                      {v.selV.amountF}
+                      {v.loading ? <Skel w={70} h={20} r={4} /> : v.selV.amountF}
                     </span>
                     <span
                       className={s.s228}
@@ -1517,7 +1667,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                   <span
                     className={s.s239}
                   >
-                    {v.scopeIn}
+                    {v.loading ? <Skel w={200} h={11} /> : v.scopeIn}
                   </span>
                   <span
                     className={s.s240}
@@ -1531,7 +1681,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                   <span
                     className={s.s239}
                   >
-                    {v.scopeOut}
+                    {v.loading ? <Skel w={220} h={11} /> : v.scopeOut}
                   </span>
                 </div>
                 <button
@@ -1551,6 +1701,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                   <div
                     className={s.s242}
                   >
+                    {v.loading ? <SkelRows n={2} h={58} /> : null}
                     {v.proofRows.map((p, i) => (
                       <Fragment key={i}>
                       <div

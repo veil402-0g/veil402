@@ -6,7 +6,38 @@
 
 @keyframes vbgshift{0%{background-position:0% 0%}50%{background-position:100% 45%}100%{background-position:35% 100%}}
 
+@keyframes vskel{from{background-position:-130% 0,0 0}to{background-position:230% 0,0 0}}
+
 @keyframes vin{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
+/* Not-yet-read, which is a different thing from empty. The sweep is the
+   same light that crosses the gradient buttons. */
+.skel {
+  display: inline-block;
+  flex: none;
+  width: var(--d0);
+  height: var(--d1);
+  border-radius: var(--d2);
+  background:
+    linear-gradient(100deg,rgba(255,255,255,0) 22%,rgba(255,255,255,.8) 50%,rgba(255,255,255,0) 78%),
+    linear-gradient(170deg,#e6eaf7 0%,#eef1fb 48%,#e4e8f6 100%);
+  background-size: 230% 100%,100% 100%;
+  background-repeat: no-repeat;
+  animation: vskel 1.6s cubic-bezier(.45,0,.3,1) infinite;
+}
+
+.skelRows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skel {
+    animation: none;
+  }
+}
 
 .s001 {
   min-height: 100vh;
@@ -1102,6 +1133,181 @@
   margin-top: 4px;
 }
 
+.agentSearch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 4px 0 18px;
+  background: #f4f6fd;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px #e3e5ea;
+  transition: box-shadow .25s ease,background .25s ease;
+}
+
+.agentSearch:focus-within {
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(18,48,214,.45);
+}
+
+.agentSearchInput {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  width: 168px;
+  font-family: 'JetBrains Mono',monospace;
+  font-size: 11.5px;
+  letter-spacing: .02em;
+  color: #0d0e12;
+}
+
+.agentSearchInput::placeholder {
+  color: #8b8e97;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: 11px;
+}
+
+.agentSearchClear {
+  border: 0;
+  background: transparent;
+  color: #8b8e97;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  transition: color .2s ease;
+}
+
+.agentSearchClear:hover {
+  color: #0d0e12;
+}
+
+.agentSearchGlass {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  margin-left: auto;
+  border-radius: 50%;
+  background: radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);
+  position: relative;
+}
+
+.agentSearchGlass::before {
+  content: '';
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid #fff;
+  border-radius: 50%;
+}
+
+.agentSearchGlass::after {
+  content: '';
+  position: absolute;
+  top: 19px;
+  left: 18px;
+  width: 6px;
+  height: 1.5px;
+  background: #fff;
+  border-radius: 1px;
+  transform: rotate(45deg);
+  transform-origin: left center;
+}
+
+.agentEmpty {
+  padding: 26px 0;
+  font-size: 12px;
+  color: #6b6e78;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 16px;
+}
+
+.pagerArrow {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: box-shadow .25s ease,transform .25s ease;
+}
+
+.pagerArrow:hover:not(:disabled) {
+  box-shadow: 0 8px 20px -10px rgba(18,48,214,.75);
+  transform: translateY(-1px);
+}
+
+.pagerArrow:disabled {
+  background: #eef0f4;
+  color: #c4c8d4;
+  cursor: default;
+}
+
+.pagerPages {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 10px;
+  background: #f4f6fd;
+  border-radius: 999px;
+}
+
+.pagerPage {
+  min-width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px transparent;
+  font-family: 'JetBrains Mono',monospace;
+  font-size: 11.5px;
+  color: #6b6e78;
+  cursor: pointer;
+  transition: color .2s ease,box-shadow .25s ease;
+}
+
+.pagerPage:hover {
+  color: #0d0e12;
+}
+
+.pagerPageOn {
+  composes: pagerPage;
+  color: #1230d6;
+  box-shadow: inset 0 0 0 1px rgba(18,48,214,.45);
+  cursor: default;
+}
+
+.pagerGap {
+  padding: 0 4px;
+  font-family: 'JetBrains Mono',monospace;
+  font-size: 11.5px;
+  color: #8b8e97;
+}
+
+.pagerCount {
+  margin-left: auto;
+  font-family: 'JetBrains Mono',monospace;
+  font-size: 11px;
+  letter-spacing: .06em;
+  color: #6b6e78;
+}
+
 .s126 {
   display: grid;
   grid-template-columns: minmax(150px,1.4fr) 140px minmax(110px,1fr) 100px 76px 268px;
@@ -1174,6 +1380,9 @@
 .s132 {
   font-size: 15px;
   letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .s133 {
@@ -1218,19 +1427,53 @@
   white-space: nowrap;
 }
 
-.s139 {
-  display: flex;
+/* An empty slot is a row with its contents hidden, so it cannot drift out
+   of step with the real ones. */
+.rowFiller {
+  composes: s128;
+  visibility: hidden;
+}
+
+.statusPill {
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-size: 13px;
+  gap: 6px;
+  width: max-content;
+  height: 22px;
+  padding: 0 10px 0 4px;
+  border-radius: 999px;
+  background: #f4f6fd;
+  box-shadow: inset 0 0 0 1px rgba(13,14,18,.05);
   color: var(--d0);
+  font-family: 'JetBrains Mono',monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
-.s140 {
-  width: 7px;
-  height: 7px;
-  background: var(--d0);
+.statusPillLive {
+  composes: statusPill;
+}
+
+.statusDot {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 50%;
+  background-image: var(--d0);
+}
+
+/* A metered or near-limit mandate is moving, and should look like it. */
+.statusPillLive .statusDot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background-image: var(--d0);
+  animation: vping 2s cubic-bezier(.2,.8,.3,1) infinite;
 }
 
 .s141 {
