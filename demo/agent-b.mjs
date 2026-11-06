@@ -62,6 +62,24 @@ const server = createServer(async (req, res) => {
       JSON.parse(raw || '{}').request ||
       'an ERC-20 token named VeilDemo with an owner-only mint(address,uint256)'
 
+    // STUB=1 skips the real Arc Studio build (which deploys and takes minutes)
+    // and returns a canned result — for exercising the A→B→payment flow fast.
+    if (process.env.STUB) {
+      const payTo = await myAddress()
+      console.log('[shop] STUB mode: returning a canned contract (no Arc call)')
+      return reply(200, {
+        ok: true,
+        contract: 'VeilDemo',
+        address: `0x${'de'.repeat(20)}`,
+        network: 'stub',
+        explorerUrl: null,
+        txHash: null,
+        webUrl: null,
+        price: PRICE,
+        payTo,
+      })
+    }
+
     console.log(`[shop] building on Arc Studio: ${ask}`)
     const doc = await arc(ask)
     console.log(`[shop] arc status=${doc.status}`)
