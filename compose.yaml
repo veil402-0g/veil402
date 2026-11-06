@@ -1,0 +1,188 @@
+# The stack as it runs on one host.
+#
+# Images only, never built from here: `docker buildx bake` is the build, and
+# an image that is missing should stop a deploy rather than be quietly made
+# on the host.
+#
+# Only Caddy is published. The daemon, gateway and relay talk over the
+# internal network and are not reachable from outside, which keeps the
+# operator surface and the seller's signer off the internet entirely.
+#
+# Order is not cosmetic: the daemon refuses to start when VEIL_RELAY_URL is
+# set and the relay does not answer, which is deliberate — falling back to
+# its own key would keep it working and quietly stop it being private.
+
+name: veil402
+
+x-rust: &rust
+  restart: unless-stopped
+  # A later file wins. `.env.local` is for pointing a smoke test at a
+  # different endpoint; production has no such file.
+  env_file:
+    - .env
+    - path: .env.local
+      required: false
+  networks: [veil]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  relay:
+    <<: *rust
+    image: 954903081032.dkr.ecr.eu-west-1.amazonaws.com/veil402-relay:${TAG:-latest}
+    environment:
+      # Loopback in the developer's .env means unreachable in a container.
+      # This is the key that actually sends, and a caller is waiting on it.
+      VEIL_TICK: "15"
+      VEIL_RELAY_BIND: 0.0.0.0:8403
+      VEIL_RELAY_STATE: /state/relay-wallet.redb
+      VEIL_RELAY_HANDLES: /state/relay-handles.redb
+    volumes: [relay-state:/state]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/veil402-relay", "--healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+
+  gateway:
+    <<: *rust
+    image: 954903081032.dkr.ecr.eu-west-1.amazonaws.com/veil402-gateway:${TAG:-latest}
+    environment:
+      # Settlements are batch work against a ten minute window; noticing a
+      # confirmation half a minute late costs nothing.
+      VEIL_TICK: "30"
+      VEIL_GATEWAY_BIND: 0.0.0.0:8401
+      VEIL_WORKER: /usr/local/bin/veil402-gnark
+      VEIL_ARTIFACTS: /opt/veil402/artifacts/transaction-v4
+      VEIL_GATEWAY_STATE: /state/gateway-sessions.redb
+      VEIL_GATEWAY_WALLET_STATE: /state/gateway-wallet.redb
+    volumes: [gateway-state:/state]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # P2: the enclave moves out of this process and onto vsock. The device and
+    # the context id belong here then; leaving the shape in place means that
+    # phase edits this file rather than restructuring it.
+    # devices: ["/dev/vsock"]
+    # environment:
+    #   VEIL_ENCLAVE_CID: "16"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/veil402-gateway", "--healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 30s
+
+  daemon:
+    <<: *rust
+    image: 954903081032.dkr.ecr.eu-west-1.amazonaws.com/veil402-daemon:${TAG:-latest}
+    environment:
+      # With a relay configured the daemon's own key sends nothing, so its
+      # engine was turning over three chain reads every five seconds to
+      # watch a queue that is always empty.
+      VEIL_TICK: "60"
+      VEIL_LISTEN: 0.0.0.0:8402
+      VEIL_WORKER: /usr/local/bin/veil402-gnark
+      VEIL_ARTIFACTS: /opt/veil402/artifacts/transaction-v4
+      VEIL_DATABASE: sqlite:///state/veil402.db?mode=rwc
+      VEIL_WALLET_STATE: /state/wallet.redb
+      VEIL_GATEWAY_URL: http://gateway:8401
+      VEIL_RELAY_URL: http://relay:8403
+    volumes: [daemon-state:/state]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      relay: { condition: service_healthy }
+      gateway: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/veil402-daemon", "--healthcheck"]
+      interval: 15s
+      timeout: 5s
+      # The index replays from the pool's first block on a cold start.
+      start_period: 180s
+      retries: 10
+
+  # The image runs as uid 1000 but a fresh named volume belongs to root, so
+  # Langflow cannot write its secret key on a first boot. Doing it here means
+  # a recreated volume heals itself instead of needing a hand.
+  langflow-init:
+    image: busybox:1.37
+    command: ["chown", "-R", "1000:0", "/app/data"]
+    user: root
+    network_mode: none
+    volumes: [langflow-data:/app/data]
+    restart: "no"
+
+  # Flows are built here and metered against a mandate like any other agent.
+  # Its database holds the saved model provider, which Langflow will only
+  # accept through its own UI, so the volume is what makes that survive a
+  # redeploy rather than having to be entered again.
+  langflow:
+    # Matches the version the local setup was proven against: the OpenAI
+    # Compatible provider, which discovers models from {base}/models, is
+    # bundled from 1.13. The plain OpenAI component cannot reach our models.
+    image: langflowai/langflow:1.13.0
+    restart: unless-stopped
+    networks: [veil]
+    environment:
+      LANGFLOW_CONFIG_DIR: /app/data
+      LANGFLOW_SAVE_DB_IN_CONFIG_DIR: "true"
+      LANGFLOW_AUTO_LOGIN: "true"
+      # Loopback only in practice: Caddy is the sole way in, and /api/v1/run
+      # is refused without this since Langflow 1.5.
+      LANGFLOW_SKIP_AUTH_AUTO_LOGIN: "true"
+      # 1.13 refuses to fetch from private addresses. The daemon is on this
+      # compose network and resolves to one, so it has to be named here or
+      # the provider cannot reach it at all.
+      LANGFLOW_SSRF_ALLOWED_HOSTS: daemon
+      LANGFLOW_HOST: 0.0.0.0
+      LANGFLOW_PORT: "7860"
+      OPENAI_COMPATIBLE_BASE_URL: http://daemon:8402/v1
+      OPENAI_COMPATIBLE_API_KEY: ${PLAYGROUND_KEY:-}
+      OPENAI_API_BASE: http://daemon:8402/v1
+      OPENAI_API_KEY: ${PLAYGROUND_KEY:-}
+    volumes: [langflow-data:/app/data]
+    depends_on:
+      langflow-init: { condition: service_completed_successfully }
+      daemon: { condition: service_healthy }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  console:
+    image: 954903081032.dkr.ecr.eu-west-1.amazonaws.com/veil402-console:${TAG:-latest}
+    restart: unless-stopped
+    networks: [veil]
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      VEIL_DOMAIN: ${VEIL_DOMAIN:?set the domain}
+      # Caddy serves playground.$VEIL_DOMAIN too, so both names get a cert.
+      ACME_EMAIL: ${ACME_EMAIL:?set an address for certificate notices}
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      daemon: { condition: service_started }
+
+networks:
+  veil:
+
+volumes:
+  langflow-data:
+  daemon-state:
+  gateway-state:
+  relay-state:
+  caddy-data:
+  caddy-config:

@@ -26,9 +26,18 @@ use crate::core::{
 };
 
 /// How often the sending engine is turned over: rebroadcast, confirm, bump.
-/// On its own clock, because a transaction in flight needs attention
-/// whether or not the index has anything to do.
-const TICK: Duration = Duration::from_secs(5);
+/// Each turn reads the head, the account nonce and the finalized block
+/// whether or not anything is in flight, so on an otherwise idle host this
+/// is the whole of the load on the endpoint. Hence configurable, and slower
+/// than it looks like it should be.
+fn tick() -> Duration {
+    Duration::from_secs(
+        std::env::var("VEIL_TICK")
+            .ok()
+            .and_then(|seconds| seconds.parse().ok())
+            .unwrap_or(15),
+    )
+}
 
 /// How long a one-off call may take to land, and how often it is asked.
 const PATIENCE: Duration = Duration::from_mins(2);
@@ -81,11 +90,15 @@ pub async fn open(
         max_fee_cap: fee_cap,
         max_priority_cap: fee_cap,
     });
-    let store = RedbStateStore::open(state).map_err(|_| ChainError::Unavailable)?;
+    let store = RedbStateStore::open(state)
+        .inspect_err(|error| tracing::warn!(%error, "wallet state unavailable"))
+        .map_err(|_| ChainError::Unavailable)?;
     let endpoint = rpc
         .parse()
         .map_err(|_| ChainError::Refused("the endpoint is not a URL".into()))?;
-    let transport = Transport::url(endpoint).map_err(|_| ChainError::Unavailable)?;
+    let transport = Transport::url(endpoint)
+        .inspect_err(|error| tracing::warn!(%error, "transport refused the endpoint"))
+        .map_err(|_| ChainError::Unavailable)?;
     // The same depth the index holds back by. Twelve is an Ethereum default
     // and would never arrive on a chain that reaches finality without reorgs.
     let wallet = Arc::new(
@@ -93,18 +106,21 @@ pub async fn open(
             .store(Arc::new(store))
             .confirmations(confirmations)
             .build()
+            .inspect_err(|error| tracing::warn!(%error, "the sending engine would not build"))
             .map_err(|_| ChainError::Unavailable)?,
     );
     let provider = ProviderBuilder::new()
         .connect(rpc)
         .await
+        .inspect_err(|error| tracing::warn!(%error, "the endpoint would not connect"))
         .map_err(|_| ChainError::Unavailable)?;
     let chain_id = provider
         .get_chain_id()
         .await
+        .inspect_err(|error| tracing::warn!(%error, "chain id unavailable"))
         .map_err(|_| ChainError::Unavailable)?;
     Ok(PoolBroadcaster {
-        _ticking: wallet.clone().run(TICK),
+        _ticking: wallet.clone().run(tick()),
         wallet,
         provider,
         submissions,
@@ -150,6 +166,7 @@ impl<P> PoolBroadcaster<P> {
                 .wallet
                 .status(sent.id)
                 .await
+                .inspect_err(|error| tracing::warn!(%error, "the engine could not say what happened to the call"))
                 .map_err(|_| ChainError::Unavailable)?
             {
                 Some(TxStatus::Confirmed { .. }) => return Ok(()),
@@ -234,6 +251,7 @@ impl<P: Provider + Send + Sync> Broadcaster for PoolBroadcaster<P> {
             .wallet
             .status(handle(&tracked)?)
             .await
+            .inspect_err(|error| tracing::warn!(%error, "the engine could not say what happened to the call"))
             .map_err(|_| ChainError::Unavailable)?;
         Ok(match status {
             Some(TxStatus::Confirmed { block }) => Some(Landed::Confirmed { block }),
@@ -247,9 +265,13 @@ impl<P: Provider + Send + Sync> Broadcaster for PoolBroadcaster<P> {
         self.provider
             .get_block(BlockId::latest())
             .await
+            .inspect_err(|error| tracing::warn!(%error, "the head block is unreadable"))
             .map_err(|_| ChainError::Unavailable)?
             .map(|block| block.header.timestamp)
-            .ok_or(ChainError::Unavailable)
+            .ok_or_else(|| {
+                tracing::warn!("the endpoint answered without a latest block");
+                ChainError::Unavailable
+            })
     }
 }
 
@@ -296,19 +318,24 @@ pub async fn depositor(
     let endpoint = rpc
         .parse()
         .map_err(|_| ChainError::Refused("the endpoint is not a URL".into()))?;
-    let transport = Transport::url(endpoint).map_err(|_| ChainError::Unavailable)?;
+    let transport = Transport::url(endpoint)
+        .inspect_err(|error| tracing::warn!(%error, "transport refused the endpoint"))
+        .map_err(|_| ChainError::Unavailable)?;
     let wallet = Arc::new(
         Wallet::builder(Arc::new(transport), Arc::new(signer), Arc::new(policy))
             .store(Arc::new(store))
             .build()
+            .inspect_err(|error| tracing::warn!(%error, "the sending engine would not build"))
             .map_err(|_| ChainError::Unavailable)?,
     );
     let chain_id = ProviderBuilder::new()
         .connect(rpc)
         .await
+        .inspect_err(|error| tracing::warn!(%error, "the endpoint would not connect"))
         .map_err(|_| ChainError::Unavailable)?
         .get_chain_id()
         .await
+        .inspect_err(|error| tracing::warn!(%error, "chain id unavailable"))
         .map_err(|_| ChainError::Unavailable)?;
     Ok(Depositor { wallet, chain_id })
 }
@@ -349,6 +376,7 @@ impl Depositor {
                 .wallet
                 .status(sent.id)
                 .await
+                .inspect_err(|error| tracing::warn!(%error, "the engine could not say what happened to the call"))
                 .map_err(|_| ChainError::Unavailable)?
             {
                 Some(TxStatus::Confirmed { .. }) => return Ok(()),
