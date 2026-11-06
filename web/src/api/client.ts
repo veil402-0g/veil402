@@ -44,6 +44,7 @@ export interface Features {
   deposit: boolean
   disclose: boolean
   pause: boolean
+  pay: boolean
 }
 
 export interface Bootstrap {
@@ -121,7 +122,13 @@ export interface Envelope402 {
   agents: Drawn[]
 }
 
-export type EventKind = 'deposit' | 'escrow' | 'settled'
+export type EventKind = 'deposit' | 'escrow' | 'settled' | 'paid' | 'received'
+
+/** A private payment this wallet sent. */
+export interface Sent {
+  recipient_commitment: string
+  change: string | null
+}
 
 export interface Event {
   id: string
@@ -187,6 +194,10 @@ export interface Client {
   depositProgress(): Promise<Progress | null>
   revoke(id: string): Promise<void>
   pause(id: string, paused: boolean): Promise<void>
+  /** This wallet's payment address, for another agent to pay it at. */
+  address(): Promise<string>
+  /** Pays `address` privately; resolves once the transfer has landed. */
+  pay(address: string, amount: number): Promise<Sent>
 }
 
 export function client(base: string = BASE): Client {
@@ -237,5 +248,8 @@ export function client(base: string = BASE): Client {
     revoke: (id) => send<void>(`/agents/${id}`, { method: 'DELETE' }),
     pause: (id, paused) =>
       send<void>(`/agents/${id}/${paused ? 'pause' : 'resume'}`, { method: 'POST' }),
+    address: () => send<{ address: string }>('/address').then((a) => a.address),
+    pay: (address, amount) =>
+      send<Sent>('/pay', { method: 'POST', body: JSON.stringify({ address, amount }) }),
   }
 }
