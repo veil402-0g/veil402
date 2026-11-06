@@ -5,6 +5,7 @@ use thiserror::Error;
 pub mod agent;
 pub mod envelope;
 pub mod index;
+pub mod payment;
 pub mod receipts;
 pub mod treasury;
 pub mod wallet;

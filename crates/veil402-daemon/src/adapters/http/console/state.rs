@@ -9,6 +9,8 @@ use crate::core::{
     agent::AgentService,
     envelope::EnvelopeService,
     index::{Funding, IndexService},
+    payment::PaymentService,
+    receipts::Receipts,
     treasury::TreasuryService,
     wallet::WalletService,
 };
@@ -43,6 +45,7 @@ pub struct Features {
     pub deposit: bool,
     pub disclose: bool,
     pub pause: bool,
+    pub pay: bool,
 }
 
 impl Settings {
@@ -69,6 +72,7 @@ impl Settings {
                 deposit: true,
                 disclose: false,
                 pause: true,
+                pay: true,
             },
         }
     }
@@ -81,6 +85,9 @@ pub struct Console {
     pub envelopes: Arc<EnvelopeService>,
     pub index: Arc<IndexService>,
     pub wallet: Arc<WalletService>,
+    pub payment: Arc<PaymentService>,
+    /// Payments sent and found, for the activity feed.
+    pub receipts: Arc<dyn Receipts>,
     /// What is left to shield, for a console offering to shield it.
     pub funding: Arc<dyn Funding>,
     /// Shields it, and says how far along that is.

@@ -14,7 +14,7 @@ use super::{
     primitives::{ApiResult, Response},
     state::Console,
 };
-use crate::core::agent::Audit;
+use crate::core::{agent::Audit, receipts::Direction};
 
 /// What happened. The console colours and labels a row from this.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -23,6 +23,10 @@ pub enum Kind {
     Deposit,
     Escrow,
     Settled,
+    /// A private payment this wallet sent to another.
+    Paid,
+    /// A private payment this wallet received.
+    Received,
 }
 
 #[derive(Debug, Serialize)]
@@ -104,6 +108,26 @@ pub async fn activity(
             amount: deposit.amount,
             tokens: 0,
             commitment: Some(wire::encode(&deposit.commitment.to_bytes())),
+            nullifier: None,
+        });
+    }
+
+    for receipt in console.receipts.receipts(limit).await? {
+        let (kind, vendor) = match receipt.direction {
+            Direction::Paid => (Kind::Paid, "another agent"),
+            Direction::Received => (Kind::Received, "another agent"),
+        };
+        let commitment = wire::encode(&receipt.commitment.to_bytes());
+        events.push(Event {
+            id: commitment.clone(),
+            kind,
+            at: receipt.at,
+            agent: None,
+            label: None,
+            vendor: vendor.to_owned(),
+            amount: receipt.amount,
+            tokens: 0,
+            commitment: Some(commitment),
             nullifier: None,
         });
     }
