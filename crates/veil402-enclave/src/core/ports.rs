@@ -125,8 +125,11 @@ pub enum Attested {
 
 #[derive(Clone, Debug, Error)]
 pub enum UpstreamError {
-    #[error("the upstream is unreachable")]
-    Unavailable,
+    /// Carries why: a connect refused, a handshake and a timeout are three
+    /// different faults, and one word for all of them hides the one that is
+    /// actually happening.
+    #[error("the upstream is unreachable: {0}")]
+    Unavailable(String),
     /// The upstream's own refusal, kept whole. Theirs is already the shape
     /// an agent expects, and rewriting it would lose the code a client
     /// decides on.

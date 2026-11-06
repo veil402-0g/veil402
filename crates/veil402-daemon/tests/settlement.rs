@@ -119,9 +119,11 @@ fn seller(bind: &str, state: &Path) -> Result<(), Box<dyn StdError>> {
         serving: alloy::primitives::Address::ZERO,
         fee_cap: 20_000_000_000_000,
         pool: pool()?,
-        root: alloy::hex::decode(var("VEIL_ROOT_SEED")?)?
-            .try_into()
-            .map_err(|_| "VEIL_ROOT_SEED is not 32 bytes")?,
+        root: Some(
+            <[u8; 32]>::try_from(alloy::hex::decode(var("VEIL_ROOT_SEED")?)?)
+                .map_err(|_| "VEIL_ROOT_SEED is not 32 bytes")?,
+        ),
+        enclave: None,
         rpc: var("RPC_URL")?,
         worker: worker()?,
         artifacts: artifacts()?,

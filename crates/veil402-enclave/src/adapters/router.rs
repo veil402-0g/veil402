@@ -88,12 +88,39 @@ impl Router {
         ceiling: u32,
         vouched: Arc<dyn Registry>,
     ) -> Result<Self, UpstreamError> {
+        Self::via(base, key, trust, ceiling, vouched, None)
+    }
+
+    /// The same upstream, reached through a local hop.
+    ///
+    /// Only the address is overridden. The client still speaks to the real
+    /// hostname and still checks the real certificate, so TLS terminates
+    /// here and the hop carries ciphertext — which is the only arrangement
+    /// an enclave can use, since it has no network of its own.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UpstreamError::Unavailable`] when the client cannot be built.
+    pub fn via(
+        base: &str,
+        key: &str,
+        trust: &str,
+        ceiling: u32,
+        vouched: Arc<dyn Registry>,
+        through: Option<std::net::SocketAddr>,
+    ) -> Result<Self, UpstreamError> {
+        let mut client = Client::builder().pool_idle_timeout(IDLE).read_timeout(STALL);
+        if let Some(address) = through {
+            let host = base
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .split('/')
+                .next()
+                .unwrap_or_default();
+            client = client.resolve(host, address);
+        }
         Ok(Self {
-            client: Client::builder()
-                .pool_idle_timeout(IDLE)
-                .read_timeout(STALL)
-                .build()
-                .map_err(|_| UpstreamError::Unavailable)?,
+            client: client.build().map_err(|error| UpstreamError::Unavailable(why(&error)))?,
             base: base.trim_end_matches('/').to_owned(),
             key: key.to_owned(),
             trust: trust.to_owned(),
@@ -137,7 +164,7 @@ impl Upstream for Router {
             .bearer_auth(&self.key)
             .send()
             .await
-            .map_err(|_| UpstreamError::Unavailable)?;
+            .map_err(|error| UpstreamError::Unavailable(why(&error)))?;
         let listed: Value = refused(response)
             .await?
             .json()
@@ -167,7 +194,7 @@ impl Upstream for Router {
                 .body(ask.body)
                 .send()
                 .await
-                .map_err(|_| UpstreamError::Unavailable)?,
+                .map_err(|error| UpstreamError::Unavailable(why(&error)))?,
         )
         .await?;
 
@@ -306,7 +333,7 @@ fn relaying(
             // the shape of the error is no guide to what happened. Either
             // way the stream is over.
             let Ok(event) = reading.frames.next().await? else {
-                return Some((Err(UpstreamError::Unavailable), reading));
+                return Some((Err(UpstreamError::Unavailable("the body stopped".into())), reading));
             };
             match framed(&event.data, &mut reading.tokens) {
                 None => None,
@@ -331,7 +358,7 @@ async fn whole(
     let body = response
         .bytes()
         .await
-        .map_err(|_| UpstreamError::Unavailable)?;
+        .map_err(|error| UpstreamError::Unavailable(why(&error)))?;
     let mut answer: Value = serde_json::from_slice(&body)
         .map_err(|_| UpstreamError::Malformed("an answer that is not JSON"))?;
     let tokens = answer.get("usage").and_then(counted).unwrap_or_default();
@@ -377,6 +404,19 @@ fn counted(usage: &Value) -> Option<Tokens> {
         prompt: usage.get("prompt_tokens")?.as_u64()?,
         completion: usage.get("completion_tokens")?.as_u64()?,
     })
+}
+
+/// The whole chain, not just the top of it. reqwest's own message names the
+/// request and nothing about what went wrong underneath it.
+fn why(error: &reqwest::Error) -> String {
+    let mut out = error.to_string();
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        out.push_str(" <- ");
+        out.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    out
 }
 
 fn listing(model: &Value) -> Option<Listing> {

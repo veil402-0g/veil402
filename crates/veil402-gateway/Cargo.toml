@@ -13,6 +13,10 @@ axum = "0.8"
 dotenvy = "0.15"
 redb = "2"
 borsh = { version = "1", features = ["derive"] }
+# The parent lends its own role's credentials to the enclave; this is what
+# finds them, from IMDS or wherever else the host keeps them.
+aws-config = { version = "1", default-features = false, features = ["rt-tokio", "default-https-client"] }
+aws-credential-types = "1"
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -25,6 +29,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 veil402-enclave = { path = "../veil402-enclave" }
 walletkit-rs = { git = "https://github.com/21r21a33333/walletkit", rev = "5af8b6ab3b9bc655c95dd8bc5d7655bce86e3cfe" }
 veil402-sdk = { path = "../veil402-sdk" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tokio-vsock = "0.5"
 
 [dev-dependencies]
 futures-util = "0.3"

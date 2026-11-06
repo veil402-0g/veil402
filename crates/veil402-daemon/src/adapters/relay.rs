@@ -97,7 +97,12 @@ impl<P: Provider + Send + Sync> Broadcaster for RelayBroadcaster<P> {
             StatusCode::FORBIDDEN => Err(ChainError::Refused(
                 "the relay does not send that call".into(),
             )),
-            _ => Err(ChainError::Unavailable),
+            status => {
+                let body = answered.text().await.unwrap_or_default();
+                tracing::warn!(%status, body = %body.chars().take(300).collect::<String>(),
+                    "the relay would not take the call");
+                Err(ChainError::Unavailable)
+            }
         }
     }
 
@@ -109,12 +114,17 @@ impl<P: Provider + Send + Sync> Broadcaster for RelayBroadcaster<P> {
             .await
             .map_err(|_| unreachable(&self.base))?;
         if !answered.status().is_success() {
+            let status = answered.status();
+            let body = answered.text().await.unwrap_or_default();
+            tracing::warn!(%status, body = %body.chars().take(300).collect::<String>(),
+                "the relay would not say what landed");
             return Err(ChainError::Unavailable);
         }
         Ok(
             match answered
                 .json::<Reached>()
                 .await
+                .inspect_err(|error| tracing::warn!(%error, "the relay answered in a shape we do not read"))
                 .map_err(|_| ChainError::Unavailable)?
             {
                 Reached::Confirmed { block } => Some(Landed::Confirmed { block }),
@@ -129,8 +139,12 @@ impl<P: Provider + Send + Sync> Broadcaster for RelayBroadcaster<P> {
         self.provider
             .get_block(BlockId::latest())
             .await
+            .inspect_err(|error| tracing::warn!(%error, "the head block is unreadable"))
             .map_err(|_| ChainError::Unavailable)?
             .map(|block| block.header.timestamp)
-            .ok_or(ChainError::Unavailable)
+            .ok_or_else(|| {
+                tracing::warn!("the endpoint answered without a latest block");
+                ChainError::Unavailable
+            })
     }
 }

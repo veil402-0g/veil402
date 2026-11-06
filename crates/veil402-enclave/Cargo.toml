@@ -16,8 +16,48 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["sync"] }
+tracing = "0.1"
+tokio = { version = "1", features = ["io-util", "net", "sync"] }
 veil402-sdk = { path = "../veil402-sdk" }
+
+# Deriving the root seed inside an enclave. The NUMS peer point is P-384
+# because that is what KMS agrees over; the rest is the unwrap of what it
+# returns and the KDF that turns it into a seed.
+hkdf = "0.12"
+sha2 = "0.10"
+zeroize = { version = "1", features = ["zeroize_derive"] }
+p384 = { version = "0.13", features = ["ecdh", "arithmetic", "pkcs8", "hash2curve"] }
+elliptic-curve = { version = "0.13", features = ["sec1", "hash2curve"] }
+spki = "0.7"
+rsa = { version = "0.9", features = ["sha2"] }
+rand = "0.8"
+# RFC 5652 is not a format worth re-implementing: KMS wraps the shared secret
+# in a CMS envelope and OpenSSL parses it, unwraps the RSA-OAEP and decrypts
+# the content in one call. Vendored so the distroless runtime needs no libssl.
+openssl = { version = "0.10", features = ["vendored"] }
+
+# KMS from inside the enclave. The SDK owns SigV4, retries and typed errors —
+# and the error it returns for an attestation mismatch is distinguishable from
+# a transport failure, which hand-rolled signing would have conflated.
+aws-sdk-kms = { version = "1", default-features = false }
+aws-smithy-runtime-api = { version = "1", features = ["client", "http-1x"] }
+aws-smithy-types = "1"
+aws-smithy-async = { version = "1", features = ["rt-tokio"] }
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+# TLS terminates in here, against roots compiled into the image. The parent
+# relays ciphertext it can neither read nor alter.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+webpki-roots = "0.26"
+
+# Linux only: neither builds on macOS, so the modules behind them are gated.
+[target.'cfg(target_os = "linux")'.dependencies]
+tokio-vsock = "0.5"
+aws-nitro-enclaves-nsm-api = "0.4"
+serde_bytes = "0.11"
 
 [dev-dependencies]
 axum = "0.8"

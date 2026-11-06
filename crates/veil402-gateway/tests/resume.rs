@@ -19,7 +19,7 @@ type Fallible = Result<(), Box<dyn std::error::Error>>;
 
 /// A gateway over `state`. Building a second one on the same directory is a
 /// restart: new meters, nothing in memory, the same records on disk.
-fn gateway(
+async fn gateway(
     state: &Path,
     pool_state: Arc<support::Pool>,
 ) -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
@@ -29,7 +29,8 @@ fn gateway(
             serving: alloy::primitives::Address::ZERO,
             fee_cap: 20_000_000_000_000,
             pool: pool()?,
-            root: ROOT,
+            root: Some(ROOT),
+            enclave: None,
             worker: "/nonexistent/worker".into(),
             artifacts: Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../prover/veil402-gnark/artifacts/transaction-v4"),
@@ -50,7 +51,8 @@ fn gateway(
         },
         pool_state,
         Arc::new(support::Upstream { frames: 2, breaks: false, ..support::Upstream::default() }),
-    )?)
+    )
+    .await?)
 }
 
 /// Meters one call the way the route does: drain the stream, then file what
@@ -84,7 +86,7 @@ async fn a_restarted_gateway_keeps_counting() -> Fallible {
     let (nullifier, sealing, first, second);
 
     {
-        let service = gateway(state.path(), held.clone())?;
+        let service = gateway(state.path(), held.clone()).await?;
         let delegated = delegate(&service).await?;
         nullifier = delegated.nullifier;
         sealing = delegated.sealing;
@@ -94,7 +96,7 @@ async fn a_restarted_gateway_keeps_counting() -> Fallible {
     }
 
     // Everything in memory is gone. Only what the host kept remains.
-    let restarted = gateway(state.path(), held)?;
+    let restarted = gateway(state.path(), held).await?;
     let third = metered(&restarted, nullifier, &asking(&sealing, 50)?, "c").await?;
 
     assert!(
@@ -109,7 +111,7 @@ async fn a_restarted_gateway_keeps_counting() -> Fallible {
 #[tokio::test]
 async fn an_unknown_session_is_still_asked_to_pay() -> Fallible {
     let state = tempfile::tempdir()?;
-    let service = gateway(state.path(), backing(DEADLINE)?)?;
+    let service = gateway(state.path(), backing(DEADLINE)?).await?;
     let sealing = delegate(&service).await?.sealing;
 
     assert!(matches!(
@@ -134,7 +136,7 @@ async fn a_retry_across_a_restart_is_refused_rather_than_bought_again() -> Falli
     let (nullifier, sealing, second);
 
     {
-        let service = gateway(state.path(), held.clone())?;
+        let service = gateway(state.path(), held.clone()).await?;
         let delegated = delegate(&service).await?;
         nullifier = delegated.nullifier;
         sealing = delegated.sealing;
@@ -142,7 +144,7 @@ async fn a_retry_across_a_restart_is_refused_rather_than_bought_again() -> Falli
         second = metered(&service, nullifier, &asking(&sealing, 110)?, "req-2").await?;
     }
 
-    let restarted = gateway(state.path(), held)?;
+    let restarted = gateway(state.path(), held).await?;
     assert!(
         matches!(
             restarted
@@ -169,7 +171,7 @@ async fn a_call_the_host_never_recorded_is_counted_on_retry() -> Fallible {
     let (nullifier, sealing, first);
 
     {
-        let service = gateway(state.path(), held.clone())?;
+        let service = gateway(state.path(), held.clone()).await?;
         let delegated = delegate(&service).await?;
         nullifier = delegated.nullifier;
         sealing = delegated.sealing;
@@ -178,7 +180,7 @@ async fn a_call_the_host_never_recorded_is_counted_on_retry() -> Fallible {
 
     // The restart stands in for the crash: whatever was in memory and not on
     // disk is gone, and the client retries what it never got an answer to.
-    let restarted = gateway(state.path(), held)?;
+    let restarted = gateway(state.path(), held).await?;
     assert!(
         metered(&restarted, nullifier, &asking(&sealing, 110)?, "req-2").await? > first,
         "the retried call was counted"

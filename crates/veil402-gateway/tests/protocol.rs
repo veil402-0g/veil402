@@ -37,7 +37,7 @@ fn artifacts() -> std::path::PathBuf {
 
 /// A gateway holding no sessions, which is every gateway at boot. The worker
 /// is never started: nothing here proves anything.
-fn gateway() -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
+async fn gateway() -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
     let state = tempfile::tempdir()?;
     Ok(assemble(
         &Config {
@@ -52,7 +52,8 @@ fn gateway() -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
                 "0x98e7E0cC3a12183Af743a9D33ca0Dfa0982197FC".parse()?,
                 296,
             )?,
-            root: [3; 32],
+            root: Some([3; 32]),
+            enclave: None,
             worker: PathBuf::from("/nonexistent/worker"),
             artifacts: artifacts(),
             seller: seller(),
@@ -70,7 +71,8 @@ fn gateway() -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
         },
         Arc::new(support::Pool::empty()),
         Arc::new(support::Upstream { frames: 2, breaks: false, ..support::Upstream::default() }),
-    )?)
+    )
+    .await?)
 }
 
 async fn call(gateway: Arc<MeteringService>, path: &str, body: &str) -> (StatusCode, Vec<u8>) {
@@ -100,7 +102,7 @@ async fn call(gateway: Arc<MeteringService>, path: &str, body: &str) -> (StatusC
 async fn a_call_without_an_envelope_is_challenged_to_pay() -> Fallible {
     let nullifier = encode(&Field::from(7_u64).to_bytes());
     let (status, body) = call(
-        gateway()?,
+        gateway().await?,
         &format!("/v1/sessions/{nullifier}/chat"),
         // Well formed but undecryptable, which is the point: no envelope
         // means nobody tries to open it, and the answer is the price.
@@ -127,7 +129,7 @@ async fn a_refusal_says_what_to_do_next() -> Fallible {
     // A settlement for a session this gateway does not hold: the enclave
     // restarted, the escrow still stands, so handing it over again repairs it.
     let (status, body) = call(
-        gateway()?,
+        gateway().await?,
         &format!("/v1/sessions/{nullifier}/settle"),
         "",
     )
@@ -137,7 +139,7 @@ async fn a_refusal_says_what_to_do_next() -> Fallible {
     assert_eq!(reply.action, Some(Action::Retry));
 
     // A nullifier that is not a field element is the caller's bug.
-    let (status, body) = call(gateway()?, "/v1/sessions/zzzz/settle", "").await;
+    let (status, body) = call(gateway().await?, "/v1/sessions/zzzz/settle", "").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(
         serde_json::from_slice::<Reply<()>>(&body)?.action,

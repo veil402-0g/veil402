@@ -18,7 +18,7 @@ use veil402_sdk::{
 
 use crate::{
     adapters::{self, Enclave, Replays, Sessions, http::router},
-    core::{Escrows, MeterError, MeteringService, Pricing, Settles},
+    core::{Escrows, MeterError, MeteringService, Meters, Pricing, Settles},
 };
 
 /// Where the gateway listens when nothing says otherwise.
@@ -53,7 +53,7 @@ pub enum ConfigError {
 }
 
 /// Everything the gateway needs to serve.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Config {
     /// Most this gateway will pay per unit of gas, in wei.
     pub fee_cap: u128,
@@ -66,7 +66,11 @@ pub struct Config {
     /// KMS gated on attestation; here it is configuration.
     ///
     /// Raw bytes, not a field element: it keys an HKDF, not a circuit.
-    pub root: [u8; 32],
+    /// The meter's root seed, when this host runs one itself.
+    pub root: Option<[u8; 32]>,
+    /// The enclave's context id, when the meter runs in one instead. The
+    /// seed is then never in this process at all.
+    pub enclave: Option<u32>,
     pub worker: PathBuf,
     pub artifacts: PathBuf,
     /// Who the pool pays. One seller, so it is settled at boot.
@@ -104,6 +108,13 @@ pub struct Config {
     pub confirmations: u64,
 }
 
+/// A value only when there is one. Empty counts as absent: a key the
+/// deployment's env file sets for every container can be taken back by one
+/// of them, and blanking it is the only gesture available.
+fn set(name: &'static str) -> Option<String> {
+    env::var(name).ok().filter(|value| !value.trim().is_empty())
+}
+
 fn required(name: &'static str) -> Result<String, ConfigError> {
     env::var(name).map_err(|_| ConfigError::Missing(name))
 }
@@ -139,10 +150,20 @@ impl Config {
             serving_rpc: env::var("VEIL_0G_CHAIN_RPC").unwrap_or_else(|_| SERVING_RPC.to_owned()),
             serving: parsed("VEIL_0G_INFERENCE", SERVING)?,
             pool,
-            root: hex::decode(required("VEIL_ROOT_SEED")?)
-                .map_err(|_| ConfigError::Invalid("VEIL_ROOT_SEED"))?
-                .try_into()
-                .map_err(|_| ConfigError::Invalid("VEIL_ROOT_SEED"))?,
+            enclave: set("VEIL_ENCLAVE_CID")
+                .map(|cid| cid.parse().map_err(|_| ConfigError::Invalid("VEIL_ENCLAVE_CID")))
+                .transpose()?,
+            // Absent is correct once an enclave holds it: a host that still
+            // had the seed in its environment would not be a host that had
+            // stopped being able to read the traffic.
+            root: set("VEIL_ROOT_SEED")
+                .map(|seed| {
+                    hex::decode(seed)
+                        .ok()
+                        .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
+                        .ok_or(ConfigError::Invalid("VEIL_ROOT_SEED"))
+                })
+                .transpose()?,
             rpc: required("VEIL_RPC_URL")?,
             worker: PathBuf::from(required("VEIL_WORKER")?),
             artifacts: PathBuf::from(required("VEIL_ARTIFACTS")?),
@@ -201,6 +222,13 @@ pub enum StartError {
     Upstream(#[from] veil402_enclave::UpstreamError),
     #[error("{0} could not be listened on")]
     Bind(SocketAddr),
+    #[error("the enclave is not answering")]
+    Enclave,
+    /// Neither a seed nor an enclave. Refusing is the point: a meter with no
+    /// key would start, serve a 402 challenge nobody can satisfy, and look
+    /// like a provider that is merely busy.
+    #[error("no VEIL_ROOT_SEED and no VEIL_ENCLAVE_CID: this host would meter nothing")]
+    Seedless,
 }
 
 /// Builds the metering service over its adapters.
@@ -208,28 +236,15 @@ pub enum StartError {
 /// # Errors
 ///
 /// Returns [`StartError`] when the artifacts or the root seed are unusable.
-pub fn assemble(
+pub async fn assemble(
     config: &Config,
     escrows: Arc<dyn Escrows>,
     upstream: Arc<dyn Upstream>,
 ) -> Result<Arc<MeteringService>, StartError> {
-    let veil = Arc::new(
-        Veil::open(Proving::new(
-            config.worker.clone(),
-            config.artifacts.clone(),
-        ))
-        .map_err(|_| StartError::Artifacts)?,
-    );
-    let enclave = Enclave::new(
-        config.pool,
-        Keyring::new(RootSeed::from_bytes(config.root)),
-        veil,
-        upstream,
-        Pricing::new(config.scale, config.margin_bps),
-    )?;
-    tracing::info!(signer = %enclave.signer(), "the registry must vouch for this address");
+    let meters = meter(config, upstream).await?;
+    tracing::info!(signer = %meters.signer(), "the registry must vouch for this address");
     Ok(Arc::new(MeteringService::new(
-        Arc::new(enclave),
+        meters,
         Arc::new(Replays::default()),
         Arc::new(Sessions::open(&config.state)?),
         escrows,
@@ -238,6 +253,72 @@ pub fn assemble(
         Vec::new(),
     )))
 }
+
+/// The meter: in this process, or in an enclave beside it.
+///
+/// Which one is decided by whether a context id was configured, not by a
+/// build flag — the same binary runs both ways, and a host that has an
+/// enclave is simply a host that was never given a seed.
+// Async because linking to an enclave is a round trip; on a host without
+// vsock there is nothing to await, which clippy is right to notice and wrong
+// to act on — the signature is the same either way or the caller forks.
+#[allow(clippy::unused_async)]
+async fn meter(
+    config: &Config,
+    upstream: Arc<dyn Upstream>,
+) -> Result<Arc<dyn Meters>, StartError> {
+    #[cfg(target_os = "linux")]
+    if let Some(cid) = config.enclave {
+        // The posting worker is what builds the meter, and the seed it
+        // needs is a round trip to KMS away; until that lands the enclave
+        // is listening but has nothing to answer with.
+        let deadline = std::time::Instant::now() + ENCLAVE_WAIT;
+        loop {
+            let link = crate::adapters::link::Linked::open(crate::adapters::link::Vsock {
+                cid,
+                port: ENCLAVE_PORT,
+            })
+            .await;
+            match link {
+                Ok(linked) => return Ok(Arc::new(linked)),
+                Err(_) if std::time::Instant::now() < deadline => {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+                Err(_) => return Err(StartError::Enclave),
+            }
+        }
+    }
+
+    let root = config.root.ok_or(StartError::Seedless)?;
+    let veil = Arc::new(
+        Veil::open(Proving::new(
+            config.worker.clone(),
+            config.artifacts.clone(),
+        ))
+        .map_err(|_| StartError::Artifacts)?,
+    );
+    Ok(Arc::new(Enclave::new(
+        config.pool,
+        Keyring::new(RootSeed::from_bytes(root)),
+        veil,
+        upstream,
+        Pricing::new(config.scale, config.margin_bps),
+    )?))
+}
+
+/// Where the enclave answers. Fixed rather than configured: both ends are
+/// built from this repository, and a port either side could get wrong is a
+/// setting that buys nothing.
+pub const ENCLAVE_PORT: u32 = 5402;
+
+/// Where the parent relays the enclave's KMS traffic.
+pub const KMS_RELAY_PORT: u32 = 8000;
+
+#[cfg(target_os = "linux")]
+/// How long to let the enclave finish bootstrapping before giving up on it.
+/// Generous: the alternative to waiting is a gateway that exits because KMS
+/// was a second slower than usual.
+const ENCLAVE_WAIT: std::time::Duration = std::time::Duration::from_mins(2);
 
 /// Where attested keys are looked up, or nothing if that cannot be reached.
 ///
@@ -268,7 +349,23 @@ pub async fn serve(config: Config) -> Result<(), StartError> {
         config.ceiling,
         attesting(&config).await,
     )?);
-    let service = assemble(&config, escrows, upstream)?;
+    // Before the service: the meter it links to may not exist yet, and the
+    // posting is what brings it into being.
+    #[cfg(target_os = "linux")]
+    if let Some(cid) = config.enclave {
+        let posting = config.clone();
+        tokio::spawn(async move {
+            adapters::posting::keep(
+                adapters::link::Vsock { cid, port: ENCLAVE_PORT },
+                &posting,
+                env::var("VEIL_KMS_KEY").unwrap_or_default(),
+                env::var("AWS_REGION").unwrap_or_else(|_| "eu-west-1".to_owned()),
+                KMS_RELAY_PORT,
+            )
+            .await;
+        });
+    }
+    let service = assemble(&config, escrows, upstream).await?;
     let settler = Arc::new(
         adapters::settler(
             &config.rpc,

@@ -2,6 +2,7 @@
 
 pub mod adapters;
 pub mod core;
+pub mod protocol;
 
 pub use core::{Call, Error, Meter, Recorded, record, replay, sign_lock};
 pub use core::ports::{
