@@ -444,10 +444,30 @@ design those follow from is `docs/superpowers/specs/2026-10-29-session-envelope-
 | **A3** | envelope manager — open, meter, settle, roll | 3h |
 | **A4** | **M1 on anvil**: lock, N calls, settle, and the next envelope opens from the change | 2h |
 
-**Stage B — a product.** 12h · B1 `veil-gateway` (HTTP, 402, status codes,
-idempotency, vsock) 3h · B2 enclave restart resume 2h · B3 OpenAI-compatible
-API and per-agent reservation 3h · B4 mandates over the shared ceiling 2h ·
-**B5 M2 on Hedera testnet**: many agents, rollover, re-shop 2h
+**Stage B — a product.** 14h
+
+| | | est |
+|---|---|---:|
+| ~~B1~~ | `veil402-gateway` — HTTP, 402, status codes, idempotency | done, `896e22a` |
+| ~~B2~~ | enclave restart resume, durable and opaque | done |
+| **B3** | the gateway checks the escrow before it serves | 1.5h |
+| **B4** | OpenAI-compatible API — the 402 drives `open`, per-agent reservation | 3.5h |
+| **B5** | mandates over the shared ceiling | 2h |
+| **B6** | **M2 on Hedera testnet** — many agents, rollover, re-shop | 2h |
+
+B3 is new and goes first. `Handover::accept` is pure arithmetic — its own
+documentation says so — so nothing today checks that the escrow a buyer names
+actually exists, that its root is one the pool reached, or that it names this
+enclave. A buyer can hand over a delegation for a note it owns in a tree it
+invented and be served for free; the settlement then reverts and the seller
+has given the work away. The gateway is the right place for the check: it is
+the part that is untrusted but networked, and the enclave is deliberately
+neither.
+
+B4 absorbs what B1 left open. The gateway returns a 402 with a challenge and
+nothing consumes it — the daemon maps the instruction to "re-shop" and no
+caller opens an envelope in response. Envelopes open today because a test asks
+for one. Closing that is what makes the x402 loop a loop.
 
 **Stage C — real externals.** 15h · C1 0G in the enclave, seller keys, price
 stream, portal 5h · C2 receipts and the HCS audit bundle 4h · C3 note
@@ -457,7 +477,7 @@ discovery and recovery 6h
 D2 PCR pinning and x402 3h · D3 dashboard 6h · D4 `npx veil402 init` 3h ·
 D5 demo sandboxes and background traffic 7h
 
-Roughly 58h. **A4 is the one that matters** — everything before it is
+Roughly 51h. **A4 is the one that matters** — everything before it is
 machinery, and it is the first point where the whole claim is demonstrable,
 rollover included.
 

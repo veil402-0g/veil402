@@ -8,6 +8,19 @@ use veil402_sdk::{
 
 use super::MeterError;
 
+/// A call the enclave had already answered before it restarted.
+pub struct Replayed {
+    pub attempt: String,
+    pub metered: MeteredBody,
+}
+
+/// A metered call and the enclave's own record of it.
+pub struct Metering {
+    pub metered: MeteredBody,
+    /// Sealed to the enclave. The host keeps it and cannot read it.
+    pub record: Vec<u8>,
+}
+
 /// The meter both sides trust.
 ///
 /// A trait because it runs in this process today and behind a vsock once
@@ -33,7 +46,8 @@ pub trait Meters: Send + Sync {
     /// failure the daemon can repair by handing its delegation over again.
     async fn holds(&self, nullifier: Field) -> bool;
 
-    /// Meters a call that cost `price`.
+    /// Meters a call that cost `price`, and seals a record of it.
+    ///
     /// # Errors
     ///
     /// Returns [`MeterError`] when the session is gone or its ceiling is
@@ -41,9 +55,19 @@ pub trait Meters: Send + Sync {
     async fn record(
         &self,
         nullifier: Field,
+        attempt: &str,
         price: u64,
         units: u64,
-    ) -> Result<MeteredBody, MeterError>;
+    ) -> Result<Metering, MeterError>;
+
+    /// Picks a session back up from what a host kept.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MeterError`] when a record was not sealed by this enclave.
+    /// Returns the calls it already answered, so a retry that straddles a
+    /// restart is answered rather than billed a second time.
+    async fn resume(&self, kept: &Kept) -> Result<Vec<Replayed>, MeterError>;
 
     /// Proves the settlement. `dust` asks for the smallest one that frees the
     /// note, for an envelope nobody owes anything on.
@@ -72,4 +96,38 @@ pub trait Served: Send + Sync {
     async fn replayed(&self, nullifier: Field, attempt: &str) -> Option<MeteredBody>;
 
     async fn remember(&self, nullifier: Field, attempt: &str, metered: &MeteredBody);
+}
+
+/// What a host keeps for an enclave that cannot keep anything.
+///
+/// Opaque by construction: every record is sealed by the enclave to itself,
+/// so a stolen store yields nothing a chain observer does not already have.
+/// The delegation is likewise the one the buyer sealed, which this side has
+/// never been able to read.
+#[async_trait]
+pub trait Resumes: Send + Sync {
+    /// Remembers the delegation a session was opened with.
+    async fn opened(
+        &self,
+        nullifier: Field,
+        sealed: &Sealed,
+        session: Session,
+    ) -> Result<(), MeterError>;
+
+    /// Appends one sealed record.
+    async fn append(&self, nullifier: Field, record: &[u8]) -> Result<(), MeterError>;
+
+    /// Everything kept for a session, if anything is.
+    async fn recall(&self, nullifier: Field) -> Result<Option<Kept>, MeterError>;
+
+    /// Drops a settled session. The window a stolen store covers is sessions
+    /// still open, not every session there has ever been.
+    async fn forget(&self, nullifier: Field) -> Result<(), MeterError>;
+}
+
+/// What a host kept for one session.
+pub struct Kept {
+    pub sealed: Sealed,
+    pub session: Session,
+    pub log: Vec<Vec<u8>>,
 }

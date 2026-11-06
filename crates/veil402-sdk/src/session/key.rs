@@ -13,6 +13,10 @@ type Public = <Kem as hpke::Kem>::PublicKey;
 /// Binds the sealed envelope to the scheme it was written for.
 const INFO: &[u8] = b"veil402:handover:v1";
 
+/// A separate scheme for what an enclave seals to itself, so a delegation can
+/// never be opened as its own record, nor a record as a delegation.
+const JOURNAL: &[u8] = b"veil402:journal:v1";
+
 /// An envelope only its recipient can open.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Sealed {
@@ -56,6 +60,44 @@ impl EnclaveKey {
         pool.enclave_key_digest(self.public())
     }
 
+    /// Seals state to this key, for a host to keep and hand back.
+    ///
+    /// The enclave holds nothing durable, so its own record of a session has
+    /// to live somewhere it does not trust. HPKE rather than a symmetric
+    /// scheme because each seal takes a fresh ephemeral key: there is no
+    /// nonce to manage, and so none to reuse.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Handover`] when encryption fails.
+    pub fn seal_to_self(&self, payload: &[u8]) -> Result<Sealed, Error> {
+        let (encapsulated, ciphertext) = single_shot_seal::<ChaCha20Poly1305, HkdfSha256, Kem>(
+            &OpModeS::Base,
+            &self.public,
+            JOURNAL,
+            payload,
+            &[],
+        )
+        .map_err(|_| Error::Handover("state does not seal"))?;
+        let bytes = encapsulated.to_bytes();
+        let mut key = [0_u8; 32];
+        key.copy_from_slice(&bytes);
+        Ok(Sealed {
+            encapsulated: key,
+            ciphertext,
+        })
+    }
+
+    /// Opens state this key sealed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Handover`] when the record was not sealed by this
+    /// key, or has been altered.
+    pub fn open_own(&self, sealed: &Sealed) -> Result<Vec<u8>, Error> {
+        self.unseal(sealed, JOURNAL)
+    }
+
     /// Opens an envelope sealed to this key.
     ///
     /// # Errors
@@ -63,13 +105,17 @@ impl EnclaveKey {
     /// Returns [`Error::Handover`] when the envelope was not sealed to this
     /// key, or has been altered.
     pub fn open(&self, sealed: &Sealed) -> Result<Vec<u8>, Error> {
+        self.unseal(sealed, INFO)
+    }
+
+    fn unseal(&self, sealed: &Sealed, info: &[u8]) -> Result<Vec<u8>, Error> {
         let encapsulated = <Kem as hpke::Kem>::EncappedKey::from_bytes(&sealed.encapsulated)
             .map_err(|_| Error::Handover("encapsulated key is malformed"))?;
         single_shot_open::<ChaCha20Poly1305, HkdfSha256, Kem>(
             &OpModeR::Base,
             &self.private,
             &encapsulated,
-            INFO,
+            info,
             &sealed.ciphertext,
             &[],
         )

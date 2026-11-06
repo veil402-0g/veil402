@@ -8,6 +8,7 @@ description = "Metering and settlement signing for a Veil enclave"
 
 [dependencies]
 alloy = { version = "1", features = ["signer-local", "sol-types"] }
+borsh = { version = "1", features = ["derive"] }
 thiserror = "2"
 veil402-sdk = { path = "../veil402-sdk" }
 

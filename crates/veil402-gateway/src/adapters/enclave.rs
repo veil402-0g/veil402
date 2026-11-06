@@ -6,7 +6,7 @@ use alloy::{
 };
 use async_trait::async_trait;
 use tokio::sync::RwLock;
-use veil402_enclave::{Call, Meter, sign_lock};
+use veil402_enclave::{Call, Meter, record as journal, sign_lock};
 use veil402_sdk::{
     Field, Veil,
     evm::{PoolClient, Session},
@@ -14,7 +14,7 @@ use veil402_sdk::{
     wire::{AgreeBody, MeteredBody, SettlementBody, encode},
 };
 
-use crate::core::{MeterError, Meters};
+use crate::core::{Kept, MeterError, Metering, Meters, Replayed};
 
 fn refused(error: impl std::fmt::Display) -> MeterError {
     MeterError::Refused(error.to_string())
@@ -87,11 +87,13 @@ impl Meters for Enclave {
     async fn record(
         &self,
         nullifier: Field,
+        attempt: &str,
         price: u64,
         units: u64,
-    ) -> Result<MeteredBody, MeterError> {
+    ) -> Result<Metering, MeterError> {
         let mut meters = self.meters.write().await;
         let meter = meters.get_mut(&nullifier).ok_or(MeterError::Unknown)?;
+        let sequence = meter.calls() as u64;
         let attestation = witnessed(nullifier, meter.calls(), units);
         let total = meter
             .record(Call {
@@ -99,11 +101,52 @@ impl Meters for Enclave {
                 attestation,
             })
             .map_err(|_| MeterError::CeilingReached)?;
-        Ok(MeteredBody {
-            total,
-            remaining: meter.ceiling().saturating_sub(total),
-            attestation,
+        Ok(Metering {
+            metered: MeteredBody {
+                total,
+                remaining: meter.ceiling().saturating_sub(total),
+                attestation,
+            },
+            // Sealed to this enclave, so the host keeps it without reading it
+            // and cannot hand back a total nobody served.
+            record: journal(
+                &self.keyring.handover(nullifier),
+                sequence,
+                attempt,
+                total,
+                attestation,
+            )
+            .map_err(refused)?,
         })
+    }
+
+    async fn resume(&self, kept: &Kept) -> Result<Vec<Replayed>, MeterError> {
+        let nullifier = kept.session.nullifier;
+        let (meter, recorded) = Meter::resume(
+            self.pool,
+            &self.keyring.handover(nullifier),
+            &kept.sealed,
+            kept.session,
+            &kept.log,
+        )
+        .map_err(refused)?;
+        let ceiling = meter.ceiling();
+        tracing::info!(calls = meter.calls(), "a session was picked back up");
+        self.meters.write().await.insert(nullifier, meter);
+        Ok(recorded
+            .into_iter()
+            // A call nobody named cannot be recognised on a retry, so there
+            // is nothing to restore for it.
+            .filter(|record| !record.attempt.is_empty())
+            .map(|record| Replayed {
+                metered: MeteredBody {
+                    total: record.total,
+                    remaining: ceiling.saturating_sub(record.total),
+                    attestation: record.attestation,
+                },
+                attempt: record.attempt,
+            })
+            .collect())
     }
 
     /// Proves the settlement. `dust` asks for the smallest one that frees the

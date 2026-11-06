@@ -17,8 +17,10 @@ use veil402_sdk::{
 };
 
 mod error;
+mod journal;
 
 pub use error::Error;
+pub use journal::{Recorded, record, replay};
 pub use veil402_sdk::evm::Call;
 
 /// What a settlement pays when nothing was served, so the note comes back
@@ -64,6 +66,33 @@ impl Meter {
             total: 0,
             calls: Vec::new(),
         })
+    }
+
+    /// Rebuilds a session from the records this enclave sealed.
+    ///
+    /// The host keeps them because a Nitro enclave has no disk, and it is not
+    /// trusted with them: a total it invented does not open, so the only
+    /// thing it can do with the log is lose part of it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] when the delegation does not open onto the
+    /// escrow, or a record was not sealed by this enclave.
+    pub fn resume(
+        pool: PoolClient,
+        key: &EnclaveKey,
+        sealed: &Sealed,
+        session: Session,
+        log: &[Vec<u8>],
+    ) -> Result<(Self, Vec<journal::Recorded>), Error> {
+        let replayed = journal::replay(key, log)?;
+        let mut meter = Self::open(pool, key, sealed, session)?;
+        meter.total = replayed.last().map_or(0, |record| record.total);
+        meter.calls = replayed
+            .iter()
+            .map(|record| record.attestation)
+            .collect();
+        Ok((meter, replayed))
     }
 
     /// The escrow this session settles against.

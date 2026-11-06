@@ -13,12 +13,15 @@ use veil402_sdk::{
 };
 
 use crate::{
-    adapters::{Catalogue, Enclave, Replays, http::router},
+    adapters::{Catalogue, Enclave, Replays, Sessions, http::router},
     core::{MeterError, MeteringService},
 };
 
 /// Where the gateway listens when nothing says otherwise.
 const BIND: &str = "0.0.0.0:8402";
+
+/// Where the sealed session records live when nothing says otherwise.
+const STATE: &str = "veil402-sessions.redb";
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ConfigError {
@@ -40,6 +43,9 @@ pub struct Config {
     pub worker: PathBuf,
     pub artifacts: PathBuf,
     pub offers: Vec<Offer>,
+    /// Where the host keeps what a restarted enclave needs. Opaque: every
+    /// record in it is sealed by the enclave to itself.
+    pub state: PathBuf,
     pub bind: SocketAddr,
 }
 
@@ -86,6 +92,9 @@ impl Config {
                 seller: address("VEIL_SELLER")?,
                 rate: parsed("VEIL_RATE", 1)?,
             }],
+            state: PathBuf::from(
+                env::var("VEIL_GATEWAY_STATE").unwrap_or_else(|_| STATE.to_owned()),
+            ),
             bind: parsed(
                 "VEIL_GATEWAY_BIND",
                 BIND.parse().map_err(|_| ConfigError::Invalid("bind"))?,
@@ -129,6 +138,7 @@ pub fn assemble(config: &Config) -> Result<Arc<MeteringService>, StartError> {
         Arc::new(enclave),
         Arc::new(Catalogue::new(config.offers.clone())),
         Arc::new(Replays::default()),
+        Arc::new(Sessions::open(&config.state)?),
         config.pool,
         Vec::new(),
     )))

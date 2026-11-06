@@ -36,7 +36,9 @@ fn artifacts() -> std::path::PathBuf {
 /// A gateway holding no sessions, which is every gateway at boot. The worker
 /// is never started: nothing here proves anything.
 fn gateway() -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
+    let state = tempfile::tempdir()?;
     Ok(assemble(&Config {
+        state: state.keep().join("sessions.redb"),
         pool: PoolClient::new(
             "0x42532488f967329e2B090dCf68396Ef0dd63de69".parse()?,
             "0x0000000000000000000000000000000000000abc".parse()?,

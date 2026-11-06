@@ -245,7 +245,8 @@ async fn an_envelope_rolls_into_the_next() -> Result<(), Box<dyn StdError>> {
     println!("shield gas       {}", receipt.gas_used);
 
     // ---- the gateway that hosts the enclave ------------------------------
-    let served = serve(&pool, root, seller).await?;
+    let housed = tempfile::tempdir()?;
+    let served = serve(&pool, root, seller, housed.path()).await?;
 
     // ---- the daemon, from its own composition root -----------------------
     let state = tempfile::tempdir()?;
@@ -403,6 +404,7 @@ async fn serve(
     pool: &PoolClient,
     root: [u8; 32],
     seller: Address,
+    state: &Path,
 ) -> Result<String, Box<dyn StdError>> {
     let service = veil402_gateway::app::assemble(&veil402_gateway::app::Config {
         pool: *pool,
@@ -416,6 +418,7 @@ async fn serve(
             // numbers.
             rate: 1,
         }],
+        state: state.join("sessions.redb"),
         bind: "127.0.0.1:0".parse()?,
     })?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
