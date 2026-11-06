@@ -103,6 +103,7 @@ impl Meters for Enclave {
                 model: listing.model,
                 prompt: self.pricing.charge(listing.prompt),
                 completion: self.pricing.charge(listing.completion),
+                max_output: listing.max_output,
             })
             .collect())
     }

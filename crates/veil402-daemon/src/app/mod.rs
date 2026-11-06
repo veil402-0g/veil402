@@ -2,6 +2,7 @@
 
 use std::{
     env, future,
+    net::SocketAddr,
     num::NonZeroU64,
     path::PathBuf,
     str::FromStr,
@@ -19,7 +20,7 @@ use tokio::time::sleep;
 use veil402_sdk::{Config as Proving, Owner, Secret, Veil, evm::PoolClient};
 
 use crate::{
-    adapters::{self, ChainSource, LocalProver, RemoteEnclave, SqliteStore, Window},
+    adapters::{self, Api, ChainSource, LocalProver, RemoteEnclave, SqliteStore, Window},
     core::{
         StoreError,
         agent::AgentService,
@@ -30,6 +31,14 @@ use crate::{
 };
 
 const DATABASE: &str = "sqlite://veil402.db?mode=rwc";
+
+/// Loopback, because this process holds the keys that spend the notes and
+/// speaks no TLS. Reaching it from anywhere else is a decision, not a default.
+const LISTEN: &str = "127.0.0.1:8402";
+
+/// What a call is assumed to produce when its request names no limit.
+/// Only the reservation rests on it; the bill is whatever arrives.
+const CALL_CAP: u32 = 8_192;
 
 /// Where the transaction engine's own durable state lives. Separate from the
 /// index: it is the engine's, and it rebroadcasts from it on its own.
@@ -111,6 +120,10 @@ pub struct Config {
     pub session: u64,
     /// How long one envelope holds its reservation for.
     pub lock_for: u64,
+    /// Where the agent API is served from.
+    pub listen: SocketAddr,
+    /// Output a call is assumed to produce when it names no limit.
+    pub cap: u32,
     /// Keys the notes belong to. Losing them loses the balance.
     pub owner: Owner,
     /// How far one pass reads.
@@ -172,6 +185,8 @@ impl Config {
             seller: address("VEIL_SELLER")?,
             session: parsed("VEIL_SESSION_NOTE", SESSION)?,
             lock_for: parsed("VEIL_ENVELOPE_WINDOW", 600)?,
+            listen: parsed("VEIL_LISTEN", LISTEN.parse().map_err(|_| ConfigError::Invalid("VEIL_LISTEN"))?)?,
+            cap: parsed("VEIL_CALL_CAP", CALL_CAP)?,
             owner: Owner {
                 spend: key("VEIL_SPEND_KEY")?,
                 view: key("VEIL_VIEW_KEY")?,
@@ -242,6 +257,8 @@ pub enum Halted {
     Untrusted(PassError),
     #[error("the daemon failed {attempts} passes in a row: {source}")]
     Exhausted { attempts: u32, source: PassError },
+    #[error("the agent API could not be served: {0}")]
+    Unserved(String),
 }
 
 /// The chain index, the notes we own, and the loop that keeps both current.
@@ -249,7 +266,14 @@ pub struct Daemon {
     index: Arc<IndexService>,
     wallet: Arc<WalletService>,
     envelopes: Option<Arc<EnvelopeService>>,
+    api: Option<Serving>,
     retry: Retry,
+}
+
+/// The agent API, and where it answers from.
+struct Serving {
+    listen: SocketAddr,
+    api: Api,
 }
 
 impl Daemon {
@@ -290,6 +314,7 @@ impl Daemon {
         );
         let enclave = Arc::new(RemoteEnclave::new(&config.gateway, pool)?);
 
+        let agents = Arc::new(AgentService::new(store.clone()));
         let wallet = Arc::new(WalletService::new(store.clone(), store.clone(), config.owner));
         let envelopes = Arc::new(EnvelopeService::new(
             wallet.clone(),
@@ -305,7 +330,19 @@ impl Daemon {
                 window: config.lock_for,
             },
         ));
-        Ok(Self::new(index, wallet, config.retry).serving(envelopes))
+        Ok(Self {
+            api: Some(Serving {
+                listen: config.listen,
+                api: Api {
+                    agents,
+                    envelopes: envelopes.clone(),
+                    index: index.clone(),
+                    cap: config.cap,
+                    started: now(),
+                },
+            }),
+            ..Self::new(index, wallet, config.retry).serving(envelopes)
+        })
     }
 
     /// Builds a daemon over services that are already wired.
@@ -315,6 +352,7 @@ impl Daemon {
             index,
             wallet,
             envelopes: None,
+            api: None,
             retry,
         }
     }
@@ -359,6 +397,7 @@ impl Daemon {
         tokio::select! {
             () = signalled() => Ok(()),
             halted = self.syncing() => Err(halted),
+            halted = self.answering() => Err(halted),
         }
     }
 
@@ -387,6 +426,22 @@ impl Daemon {
             tracing::warn!(notes = seen.stale, "written down but never placed");
         }
         Ok(())
+    }
+
+    /// Serves the agent API, or waits forever when there is none to serve.
+    async fn answering(&self) -> Halted {
+        let Some(serving) = &self.api else {
+            return future::pending().await;
+        };
+        let listener = match tokio::net::TcpListener::bind(serving.listen).await {
+            Ok(listener) => listener,
+            Err(error) => return Halted::Unserved(error.to_string()),
+        };
+        tracing::info!(listen = %serving.listen, "serving the agent API");
+        match axum::serve(listener, adapters::router(serving.api.clone())).await {
+            Ok(()) => future::pending().await,
+            Err(error) => Halted::Unserved(error.to_string()),
+        }
     }
 
     async fn syncing(&self) -> Halted {

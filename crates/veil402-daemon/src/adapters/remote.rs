@@ -10,7 +10,7 @@ use veil402_sdk::{
     session::Sealed,
     session::{Exchange, Inbound, Recipient},
     wire::{
-        AcceptBody, Action, AgreeBody, CallBody, MeteredBody, Prompt, Reply, SessionBody,
+        AcceptBody, Action, AgreeBody, CallBody, MeteredBody, Offer, Prompt, Reply, SessionBody,
         SettlementBody, bytes, encode, field,
     },
 };
@@ -96,6 +96,19 @@ fn result<T>(reply: Reply<T>) -> Result<T, EnclaveError> {
 
 #[async_trait]
 impl Enclave for RemoteEnclave {
+    async fn catalogue(&self) -> Result<Vec<Offer>, EnclaveError> {
+        let response = self
+            .client
+            .get(self.url("/v1/catalogue"))
+            .send()
+            .await
+            .map_err(unreachable)?;
+        if !response.status().is_success() {
+            return Err(refusal(response).await);
+        }
+        result(response.json().await.map_err(unreachable)?)
+    }
+
     async fn agree(&self, session: &Session) -> Result<Agreement, EnclaveError> {
         let response = self
             .client
@@ -150,7 +163,7 @@ impl Enclave for RemoteEnclave {
     async fn chat(
         &self,
         nullifier: Field,
-        prompt: &Prompt,
+        body: &[u8],
         attempt: &str,
     ) -> Result<BoxStream<'static, Result<Piece, EnclaveError>>, EnclaveError> {
         let Some(sealing) = self.sealing.read().await.get(&nullifier).cloned() else {
@@ -160,8 +173,8 @@ impl Enclave for RemoteEnclave {
         // the key from another.
         let exchange = Exchange::open();
         let asked = Prompt {
+            body: body.to_vec(),
             reply_to: exchange.public(),
-            ..prompt.clone()
         };
         let sealed = sealing
             .seal_prompt(&borsh::to_vec(&asked).map_err(unreachable)?)

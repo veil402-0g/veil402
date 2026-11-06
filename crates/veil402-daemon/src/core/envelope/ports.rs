@@ -5,7 +5,7 @@ use veil402_sdk::{
     Field, Prepared, Secret, Transaction,
     evm::{Session, Voucher},
     session::Sealed,
-    wire::Prompt,
+    wire::Offer,
 };
 
 use super::{Agreement, ChainError, Piece, ProveError, Settlement};
@@ -103,6 +103,9 @@ impl EnclaveError {
 /// once there is hardware: that move must change one adapter and nothing else.
 #[async_trait]
 pub trait Enclave: Send + Sync {
+    /// What this seller sells, and what it charges for it.
+    async fn catalogue(&self) -> Result<Vec<Offer>, EnclaveError>;
+
     /// Agrees to meter a session, returning the signatures and the key its
     /// delegation must be sealed to.
     async fn agree(&self, session: &Session) -> Result<Agreement, EnclaveError>;
@@ -111,16 +114,17 @@ pub trait Enclave: Send + Sync {
     /// before it will meter anything.
     async fn accept(&self, sealed: Sealed, session: Session) -> Result<(), EnclaveError>;
 
-    /// Sends a request the enclave alone can read, and returns its answer.
+    /// Sends the agent's request, and returns the answer to it.
     ///
-    /// The prompt is sealed to the enclave's key for this envelope, so the
-    /// host that relays it learns which session is working and what it cost,
-    /// never what was asked. `attempt` names the call rather than the retry,
-    /// so one served twice is billed once.
+    /// `body` is the agent's own bytes. Sealing them, and minting the
+    /// channel the answer comes back over, belong to whichever adapter is
+    /// in use — so the host that relays it learns which session is working
+    /// and what it cost, never what was asked. `attempt` names the call
+    /// rather than the retry, so one served twice is billed once.
     async fn chat(
         &self,
         nullifier: Field,
-        prompt: &Prompt,
+        body: &[u8],
         attempt: &str,
     ) -> Result<BoxStream<'static, Result<Piece, EnclaveError>>, EnclaveError>;
 

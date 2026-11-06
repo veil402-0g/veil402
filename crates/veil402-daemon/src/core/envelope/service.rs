@@ -3,12 +3,15 @@ use std::{sync::Arc, time::Duration};
 use alloy::primitives::Address;
 use thiserror::Error;
 use futures_util::{StreamExt, stream::BoxStream};
-use tokio::{sync::Mutex, time::sleep};
+use tokio::{
+    sync::{Mutex, RwLock},
+    time::sleep,
+};
 use veil402_sdk::{
     Field, Secret,
     evm::{PoolClient, Session},
     session::{Handover, Recipient},
-    wire::Prompt,
+    wire::Offer,
 };
 
 use super::{
@@ -86,6 +89,8 @@ pub struct EnvelopeService {
     terms: Terms,
     /// Held while an envelope is being replaced, so it happens once.
     rolling: Mutex<()>,
+    /// What the seller sells, as of the first call that needed to know.
+    catalogue: RwLock<Option<Vec<Offer>>>,
 }
 
 /// What shapes an envelope, beyond the ports it runs over.
@@ -125,7 +130,38 @@ impl EnvelopeService {
             envelopes,
             terms,
             rolling: Mutex::new(()),
+            catalogue: RwLock::new(None),
         }
+    }
+
+    /// What this seller sells.
+    ///
+    /// Read once and kept: it is the same answer for every agent, and a
+    /// model that goes away refuses at the upstream rather than here.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvelopeError`] when the seller cannot be reached.
+    pub async fn offers(&self) -> Result<Vec<Offer>, EnvelopeError> {
+        if let Some(offers) = self.catalogue.read().await.as_ref() {
+            return Ok(offers.clone());
+        }
+        let offers = self.enclave.catalogue().await?;
+        *self.catalogue.write().await = Some(offers.clone());
+        Ok(offers)
+    }
+
+    /// The offer a model names, if this seller sells it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvelopeError`] when the seller cannot be reached.
+    pub async fn offer(&self, model: &str) -> Result<Option<Offer>, EnvelopeError> {
+        Ok(self
+            .offers()
+            .await?
+            .into_iter()
+            .find(|offer| offer.model == model))
     }
 
     /// Reserves a note, locks it against `seller`, and hands the session to
@@ -204,20 +240,20 @@ impl EnvelopeService {
     /// the trouble was not the envelope.
     pub async fn dispatch(
         &self,
-        prompt: &Prompt,
+        body: &[u8],
         attempt: &str,
     ) -> Result<BoxStream<'static, Result<Piece, EnclaveError>>, EnvelopeError> {
         let nullifier = match self.live().await? {
             Some(nullifier) => nullifier,
             None => self.roll(self.envelopes.newest().await?).await?,
         };
-        match self.enclave.chat(nullifier, prompt, attempt).await {
+        match self.enclave.chat(nullifier, body, attempt).await {
             Ok(pieces) => Ok(pieces),
             // The envelope is spent, expiring, or gone. Replace it and ask
             // once more; a second failure was never about the envelope.
             Err(refused) if replaceable(&refused) => {
                 let nullifier = self.roll(Some(nullifier)).await?;
-                Ok(self.enclave.chat(nullifier, prompt, attempt).await?)
+                Ok(self.enclave.chat(nullifier, body, attempt).await?)
             }
             Err(refused) => Err(refused.into()),
         }

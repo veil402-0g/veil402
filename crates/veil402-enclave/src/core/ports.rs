@@ -10,17 +10,7 @@ use alloy::primitives::Address;
 use async_trait::async_trait;
 use futures_util::stream::BoxStream;
 use thiserror::Error;
-
-/// Tokens in a million, since upstreams price per token in fractions of a
-/// cent and integer micro-USD is the smallest honest unit.
-const MILLION: u64 = 1_000_000;
-
-/// Bytes per token, chosen to over-count rather than under-count a prompt
-/// nothing here tokenises. An estimate is an authorisation, and a capture
-/// above one is not something an upstream lets us take back — so it has to
-/// be an upper bound, and code or CJK tokenise far denser than prose.
-/// Prompts cost a fraction of what completions do, so the slack is cheap.
-const BYTES_PER_TOKEN: u64 = 2;
+use veil402_sdk::wire::Rates;
 
 /// One model an upstream will serve, and what it charges.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -34,6 +24,17 @@ pub struct Listing {
     /// The model runs inside an enclave, rather than proxying to a vendor
     /// that does. Only these can carry the privacy claim.
     pub confidential: bool,
+}
+
+impl Listing {
+    #[must_use]
+    pub const fn rates(&self) -> Rates {
+        Rates {
+            prompt: self.prompt,
+            completion: self.completion,
+            max_output: self.max_output,
+        }
+    }
 }
 
 /// One inference, as the enclave asks for it.
@@ -127,29 +128,4 @@ pub trait Upstream: Send + Sync {
         &self,
         ask: Ask,
     ) -> Result<BoxStream<'static, Result<Served, UpstreamError>>, UpstreamError>;
-}
-
-/// Most a call could cost, in micro-USD.
-///
-/// The bound is `max_tokens` and never the output we expect: a reasoning
-/// model can spend an entire budget thinking and return nothing, so what it
-/// is allowed to produce is the only figure that bounds the bill.
-#[must_use]
-pub fn estimate(listing: &Listing, body: &[u8], cap: u32) -> u64 {
-    let asked = u64::from(wanted(body).unwrap_or(cap).min(listing.max_output));
-    let sent = body.len() as u64 / BYTES_PER_TOKEN;
-    let completion = asked.saturating_mul(listing.completion) / MILLION;
-    let prompt = sent.saturating_mul(listing.prompt) / MILLION;
-    completion.saturating_add(prompt)
-}
-
-/// The ceiling the request set for itself, if it set one.
-fn wanted(body: &[u8]) -> Option<u32> {
-    let request: serde_json::Value = serde_json::from_slice(body).ok()?;
-    request
-        .get("max_tokens")
-        .or_else(|| request.get("max_completion_tokens"))?
-        .as_u64()?
-        .try_into()
-        .ok()
 }

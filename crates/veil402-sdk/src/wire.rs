@@ -149,6 +149,67 @@ pub struct Offer {
     /// Pool units per million tokens.
     pub prompt: u64,
     pub completion: u64,
+    /// Most one call may produce.
+    pub max_output: u32,
+}
+
+impl Offer {
+    #[must_use]
+    pub const fn rates(&self) -> Rates {
+        Rates {
+            prompt: self.prompt,
+            completion: self.completion,
+            max_output: self.max_output,
+        }
+    }
+}
+
+/// Bytes per token, chosen to over-count rather than under-count a prompt
+/// nothing here tokenises. An estimate is an authorisation, and a capture
+/// above one is not something an upstream lets us take back — so it has to
+/// be an upper bound, and code or CJK tokenise far denser than prose.
+/// Prompts cost a fraction of what completions do, so the slack is cheap.
+const BYTES_PER_TOKEN: u64 = 2;
+
+/// Tokens in a million, since upstreams price per token in fractions of a
+/// cent and the smallest honest unit is an integer.
+const MILLION: u64 = 1_000_000;
+
+/// What a model costs per million tokens, in whatever unit the quoter counts
+/// in: the enclave buys in micro-USD and sells in pool units, and the sum is
+/// the same either way.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Rates {
+    pub prompt: u64,
+    pub completion: u64,
+    pub max_output: u32,
+}
+
+impl Rates {
+    /// Most a call could cost at these rates.
+    ///
+    /// The bound is `max_tokens` and never the output we expect: a reasoning
+    /// model can spend an entire budget thinking and return nothing, so what
+    /// it is allowed to produce is the only figure that bounds the bill.
+    #[must_use]
+    pub fn most(self, body: &[u8], cap: u32) -> u64 {
+        let asked = u64::from(wanted(body).unwrap_or(cap).min(self.max_output));
+        let sent = body.len() as u64 / BYTES_PER_TOKEN;
+        (asked.saturating_mul(self.completion) / MILLION)
+            .saturating_add(sent.saturating_mul(self.prompt) / MILLION)
+    }
+}
+
+/// The ceiling the request set for itself, if it set one.
+#[must_use]
+pub fn wanted(body: &[u8]) -> Option<u32> {
+    let request: serde_json::Value = serde_json::from_slice(body).ok()?;
+    request
+        .get("max_tokens")
+        .or_else(|| request.get("max_completion_tokens"))?
+        .as_u64()?
+        .try_into()
+        .ok()
 }
 
 /// What the caller should do next.

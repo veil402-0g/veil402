@@ -1,0 +1,181 @@
+use axum::{
+    Json,
+    http::{
+        HeaderName, HeaderValue, StatusCode,
+        header::{RETRY_AFTER, WWW_AUTHENTICATE},
+    },
+    response::{IntoResponse, Response},
+};
+use serde::Serialize;
+
+use crate::core::{
+    agent::AgentError,
+    envelope::{EnclaveError, EnvelopeError},
+    wallet::WalletError,
+};
+
+/// `OpenAI`'s two broad kinds: one the caller can fix, one it cannot.
+const INVALID: &str = "invalid_request_error";
+const API: &str = "api_error";
+
+/// How long to wait on something that might clear on its own.
+const SOON: u64 = 5;
+
+/// Honoured by `OpenAI`'s own clients, which otherwise back off and repeat a
+/// 429 that repeating cannot change.
+const SHOULD_RETRY: &str = "x-should-retry";
+
+/// A refusal in the shape every `OpenAI` client already parses.
+pub struct Refusal {
+    status: StatusCode,
+    detail: Detail,
+    /// Seconds to wait, when waiting is what helps.
+    after: Option<u64>,
+}
+
+#[derive(Serialize)]
+struct Detail {
+    message: String,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<&'static str>,
+}
+
+#[derive(Serialize)]
+struct Fault {
+    error: Detail,
+}
+
+impl Refusal {
+    fn at(
+        status: StatusCode,
+        kind: &'static str,
+        code: Option<&'static str>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            status,
+            detail: Detail {
+                message: message.into(),
+                kind,
+                code,
+            },
+            after: None,
+        }
+    }
+
+    /// Unissued, mistyped, revoked, or absent. One answer for all four,
+    /// which is both what `OpenAI` does and the only safe thing to say.
+    #[must_use]
+    pub fn unauthenticated() -> Self {
+        Self::at(
+            StatusCode::UNAUTHORIZED,
+            INVALID,
+            Some("invalid_api_key"),
+            "no valid API key was provided",
+        )
+    }
+
+    #[must_use]
+    pub fn malformed(message: impl Into<String>) -> Self {
+        Self::at(StatusCode::BAD_REQUEST, INVALID, None, message)
+    }
+
+    #[must_use]
+    pub fn unlisted(model: &str) -> Self {
+        Self::at(
+            StatusCode::NOT_FOUND,
+            INVALID,
+            Some("model_not_found"),
+            format!("`{model}` is not a model this daemon can buy privately"),
+        )
+    }
+
+    /// Something on our side that waiting may fix.
+    #[must_use]
+    pub fn unavailable(message: impl Into<String>) -> Self {
+        let mut refusal = Self::at(
+            StatusCode::SERVICE_UNAVAILABLE,
+            API,
+            Some("envelope_unavailable"),
+            message,
+        );
+        refusal.after = Some(SOON);
+        refusal
+    }
+
+    #[must_use]
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self::at(StatusCode::INTERNAL_SERVER_ERROR, API, None, message)
+    }
+}
+
+impl From<AgentError> for Refusal {
+    fn from(error: AgentError) -> Self {
+        match error {
+            AgentError::Unknown => Self::unauthenticated(),
+            // `OpenAI` spends 429 on both a rate limit and a spent budget,
+            // and tells them apart by the type rather than the status.
+            AgentError::Exhausted { budget, committed } => Self::at(
+                StatusCode::TOO_MANY_REQUESTS,
+                "insufficient_quota",
+                Some("budget_exhausted"),
+                format!("this key has committed {committed} of its {budget}"),
+            ),
+            AgentError::Random | AgentError::Store(_) => {
+                tracing::error!(%error, "the ledger would not answer");
+                Self::internal("the ledger is unavailable")
+            }
+        }
+    }
+}
+
+impl From<EnvelopeError> for Refusal {
+    fn from(error: EnvelopeError) -> Self {
+        tracing::warn!(%error, "a call was refused");
+        let said = error.to_string();
+        match error {
+            // Nothing is left to buy with, and only an operator can change
+            // that. Waiting is still the least wrong thing to ask.
+            EnvelopeError::Wallet(WalletError::Empty) => {
+                Self::unavailable("no note is held to open an envelope against")
+            }
+            // The seller refused, and we have its words rather than its
+            // status, so its refusal reads as ours.
+            EnvelopeError::Enclave(EnclaveError::Refused(_)) => {
+                Self::at(StatusCode::BAD_GATEWAY, API, None, said)
+            }
+            other if other.recoverable() => Self::unavailable(said),
+            _ => Self::internal(said),
+        }
+    }
+}
+
+impl IntoResponse for Refusal {
+    fn into_response(self) -> Response {
+        let Self {
+            status,
+            detail,
+            after,
+        } = self;
+        let mut response = (status, Json(Fault { error: detail })).into_response();
+        let headers = response.headers_mut();
+        if status == StatusCode::UNAUTHORIZED {
+            headers.insert(WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+        }
+        match after {
+            Some(after) => {
+                headers.insert(RETRY_AFTER, HeaderValue::from(after));
+            }
+            None if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS => {
+                headers.insert(
+                    HeaderName::from_static(SHOULD_RETRY),
+                    HeaderValue::from_static("false"),
+                );
+            }
+            None => {}
+        }
+        response
+    }
+}

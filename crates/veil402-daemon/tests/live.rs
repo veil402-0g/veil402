@@ -29,7 +29,6 @@ use veil402_sdk::{
     Config as Proving, Note, Owner, Secret, Send, Spend, Transaction, Veil,
     evm::{PoolClient, Withdrawal},
     session::{Keyring, RootSeed},
-    wire::Prompt,
 };
 
 const DEPOSIT: u64 = 1_000;
@@ -367,6 +366,8 @@ async fn daemon(
     state: &Path,
 ) -> Result<Daemon, Box<dyn StdError>> {
     let daemon = Daemon::start(Config {
+        listen: "127.0.0.1:0".parse()?,
+        cap: 1_024,
         rpc: var("RPC_URL")?,
         pool: pool.address(),
         token: var("TOKEN")?.parse()?,
@@ -455,14 +456,11 @@ async fn metered(
     for sequence in 0..3 {
         let answered = envelopes
             .dispatch(
-                &Prompt {
-                    body: format!(
-                        r#"{{"model":"{MODEL}","messages":[{{"role":"user","content":"{}"}}]}}"#,
-                        "x".repeat(40)
-                    )
-                    .into_bytes(),
-                    reply_to: [0; 32],
-                },
+                format!(
+                    r#"{{"model":"{MODEL}","messages":[{{"role":"user","content":"{}"}}]}}"#,
+                    "x".repeat(40)
+                )
+                .as_bytes(),
                 &format!("call-{sequence}"),
             )
             .await?;

@@ -15,7 +15,7 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 
 use crate::core::ports::{
-    Ask, Attested, Listing, Receipt, Served, Tokens, Upstream, UpstreamError, estimate,
+    Ask, Attested, Listing, Receipt, Served, Tokens, Upstream, UpstreamError,
 };
 
 /// Where a router reports what a call cost.
@@ -133,7 +133,7 @@ impl Upstream for Router {
         ask: Ask,
     ) -> Result<stream::BoxStream<'static, Result<Served, UpstreamError>>, UpstreamError> {
         let listing = self.priced(&ask.model).await?;
-        if estimate(&listing, &ask.body, self.ceiling) > ask.budget {
+        if listing.rates().most(&ask.body, self.ceiling) > ask.budget {
             return Err(UpstreamError::Unaffordable);
         }
         let response = refused(

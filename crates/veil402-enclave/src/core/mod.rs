@@ -21,7 +21,7 @@ pub mod ports;
 
 pub use error::Error;
 pub use journal::{Recorded, record, replay};
-pub use ports::estimate;
+
 pub use veil402_sdk::evm::Call;
 
 /// What a settlement pays when nothing was served, so the note comes back

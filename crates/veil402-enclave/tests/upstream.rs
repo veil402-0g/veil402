@@ -12,7 +12,7 @@ use axum::{
     routing::{get, post},
 };
 use futures_util::StreamExt;
-use veil402_enclave::{Ask, Attested, Served, Upstream, adapters::Router, estimate};
+use veil402_enclave::{Ask, Attested, Served, Upstream, adapters::Router};
 
 type Fallible = Result<(), Box<dyn std::error::Error>>;
 
@@ -143,10 +143,10 @@ async fn a_call_that_could_overrun_never_starts() -> Fallible {
 
     // 200 completion tokens at 480_000 per million is 96; the prompt, counted
     // high on purpose, adds 4.
-    assert_eq!(estimate(confidential, &request(false), CEILING), 100);
+    assert_eq!(confidential.rates().most(&request(false), CEILING), 100);
     // No limit of its own, so the configured one applies.
     assert_eq!(
-        estimate(confidential, br#"{"model":"x"}"#, CEILING),
+        confidential.rates().most(br#"{"model":"x"}"#, CEILING),
         u64::from(CEILING) * 480_000 / 1_000_000
     );
 
@@ -189,7 +189,7 @@ async fn a_real_model_streams_and_reports_what_it_cost() -> Fallible {
         .ask(Ask {
             model: model.model.clone(),
             body: body.into_bytes(),
-            budget: estimate(model, &[], CEILING) * 2,
+            budget: model.rates().most(&[], CEILING) * 2,
         })
         .await?
         .collect::<Vec<_>>()
