@@ -58,8 +58,14 @@ fn gateway() -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
                 rate: 2,
             }],
             bind: "127.0.0.1:0".parse()?,
+            upstream: "http://127.0.0.1:0".to_owned(),
+            upstream_key: "sk-test".to_owned(),
+            trust: "private".to_owned(),
+            markup: 1,
+            ceiling: 1_024,
         },
         Arc::new(support::Pool::empty()),
+        Arc::new(support::Upstream { frames: 2, breaks: false }),
     )?)
 }
 

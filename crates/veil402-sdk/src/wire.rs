@@ -126,20 +126,15 @@ pub struct CallBody {
 
 /// What the buyer asked for, once the enclave has opened it.
 ///
-/// Carries the key the answer comes back under, minted for this one request.
+/// The body is the agent's own request, byte for byte. Nothing here parses
+/// it into fields: a shape of our own would quietly drop whatever `OpenAI`
+/// adds next, and the whole point is that an agent changes a URL and nothing
+/// else.
 #[derive(Clone, Debug, Deserialize, Serialize, BorshDeserialize, BorshSerialize)]
 pub struct Prompt {
-    pub model: String,
-    pub messages: Vec<Message>,
-    pub stream: bool,
+    pub body: Vec<u8>,
     /// Where to seal the answer.
     pub reply_to: [u8; 32],
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, BorshDeserialize, BorshSerialize)]
-pub struct Message {
-    pub role: String,
-    pub content: String,
 }
 
 /// The answer, sealed back to the key the request named.
@@ -151,16 +146,13 @@ pub struct CompletionBody {
     pub metered: MeteredBody,
 }
 
-/// What the enclave served, once the buyer has opened it.
-#[derive(Clone, Debug, Deserialize, Serialize, BorshDeserialize, BorshSerialize)]
-pub struct Completion {
-    pub model: String,
-    pub content: String,
-}
-
 /// What one metered call did to the envelope.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MeteredBody {
+    /// What this call cost on its own, which is what gets filed against the
+    /// agent that made it. The total cannot be differenced for it: calls
+    /// overlap.
+    pub cost: u64,
     pub total: u64,
     pub remaining: u64,
     pub attestation: B256,

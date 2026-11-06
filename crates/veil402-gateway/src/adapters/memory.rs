@@ -3,10 +3,10 @@ use std::{collections::HashMap, sync::Mutex};
 use async_trait::async_trait;
 use veil402_sdk::{
     Field,
-    wire::{MeteredBody, Offer},
+    wire::Offer,
 };
 
-use crate::core::{Prices, Served};
+use crate::core::{Prices, Replay, Served};
 
 /// The prices this gateway serves at.
 ///
@@ -41,12 +41,12 @@ impl Prices for Catalogue {
 /// here buys nothing the enclave does not also need.
 #[derive(Debug, Default)]
 pub struct Replays {
-    answered: Mutex<HashMap<(Field, String), MeteredBody>>,
+    answered: Mutex<HashMap<(Field, String), Replay>>,
 }
 
 #[async_trait]
 impl Served for Replays {
-    async fn replayed(&self, nullifier: Field, attempt: &str) -> Option<MeteredBody> {
+    async fn replayed(&self, nullifier: Field, attempt: &str) -> Option<Replay> {
         self.answered
             .lock()
             .ok()?
@@ -54,9 +54,9 @@ impl Served for Replays {
             .cloned()
     }
 
-    async fn remember(&self, nullifier: Field, attempt: &str, metered: &MeteredBody) {
+    async fn remember(&self, nullifier: Field, attempt: &str, replay: &Replay) {
         if let Ok(mut answered) = self.answered.lock() {
-            answered.insert((nullifier, attempt.to_owned()), metered.clone());
+            answered.insert((nullifier, attempt.to_owned()), replay.clone());
         }
     }
 }

@@ -11,6 +11,8 @@ alloy = { version = "1", features = ["contract", "provider-http", "sol-types", "
 async-trait = "0.1"
 borsh = { version = "1", features = ["derive"] }
 dotenvy = "0.15"
+eventsource-stream = "0.2"
+futures-util = "0.3"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2"] }
 serde_json = "1"
@@ -23,7 +25,9 @@ walletkit-rs = { git = "https://github.com/21r21a33333/walletkit", rev = "5af8b6
 
 [dev-dependencies]
 alloy = { version = "1", features = ["network", "signer-local"] }
+async-trait = "0.1"
 axum = "0.8"
+veil402-enclave = { path = "../veil402-enclave" }
 veil402-gateway = { path = "../veil402-gateway" }
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }

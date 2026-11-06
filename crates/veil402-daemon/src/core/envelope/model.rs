@@ -52,13 +52,16 @@ pub struct Agreement {
 /// What one call returned, and what it cost.
 #[derive(Clone, Debug)]
 pub struct Answered {
-    pub completion: veil402_sdk::wire::Completion,
+    /// The provider's own answer, byte for byte, as it came back sealed.
+    pub completion: Vec<u8>,
     pub metered: Metered,
 }
 
 /// What one metered call cost, and what proves it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Metered {
+    /// What this one call cost, for the agent it gets filed against.
+    pub cost: u64,
     /// Cumulative cost of the envelope so far.
     pub total: u64,
     /// What is left before the ceiling stops the session.

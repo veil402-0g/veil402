@@ -15,10 +15,12 @@ use thiserror::Error;
 /// cent and integer micro-USD is the smallest honest unit.
 const MILLION: u64 = 1_000_000;
 
-/// Bytes per token, near enough to bound a prompt that nothing here
-/// tokenises. Prompts cost a fraction of what completions do, so erring low
-/// costs little and erring high refuses work we could have served.
-const BYTES_PER_TOKEN: u64 = 4;
+/// Bytes per token, chosen to over-count rather than under-count a prompt
+/// nothing here tokenises. An estimate is an authorisation, and a capture
+/// above one is not something an upstream lets us take back — so it has to
+/// be an upper bound, and code or CJK tokenise far denser than prose.
+/// Prompts cost a fraction of what completions do, so the slack is cheap.
+const BYTES_PER_TOKEN: u64 = 2;
 
 /// One model an upstream will serve, and what it charges.
 #[derive(Clone, Debug, Eq, PartialEq)]

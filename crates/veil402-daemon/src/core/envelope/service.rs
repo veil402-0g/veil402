@@ -200,19 +200,20 @@ impl EnvelopeService {
     /// the trouble was not the envelope.
     pub async fn dispatch(
         &self,
+        model: &str,
         prompt: &Prompt,
         attempt: &str,
     ) -> Result<Answered, EnvelopeError> {
-        let nullifier = match self.live(&prompt.model).await? {
+        let nullifier = match self.live(model).await? {
             Some(nullifier) => nullifier,
-            None => self.next(&prompt.model, None).await?,
+            None => self.next(model, None).await?,
         };
         match self.enclave.chat(nullifier, prompt, attempt).await {
             Ok(answered) => Ok(answered),
             // The envelope is spent, expiring, or gone. Replace it and ask
             // once more; a second failure was never about the envelope.
             Err(refused) if replaceable(&refused) => {
-                let nullifier = self.next(&prompt.model, Some(nullifier)).await?;
+                let nullifier = self.next(model, Some(nullifier)).await?;
                 Ok(self.enclave.chat(nullifier, prompt, attempt).await?)
             }
             Err(refused) => Err(refused.into()),

@@ -8,7 +8,9 @@ use veil402_sdk::{
     wire::{AgreeBody, Challenge, MeteredBody, Offer, SettlementBody},
 };
 
-use super::{Escrows, Meters, Prices, Resumes, Served};
+use alloy::primitives::{B256, keccak256};
+
+use super::{Escrows, Metering, Meters, Opened, Prices, Replay, Resumes, Served};
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum MeterError {
@@ -26,22 +28,29 @@ pub enum MeterError {
     /// holds one for somebody else.
     #[error("no escrow backs this session: {0}")]
     Unreserved(&'static str),
+    /// This call has been served once already.
+    ///
+    /// The idempotency draft would have us replay the stored response, and
+    /// a 409 reserved for one still in flight. Neither applies: the answer
+    /// was sealed to a key the buyer mints per attempt, so a kept copy would
+    /// not open for the retry — and keeping the plaintext instead is the one
+    /// thing this design will not do. So the call is refused, and 409 says
+    /// the key is spent rather than busy.
+    #[error("that call was served already")]
+    Repeated,
+    /// The same key, a different request. The draft is unambiguous about
+    /// this one, and it is a caller's bug rather than a race.
+    #[error("that key was used for another request")]
+    Reused,
     #[error("refused: {0}")]
     Refused(String),
 }
 
-/// What one served call produced: the answer, and what it cost.
-#[derive(Clone, Debug)]
-pub struct Metered {
-    /// Sealed to the buyer. The host relays it without reading it.
-    pub completion: Sealed,
-    pub metered: MeteredBody,
-}
-
-/// A metered call, or what it would take to be allowed one.
-#[derive(Clone, Debug)]
+/// A call under way, or what it would take to be allowed one.
 pub enum Serving {
-    Metered(Metered),
+    /// Admitted and begun. The frames are sealed to the buyer; this side
+    /// relays them without reading them.
+    Streaming(Opened),
     /// No envelope covers this call. Not a failure — an answer.
     Owing(Challenge),
 }
@@ -154,26 +163,49 @@ impl MeteringService {
         if !self.held(nullifier).await? {
             return Ok(Serving::Owing(self.challenge(offer)));
         }
-        // Paid for already: serve it again, bill nothing. The answer is not
-        // kept anywhere, so the only way to return one is to make it.
-        if let Some(metered) = self.served.replayed(nullifier, attempt).await {
-            return Ok(Serving::Metered(Metered {
-                completion: self.meters.serve(nullifier, sealed).await?,
-                metered,
-            }));
+        // Served already. There is nothing kept to hand back, and making it
+        // again would buy the same work twice — so this is a refusal, not a
+        // second performance.
+        if let Some(replay) = self.served.replayed(nullifier, attempt).await {
+            return Err(if replay.request == asked(sealed) || replay.request.is_zero() {
+                MeterError::Repeated
+            } else {
+                MeterError::Reused
+            });
         }
-        let metering = self
-            .meters
-            .record(nullifier, attempt, offer.rate, sealed)
-            .await?;
+        Ok(Serving::Streaming(
+            self.meters.record(nullifier, attempt, offer.rate, sealed).await?,
+        ))
+    }
+
+    /// Files what a finished call cost: the enclave's sealed record for a
+    /// restart, and the bill itself so a repeat can be recognised.
+    ///
+    /// Separate from `meter` because the bill arrives at the end of a stream
+    /// that has already left this process.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MeterError`] when the record cannot be kept.
+    pub async fn billed(
+        &self,
+        nullifier: Field,
+        attempt: &str,
+        sealed: &Sealed,
+        metering: &Metering,
+    ) -> Result<(), MeterError> {
         self.sessions.append(nullifier, &metering.record).await?;
         self.served
-            .remember(nullifier, attempt, &metering.metered)
+            .remember(
+                nullifier,
+                attempt,
+                &Replay {
+                    metered: metering.metered.clone(),
+                    request: asked(sealed),
+                },
+            )
             .await;
-        Ok(Serving::Metered(Metered {
-            completion: metering.completion,
-            metered: metering.metered,
-        }))
+        Ok(())
     }
 
     /// # Errors
@@ -210,10 +242,19 @@ impl MeteringService {
                 .remember(
                     nullifier,
                     &replayed.attempt,
-                    &MeteredBody {
-                        total: replayed.total,
-                        remaining: replayed.remaining,
-                        attestation: replayed.attestation,
+                    &Replay {
+                        // A journal records what a session owed, never what
+                        // was asked, so a key reused here cannot be told
+                        // apart and is simply refused.
+                        request: B256::ZERO,
+                        metered: MeteredBody {
+                            // The running total, not what one call added to
+                            // it; nothing reads this one back.
+                            cost: 0,
+                            total: replayed.total,
+                            remaining: replayed.remaining,
+                            attestation: replayed.attestation,
+                        },
                     },
                 )
                 .await;
@@ -231,4 +272,13 @@ impl MeteringService {
             pcrs: self.pcrs.clone(),
         }
     }
+}
+
+/// Names a request without reading it, so one key used for two different
+/// calls can be told from one used twice for the same.
+fn asked(sealed: &Sealed) -> B256 {
+    let mut bound = Vec::with_capacity(sealed.ciphertext.len() + 32);
+    bound.extend_from_slice(&sealed.encapsulated);
+    bound.extend_from_slice(&sealed.ciphertext);
+    keccak256(bound)
 }

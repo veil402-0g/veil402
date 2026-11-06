@@ -5,6 +5,7 @@ use std::{env, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc};
 use alloy::{hex, primitives::Address};
 use thiserror::Error;
 use tower_http::trace::TraceLayer;
+use veil402_enclave::{Upstream, adapters::Router};
 use veil402_sdk::{
     Config as Proving, Veil,
     evm::PoolClient,
@@ -22,6 +23,14 @@ const BIND: &str = "0.0.0.0:8402";
 
 /// Where the sealed session records live when nothing says otherwise.
 const STATE: &str = "veil402-sessions.redb";
+
+/// Only providers that seal the request and keep nothing after it.
+const TRUST: &str = "private";
+
+/// Micro-USD a single call may spend when it names no limit of its own.
+/// Reasoning models will take everything they are given, so this is a real
+/// bound rather than a formality.
+const CEILING: u32 = 4_096;
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ConfigError {
@@ -50,6 +59,18 @@ pub struct Config {
     /// record in it is sealed by the enclave to itself.
     pub state: PathBuf,
     pub bind: SocketAddr,
+    /// Where inference is bought, and with whose credit. On real hardware
+    /// the key is sealed to the enclave; here it is configuration.
+    pub upstream: String,
+    pub upstream_key: String,
+    /// Which providers are acceptable. `private` is the only one that both
+    /// runs the weights in an enclave and refuses to fall back to one that
+    /// does not.
+    pub trust: String,
+    /// Pool units per micro-USD of upstream cost: the seller's margin.
+    pub markup: u64,
+    /// What one call may spend when the request names no limit of its own.
+    pub ceiling: u32,
 }
 
 fn required(name: &'static str) -> Result<String, ConfigError> {
@@ -103,6 +124,11 @@ impl Config {
                 "VEIL_GATEWAY_BIND",
                 BIND.parse().map_err(|_| ConfigError::Invalid("bind"))?,
             )?,
+            upstream: required("VEIL_0G_BASE")?,
+            upstream_key: required("VEIL_0G_KEY")?,
+            trust: env::var("VEIL_0G_TRUST_MODE").unwrap_or_else(|_| TRUST.to_owned()),
+            markup: parsed("VEIL_MARKUP", 1)?,
+            ceiling: parsed("VEIL_CALL_CEILING", CEILING)?,
         })
     }
 }
@@ -115,6 +141,8 @@ pub enum StartError {
     Meter(#[from] MeterError),
     #[error("the proving artifacts could not be opened")]
     Artifacts,
+    #[error(transparent)]
+    Upstream(#[from] veil402_enclave::UpstreamError),
     #[error("{0} could not be listened on")]
     Bind(SocketAddr),
 }
@@ -127,6 +155,7 @@ pub enum StartError {
 pub fn assemble(
     config: &Config,
     escrows: Arc<dyn Escrows>,
+    upstream: Arc<dyn Upstream>,
 ) -> Result<Arc<MeteringService>, StartError> {
     let veil = Arc::new(
         Veil::open(Proving::new(
@@ -139,6 +168,8 @@ pub fn assemble(
         config.pool,
         Keyring::new(RootSeed::from_bytes(config.root)),
         veil,
+        upstream,
+        config.markup,
     )?;
     tracing::info!(signer = %enclave.signer(), "the registry must vouch for this address");
     Ok(Arc::new(MeteringService::new(
@@ -159,7 +190,13 @@ pub fn assemble(
 /// Returns [`StartError::Bind`] when the address is unavailable.
 pub async fn serve(config: Config) -> Result<(), StartError> {
     let escrows = Arc::new(adapters::connect(&config.rpc, config.pool.address()).await?);
-    let service = assemble(&config, escrows)?;
+    let upstream = Arc::new(Router::new(
+        &config.upstream,
+        &config.upstream_key,
+        &config.trust,
+        config.ceiling,
+    )?);
+    let service = assemble(&config, escrows, upstream)?;
     let listener = tokio::net::TcpListener::bind(config.bind)
         .await
         .map_err(|_| StartError::Bind(config.bind))?;

@@ -286,10 +286,10 @@ impl Exchange {
     }
 }
 
-/// Marks a frame as the last. Bound in the AAD rather than carried in the
-/// payload, so a relay that forges an ending breaks the tag.
-const fn boundary(last: bool) -> [u8; 1] {
-    [last as u8]
+/// One frame of a sealed stream, and whether it closed it.
+pub struct Frame {
+    pub payload: Vec<u8>,
+    pub last: bool,
 }
 
 /// The sending half of a sealed stream: one context, many frames.
@@ -297,8 +297,11 @@ const fn boundary(last: bool) -> [u8; 1] {
 /// RFC 9180 gives each frame the next nonce in sequence, so one that is
 /// reordered, repeated or dropped will not open. What it does not give is an
 /// end — a relay that simply stops forwarding leaves a prefix that opens
-/// perfectly well. `last` is what closes that, the way STREAM does: the
-/// receiver is not finished until it has opened a frame saying so.
+/// perfectly well.
+///
+/// So the sender says which frame is the last, inside the frame. TLS closes
+/// the same hole the same way: an authenticated `close_notify`, never a
+/// plaintext one, because an end a relay can utter is an end it can forge.
 pub struct Outbound {
     context: Sealing,
     encapsulated: [u8; 32],
@@ -340,8 +343,11 @@ impl Outbound {
     /// Returns [`Error::Handover`] when the frame does not seal, which for a
     /// stream means its sequence is spent.
     pub fn frame(&mut self, payload: &[u8], last: bool) -> Result<Vec<u8>, Error> {
+        let mut sealed = Vec::with_capacity(payload.len() + 1);
+        sealed.push(u8::from(last));
+        sealed.extend_from_slice(payload);
         self.context
-            .seal(payload, &boundary(last))
+            .seal(&sealed, &[])
             .map_err(|_| Error::Handover("frame does not seal"))
     }
 }
@@ -354,23 +360,29 @@ pub struct Inbound {
 }
 
 impl Inbound {
-    /// Opens one frame. `last` is what the sender claimed on the wire; a
-    /// relay that changed it breaks the tag rather than the decoding.
+    /// Opens one frame. Whether it was the last is the sender's to say and
+    /// nobody else's: it travels inside the seal.
     ///
     /// # Errors
     ///
     /// Returns [`Error::Handover`] when the frame is out of order, altered,
     /// or arrives after the stream has already ended.
-    pub fn frame(&mut self, sealed: &[u8], last: bool) -> Result<Vec<u8>, Error> {
+    pub fn frame(&mut self, sealed: &[u8]) -> Result<Frame, Error> {
         if self.done {
             return Err(Error::Handover("the stream has already ended"));
         }
-        let payload = self
+        let opened = self
             .context
-            .open(sealed, &boundary(last))
+            .open(sealed, &[])
             .map_err(|_| Error::Handover("frame does not open"))?;
-        self.done = last;
-        Ok(payload)
+        let (marker, payload) = opened
+            .split_first()
+            .ok_or(Error::Handover("a frame with no marker"))?;
+        self.done = marker != &0;
+        Ok(Frame {
+            payload: payload.to_vec(),
+            last: self.done,
+        })
     }
 
     /// Whether the stream reached an end that was sealed as one. A stream

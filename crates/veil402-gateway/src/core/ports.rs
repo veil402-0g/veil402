@@ -1,5 +1,6 @@
-use alloy::primitives::Address;
+use alloy::primitives::{Address, B256};
 use async_trait::async_trait;
+use futures_util::stream::BoxStream;
 use veil402_sdk::{
     Field,
     evm::Session,
@@ -55,13 +56,30 @@ pub struct Replayed {
     pub attestation: alloy::primitives::B256,
 }
 
-/// A metered call and the enclave's own record of it.
+/// What one metered call cost, and the enclave's own record of it.
 pub struct Metering {
-    /// Sealed to the key the request named.
-    pub completion: Sealed,
     pub metered: MeteredBody,
     /// Sealed to the enclave. The host keeps it and cannot read it.
     pub record: Vec<u8>,
+}
+
+/// An answer on its way, and the bill that closes it.
+pub enum Billed {
+    /// One sealed frame, to be relayed without being read.
+    Frame(Vec<u8>),
+    /// What the call cost. Always last, because an upstream prices work
+    /// only once it has done it.
+    Bill(Metering),
+}
+
+/// A call the enclave has admitted and begun.
+///
+/// Admission happens before this exists, so a refusal is still a status the
+/// caller can act on rather than a stream that dies without one.
+pub struct Opened {
+    /// The encapsulated key every frame opens under. Travels once.
+    pub head: [u8; 32],
+    pub frames: BoxStream<'static, Result<Billed, MeterError>>,
 }
 
 /// The meter both sides trust.
@@ -96,17 +114,6 @@ pub trait Meters: Send + Sync {
     /// failure the daemon can repair by handing its delegation over again.
     async fn holds(&self, nullifier: Field) -> bool;
 
-    /// Serves a request that has already been paid for, without metering it.
-    ///
-    /// A retry gets its answer again rather than a cached one: nothing here
-    /// stores what was asked or returned, and nothing should.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`MeterError`] when the session is gone or the request does
-    /// not open.
-    async fn serve(&self, nullifier: Field, sealed: &Sealed) -> Result<Sealed, MeterError>;
-
     /// Serves a sealed request, prices what it consumed, and seals the answer
     /// back to the key the request named.
     ///
@@ -124,7 +131,7 @@ pub trait Meters: Send + Sync {
         attempt: &str,
         rate: u64,
         sealed: &Sealed,
-    ) -> Result<Metering, MeterError>;
+    ) -> Result<Opened, MeterError>;
 
     /// Picks a session back up from what a host kept.
     ///
@@ -159,9 +166,19 @@ pub trait Prices: Send + Sync {
 /// gateway's to keep.
 #[async_trait]
 pub trait Served: Send + Sync {
-    async fn replayed(&self, nullifier: Field, attempt: &str) -> Option<MeteredBody>;
+    async fn replayed(&self, nullifier: Field, attempt: &str) -> Option<Replay>;
 
-    async fn remember(&self, nullifier: Field, attempt: &str, metered: &MeteredBody);
+    async fn remember(&self, nullifier: Field, attempt: &str, replay: &Replay);
+}
+
+/// A call this gateway has already answered.
+#[derive(Clone, Debug)]
+pub struct Replay {
+    pub metered: MeteredBody,
+    /// What the request looked like, so a key used twice for two different
+    /// requests can be told from one used twice for the same. Zero for a
+    /// record rebuilt from a journal, which does not carry it.
+    pub request: B256,
 }
 
 /// What a host keeps for an enclave that cannot keep anything.

@@ -1,16 +1,17 @@
 use async_trait::async_trait;
-use borsh::BorshDeserialize;
 use std::sync::Arc;
 
+use eventsource_stream::Eventsource;
+use futures_util::StreamExt;
 use reqwest::{Client, Response};
 use veil402_sdk::{
     Field,
     evm::{PoolClient, Session},
     session::Sealed,
-    session::{Exchange, Recipient},
+    session::{Exchange, Inbound, Recipient},
     wire::{
-        AcceptBody, Action, AgreeBody, CallBody, Completion, CompletionBody, Prompt, Reply,
-        SessionBody, SettlementBody, bytes, encode, field,
+        AcceptBody, Action, AgreeBody, CallBody, MeteredBody, Prompt, Reply, SessionBody,
+        SettlementBody, bytes, encode, field,
     },
 };
 
@@ -18,6 +19,14 @@ use crate::core::envelope::{Agreement, Answered, Enclave, EnclaveError, Metered,
 
 /// Header naming the call a retry repeats, so one served twice is billed once.
 const IDEMPOTENCY: &str = "idempotency-key";
+
+/// Named events on a relayed stream. Everything else is a sealed frame.
+const HEAD: &str = "head";
+const BILL: &str = "bill";
+const ERROR: &str = "error";
+
+/// What the gateway sends when it has nothing more to relay.
+const DONE: &str = "[DONE]";
 
 fn unreachable(error: impl std::fmt::Display) -> EnclaveError {
     EnclaveError::Refused(error.to_string())
@@ -169,21 +178,12 @@ impl Enclave for RemoteEnclave {
             .send()
             .await
             .map_err(unreachable)?;
+        // The status is the last thing the gateway can say plainly: after it,
+        // everything is a frame.
         if !response.status().is_success() {
             return Err(refusal(response).await);
         }
-        let body: CompletionBody = result(response.json().await.map_err(unreachable)?)?;
-        let answer = exchange
-            .receive(&body.sealed().map_err(unreachable)?)
-            .map_err(unreachable)?;
-        Ok(Answered {
-            completion: Completion::try_from_slice(&answer).map_err(unreachable)?,
-            metered: Metered {
-                total: body.metered.total,
-                remaining: body.metered.remaining,
-                attestation: body.metered.attestation,
-            },
-        })
+        collected(&exchange, response).await
     }
 
     async fn settle(&self, nullifier: Field, dust: bool) -> Result<Settlement, EnclaveError> {
@@ -206,4 +206,62 @@ impl Enclave for RemoteEnclave {
             calldata: bytes(&body.calldata).map_err(unreachable)?,
         })
     }
+}
+
+/// Reads a relayed stream to its end and returns the whole answer.
+///
+/// The frames are sealed in sequence, so the gateway cannot reorder them or
+/// slip one in; and the last is sealed as the last, so a relay that stops
+/// early leaves the stream unfinished rather than looking complete.
+async fn collected(exchange: &Exchange, response: Response) -> Result<Answered, EnclaveError> {
+    let mut frames = response.bytes_stream().eventsource();
+    let mut inbound = None;
+    let mut answer = Vec::new();
+    let mut metered = None;
+
+    while let Some(event) = frames.next().await {
+        let event = event.map_err(unreachable)?;
+        match event.event.as_str() {
+            HEAD => inbound = Some(opening(exchange, &event.data)?),
+            BILL => {
+                metered = Some(
+                    serde_json::from_str::<MeteredBody>(&event.data).map_err(unreachable)?,
+                );
+            }
+            ERROR => return Err(EnclaveError::Refused(event.data)),
+            _ if event.data.trim() == DONE => break,
+            _ => {
+                let inbound = inbound
+                    .as_mut()
+                    .ok_or_else(|| EnclaveError::Refused("a frame before its key".into()))?;
+                let sealed = bytes(&event.data).map_err(unreachable)?;
+                // Which frame ended the answer is the enclave's to say, and
+                // it said it inside the seal. Nothing between us gets a vote.
+                answer.extend_from_slice(&inbound.frame(&sealed).map_err(unreachable)?.payload);
+            }
+        }
+    }
+
+    let inbound = inbound.ok_or_else(|| EnclaveError::Refused("a stream with no key".into()))?;
+    if !inbound.done() {
+        return Err(EnclaveError::Refused("the answer was cut short".into()));
+    }
+    let metered = metered.ok_or_else(|| EnclaveError::Refused("an answer with no bill".into()))?;
+    Ok(Answered {
+        completion: answer,
+        metered: Metered {
+            cost: metered.cost,
+            total: metered.total,
+            remaining: metered.remaining,
+            attestation: metered.attestation,
+        },
+    })
+}
+
+fn opening(exchange: &Exchange, head: &str) -> Result<Inbound, EnclaveError> {
+    let key: [u8; 32] = bytes(head)
+        .map_err(unreachable)?
+        .try_into()
+        .map_err(|_| EnclaveError::Refused("a malformed stream key".into()))?;
+    exchange.inbound(key).map_err(unreachable)
 }

@@ -141,8 +141,9 @@ async fn a_call_that_could_overrun_never_starts() -> Fallible {
     let listed = upstream.catalogue().await?;
     let confidential = &listed[0];
 
-    // 200 completion tokens at 480_000 per million is 96; the prompt adds 2.
-    assert_eq!(estimate(confidential, &request(false), CEILING), 98);
+    // 200 completion tokens at 480_000 per million is 96; the prompt, counted
+    // high on purpose, adds 4.
+    assert_eq!(estimate(confidential, &request(false), CEILING), 100);
     // No limit of its own, so the configured one applies.
     assert_eq!(
         estimate(confidential, br#"{"model":"x"}"#, CEILING),
@@ -153,7 +154,7 @@ async fn a_call_that_could_overrun_never_starts() -> Fallible {
         .ask(Ask {
             model: MODEL.to_owned(),
             body: request(true),
-            budget: 97,
+            budget: 99,
         })
         .await;
     assert!(

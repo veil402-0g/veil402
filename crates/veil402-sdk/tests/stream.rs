@@ -3,6 +3,9 @@
 //! The relay here is the gateway: it forwards frames it cannot open, so the
 //! only edits available to it are the ones a transport can make — reorder,
 //! drop, repeat, alter, or stop early. Each one has to fail.
+//!
+//! Whether a frame was the last is sealed with it, so there is no version of
+//! these tests where a relay gets to say.
 
 use veil402_sdk::session::{EnclaveKey, Exchange};
 
@@ -31,28 +34,30 @@ fn a_sealed_stream_opens_in_order_and_not_out_of_it() -> Fallible {
     let Answer { head, frames } = answer(exchange.public())?;
 
     let mut inbound = exchange.inbound(head)?;
-    assert_eq!(inbound.frame(&frames[0], false)?, b"the ");
-    assert_eq!(inbound.frame(&frames[1], false)?, b"whole ");
-    assert_eq!(inbound.frame(&frames[2], true)?, b"answer");
+    assert_eq!(inbound.frame(&frames[0])?.payload, b"the ");
+    assert_eq!(inbound.frame(&frames[1])?.payload, b"whole ");
+    let closing = inbound.frame(&frames[2])?;
+    assert_eq!(closing.payload, b"answer");
+    assert!(closing.last, "the closing frame did not say so");
     assert!(inbound.done());
 
     let mut inbound = exchange.inbound(head)?;
     assert!(
-        inbound.frame(&frames[1], false).is_err(),
+        inbound.frame(&frames[1]).is_err(),
         "a reordered frame opened"
     );
 
     let mut inbound = exchange.inbound(head)?;
-    inbound.frame(&frames[0], false)?;
+    inbound.frame(&frames[0])?;
     assert!(
-        inbound.frame(&frames[2], true).is_err(),
+        inbound.frame(&frames[2]).is_err(),
         "a gap in the sequence opened"
     );
 
     let mut inbound = exchange.inbound(head)?;
-    inbound.frame(&frames[0], false)?;
+    inbound.frame(&frames[0])?;
     assert!(
-        inbound.frame(&frames[0], false).is_err(),
+        inbound.frame(&frames[0]).is_err(),
         "a repeated frame opened"
     );
 
@@ -60,13 +65,13 @@ fn a_sealed_stream_opens_in_order_and_not_out_of_it() -> Fallible {
     altered[0] ^= 1;
     let mut inbound = exchange.inbound(head)?;
     assert!(
-        inbound.frame(&altered, false).is_err(),
+        inbound.frame(&altered).is_err(),
         "an altered frame opened"
     );
 
     let mut stranger = Exchange::open().inbound(head)?;
     assert!(
-        stranger.frame(&frames[0], false).is_err(),
+        stranger.frame(&frames[0]).is_err(),
         "another channel's key opened it"
     );
     Ok(())
@@ -80,23 +85,22 @@ fn a_truncated_stream_is_never_mistaken_for_a_whole_one() -> Fallible {
     let Answer { head, frames } = answer(exchange.public())?;
 
     let mut inbound = exchange.inbound(head)?;
-    inbound.frame(&frames[0], false)?;
-    inbound.frame(&frames[1], false)?;
+    inbound.frame(&frames[0])?;
+    inbound.frame(&frames[1])?;
     assert!(!inbound.done(), "a truncated answer passed as a whole one");
 
+    // There is no forging an ending: a relay has nothing to set. The frame
+    // that says so is the one the sender sealed saying it.
     let mut inbound = exchange.inbound(head)?;
-    inbound.frame(&frames[0], false)?;
-    assert!(
-        inbound.frame(&frames[1], true).is_err(),
-        "a forged ending opened"
-    );
+    assert!(!inbound.frame(&frames[0])?.last);
+    assert!(!inbound.frame(&frames[1])?.last);
 
     let mut inbound = exchange.inbound(head)?;
-    inbound.frame(&frames[0], false)?;
-    inbound.frame(&frames[1], false)?;
-    inbound.frame(&frames[2], true)?;
+    inbound.frame(&frames[0])?;
+    inbound.frame(&frames[1])?;
+    inbound.frame(&frames[2])?;
     assert!(
-        inbound.frame(&frames[2], true).is_err(),
+        inbound.frame(&frames[2]).is_err(),
         "a frame opened after the end"
     );
     Ok(())

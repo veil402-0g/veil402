@@ -5,17 +5,23 @@ use alloy::{
     signers::{SignerSync, local::PrivateKeySigner},
 };
 use async_trait::async_trait;
-use tokio::sync::RwLock;
 use borsh::BorshDeserialize;
-use veil402_enclave::{Call, Meter, record as journal, sign_lock};
+use futures_util::{
+    StreamExt,
+    stream::{self, BoxStream},
+};
+use tokio::sync::RwLock;
+use veil402_enclave::{
+    Ask, Call, Meter, Receipt, Served, Upstream, UpstreamError, record as journal, sign_lock,
+};
 use veil402_sdk::{
     Field, Veil,
     evm::{PoolClient, Session},
-    session::{EnclaveKey, Keyring, Sealed},
-    wire::{AgreeBody, Completion, MeteredBody, Prompt, SettlementBody, encode},
+    session::{EnclaveKey, Keyring, Outbound, Sealed},
+    wire::{AgreeBody, MeteredBody, Prompt, SettlementBody, encode},
 };
 
-use crate::core::{Accepted, Kept, MeterError, Metering, Meters, Replayed};
+use crate::core::{Accepted, Billed, Kept, MeterError, Metering, Meters, Opened, Replayed};
 
 fn refused(error: impl std::fmt::Display) -> MeterError {
     MeterError::Refused(error.to_string())
@@ -31,21 +37,35 @@ pub struct Enclave {
     keyring: Keyring,
     signer: PrivateKeySigner,
     veil: Arc<Veil>,
-    meters: RwLock<HashMap<Field, Meter>>,
+    upstream: Arc<dyn Upstream>,
+    /// Pool units per micro-USD of upstream cost: the seller's margin, and
+    /// the only place the two currencies meet.
+    markup: u64,
+    /// Shared because a call's bill lands after its stream has left this
+    /// struct behind, and the stream has to outlive the borrow.
+    meters: Arc<RwLock<HashMap<Field, Meter>>>,
 }
 
 impl Enclave {
     /// # Errors
     ///
     /// Returns [`MeterError::Refused`] when no signing key derives from the seed.
-    pub fn new(pool: PoolClient, keyring: Keyring, veil: Arc<Veil>) -> Result<Self, MeterError> {
+    pub fn new(
+        pool: PoolClient,
+        keyring: Keyring,
+        veil: Arc<Veil>,
+        upstream: Arc<dyn Upstream>,
+        markup: u64,
+    ) -> Result<Self, MeterError> {
         let signer = keyring.signer().map_err(refused)?;
         Ok(Self {
             pool,
             keyring,
             signer,
             veil,
-            meters: RwLock::new(HashMap::new()),
+            upstream,
+            markup,
+            meters: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -95,51 +115,47 @@ impl Meters for Enclave {
         self.meters.write().await.remove(&nullifier);
     }
 
-    async fn serve(&self, nullifier: Field, sealed: &Sealed) -> Result<Sealed, MeterError> {
-        let key = self.keyring.handover(nullifier);
-        let prompt = opened(&key, sealed)?;
-        let body = borsh::to_vec(&serve(&prompt))
-            .map_err(|_| MeterError::Refused("the answer does not encode".into()))?;
-        EnclaveKey::reply(prompt.reply_to, &body).map_err(refused)
-    }
-
     async fn record(
         &self,
         nullifier: Field,
         attempt: &str,
         rate: u64,
         sealed: &Sealed,
-    ) -> Result<Metering, MeterError> {
-        let key = self.keyring.handover(nullifier);
-        let prompt = opened(&key, sealed)?;
-        let answer = serve(&prompt);
-        // Counted here because here is the only place the request exists in
-        // the clear. A length the buyer or the provider reported would be a
-        // number neither side can check.
-        let units = consumed(&prompt, &answer);
-
-        let mut meters = self.meters.write().await;
-        let meter = meters.get_mut(&nullifier).ok_or(MeterError::Unknown)?;
-        let sequence = meter.calls() as u64;
-        let attestation = witnessed(nullifier, meter.calls(), units);
-        let total = meter
-            .record(Call {
-                cost: units.saturating_mul(rate),
-                attestation,
+    ) -> Result<Opened, MeterError> {
+        let prompt = opened(&self.keyring.handover(nullifier), sealed)?;
+        let budget = {
+            let meters = self.meters.read().await;
+            let meter = meters.get(&nullifier).ok_or(MeterError::Unknown)?;
+            meter.headroom() / self.markup.max(1)
+        };
+        // Asked for before a byte is sent, and refused here rather than
+        // part-way through: an upstream prices a call once it has served it,
+        // so there is no later moment to stop at.
+        let frames = self
+            .upstream
+            .ask(Ask {
+                model: model(&prompt.body)?,
+                body: prompt.body,
+                budget,
             })
-            .map_err(|_| MeterError::CeilingReached)?;
-        let body = borsh::to_vec(&answer)
-            .map_err(|_| MeterError::Refused("the answer does not encode".into()))?;
-        Ok(Metering {
-            completion: EnclaveKey::reply(prompt.reply_to, &body).map_err(refused)?,
-            metered: MeteredBody {
-                total,
-                remaining: meter.ceiling().saturating_sub(total),
-                attestation,
-            },
-            // Sealed to this enclave, so the host keeps it without reading it
-            // and cannot hand back a total nobody served.
-            record: journal(&key, sequence, attempt, total, attestation).map_err(refused)?,
+            .await
+            .map_err(declined)?;
+
+        let outbound = EnclaveKey::reply_stream(prompt.reply_to).map_err(refused)?;
+        let head = outbound.head();
+        Ok(Opened {
+            head,
+            frames: relaying(Relay {
+                frames,
+                outbound,
+                pending: None,
+                meters: self.meters.clone(),
+                key: self.keyring.handover(nullifier),
+                nullifier,
+                attempt: attempt.to_owned(),
+                markup: self.markup,
+                rate,
+            }),
         })
     }
 
@@ -199,40 +215,129 @@ impl Meters for Enclave {
     }
 }
 
+/// What the enclave is relaying, and everything the relay outlives it with.
+struct Relay {
+    frames: BoxStream<'static, Result<Served, UpstreamError>>,
+    outbound: Outbound,
+    /// The bill, held back one step so the sealed stream can be closed first.
+    pending: Option<Metering>,
+    meters: Arc<RwLock<HashMap<Field, Meter>>>,
+    key: EnclaveKey,
+    nullifier: Field,
+    attempt: String,
+    markup: u64,
+    rate: u64,
+}
+
+/// Seals each frame on its way past, and bills the call when it ends.
+fn relaying(relay: Relay) -> BoxStream<'static, Result<Billed, MeterError>> {
+    stream::unfold(relay, |mut relay| async move {
+        if let Some(metering) = relay.pending.take() {
+            return Some((Ok(Billed::Bill(metering)), relay));
+        }
+        let served = match relay.frames.next().await? {
+            Ok(served) => served,
+            Err(error) => return Some((Err(declined(error)), relay)),
+        };
+        let next = match served {
+            Served::Frame(bytes) => relay
+                .outbound
+                .frame(&bytes, false)
+                .map(Billed::Frame)
+                .map_err(refused),
+            // A frame of its own, sealed as the last, so a relay that stops
+            // early cannot pass a half-answer off as a whole one. Nothing
+            // out here can tell it from any other frame, which is the point.
+            Served::Done(receipt) => match bill(&mut relay, &receipt).await {
+                Ok(metering) => {
+                    relay.pending = Some(metering);
+                    relay.outbound.frame(&[], true).map(Billed::Frame).map_err(refused)
+                }
+                Err(error) => Err(error),
+            },
+        };
+        Some((next, relay))
+    })
+    .boxed()
+}
+
+/// Prices what the upstream charged, records it, and seals the record.
+async fn bill(relay: &mut Relay, receipt: &Receipt) -> Result<Metering, MeterError> {
+    let mut meters = relay.meters.write().await;
+    let meter = meters.get_mut(&relay.nullifier).ok_or(MeterError::Unknown)?;
+    // Clamped rather than refused: the work is done and the bytes have gone,
+    // and a settlement larger than its note could not be proved.
+    //
+    // The clamp is a backstop, not a budget. Admission authorises what the
+    // call may cost; a capture above that is the seller paying the
+    // difference, so one that fires is worth knowing about rather than
+    // absorbing quietly.
+    let owed = receipt
+        .cost
+        .saturating_mul(relay.markup)
+        .saturating_mul(relay.rate);
+    let cost = owed.min(meter.headroom());
+    if cost < owed {
+        tracing::warn!(
+            owed,
+            billed = cost,
+            "a call cost more than it was admitted for"
+        );
+    }
+    let attestation = witnessed(receipt);
+    let sequence = meter.calls() as u64;
+    let total = meter
+        .record(Call { cost, attestation })
+        .map_err(|_| MeterError::CeilingReached)?;
+    Ok(Metering {
+        metered: MeteredBody {
+            cost,
+            total,
+            remaining: meter.ceiling().saturating_sub(total),
+            attestation,
+        },
+        record: journal(&relay.key, sequence, &relay.attempt, total, attestation)
+            .map_err(refused)?,
+    })
+}
+
 fn opened(key: &EnclaveKey, sealed: &Sealed) -> Result<Prompt, MeterError> {
     let bytes = key.open_prompt(sealed).map_err(refused)?;
     Prompt::try_from_slice(&bytes)
         .map_err(|_| MeterError::Refused("the request does not decode".into()))
 }
 
-/// What a provider would return, once there is one. Labelled rather than
-/// echoed: a stub that looked like a model's answer would eventually be
-/// mistaken for one.
-fn serve(prompt: &Prompt) -> Completion {
-    Completion {
-        model: prompt.model.clone(),
-        content: "[veil402: no provider configured]".to_owned(),
+/// Which model the request names. Read from the body rather than carried
+/// beside it, so the one we price is the one the upstream serves.
+fn model(body: &[u8]) -> Result<String, MeterError> {
+    serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|request| Some(request.get("model")?.as_str()?.to_owned()))
+        .ok_or(MeterError::Refused("the request names no model".into()))
+}
+
+/// Binds the upstream's own receipt, so what a settlement covers can be
+/// matched against what the provider says it served.
+fn witnessed(receipt: &Receipt) -> B256 {
+    let mut bound = Vec::with_capacity(96);
+    bound.extend_from_slice(receipt.reference.as_bytes());
+    bound.extend_from_slice(&receipt.cost.to_be_bytes());
+    bound.extend_from_slice(&receipt.tokens.prompt.to_be_bytes());
+    bound.extend_from_slice(&receipt.tokens.completion.to_be_bytes());
+    if let Some(provider) = receipt.provider {
+        bound.extend_from_slice(provider.as_slice());
     }
-}
-
-/// What the exchange consumed, in the units a seller prices.
-fn consumed(prompt: &Prompt, answer: &Completion) -> u64 {
-    let asked: usize = prompt
-        .messages
-        .iter()
-        .map(|message| message.content.len())
-        .sum();
-    (asked + answer.content.len()) as u64
-}
-
-/// Stands in for the digest of a request, its response, and the provider's
-/// attestation over both. Until inference is real there is nothing to bind,
-/// and a placeholder that pretends otherwise would be worse than an obvious
-/// one.
-fn witnessed(nullifier: Field, sequence: usize, units: u64) -> B256 {
-    let mut bound = Vec::with_capacity(48);
-    bound.extend_from_slice(&nullifier.to_bytes());
-    bound.extend_from_slice(&(sequence as u64).to_be_bytes());
-    bound.extend_from_slice(&units.to_be_bytes());
     keccak256(bound)
+}
+
+/// An upstream refusal, as the question the gateway has to answer: can this
+/// be tried again, somewhere else, or not at all.
+fn declined(error: UpstreamError) -> MeterError {
+    match error {
+        UpstreamError::Unaffordable => MeterError::CeilingReached,
+        UpstreamError::RateLimited | UpstreamError::Unavailable => {
+            MeterError::Refused(error.to_string())
+        }
+        other => MeterError::Refused(other.to_string()),
+    }
 }

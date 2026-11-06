@@ -1,21 +1,37 @@
-use std::sync::Arc;
+use std::{convert::Infallible, sync::Arc};
 
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::HeaderMap,
-    response::IntoResponse,
+    response::{
+        IntoResponse,
+        sse::{Event, KeepAlive, Sse},
+    },
     routing::{get, post},
 };
+use futures_util::{StreamExt, future::ready, stream};
 use serde::Deserialize;
 use veil402_sdk::{
-    wire::{
-        AcceptBody, AgreeBody, CallBody, CompletionBody, Offer, SessionBody, SettlementBody,
-    },
+    Field,
+    session::Sealed,
+    wire::{AcceptBody, AgreeBody, CallBody, Offer, SessionBody, SettlementBody, encode},
 };
 
 use super::primitives::{Response, malformed};
-use crate::core::{MeteringService, Serving};
+use crate::core::{Billed, MeteringService, Opened, Serving};
+
+/// Carries the key every frame opens under. Sent once, before any of them.
+const HEAD: &str = "head";
+
+/// Carries what the call cost. The frames are sealed; this is not, because
+/// this side is the one that has to bill it.
+const BILL: &str = "bill";
+
+/// Says the stream ended on purpose. Not load-bearing — the last sealed
+/// frame says so in a way the host cannot forge — but a reader without the
+/// key still needs to know.
+const DONE: &str = "[DONE]";
 
 /// Names the call a retry repeats, so one served twice is billed once.
 const IDEMPOTENCY: &str = "idempotency-key";
@@ -69,13 +85,63 @@ async fn chat(
     let Ok(sealed) = body.sealed() else {
         return malformed::<()>("request").into_response();
     };
-    match service.meter(nullifier, &sealed, &attempt(&headers)).await {
-        Ok(Serving::Metered(served)) => {
-            Response::ok(CompletionBody::new(&served.completion, served.metered)).into_response()
+    let attempt = attempt(&headers);
+    // Resolved before anything is streamed: once the status has gone there
+    // is no way to send another, and a refusal is the daemon's cue to open a
+    // different envelope.
+    match service.meter(nullifier, &sealed, &attempt).await {
+        Ok(Serving::Streaming(opened)) => {
+            relayed(service, nullifier, attempt, sealed, opened).into_response()
         }
         Ok(Serving::Owing(challenge)) => Response::owing(challenge).into_response(),
-        Err(error) => Response::<CompletionBody>::from(error).into_response(),
+        Err(error) => Response::<()>::from(error).into_response(),
     }
+}
+
+/// Relays frames this side cannot read, then says what they cost.
+fn relayed(
+    service: Arc<MeteringService>,
+    nullifier: Field,
+    attempt: String,
+    asked: Sealed,
+    opened: Opened,
+) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
+    let head = stream::once(ready(Ok(Event::default().event(HEAD).data(encode(&opened.head)))));
+    let relayed = opened.frames.then(move |billed| {
+        let service = service.clone();
+        let attempt = attempt.clone();
+        let asked = asked.clone();
+        async move {
+            Ok(match billed {
+                Ok(Billed::Frame(bytes)) => Event::default().data(encode(&bytes)),
+                Ok(Billed::Bill(metering)) => {
+                    // Filed before it is announced, so a crash between the
+                    // two loses the announcement rather than the record.
+                    match service.billed(nullifier, &attempt, &asked, &metering).await {
+                        Err(error) => broke(&error),
+                        Ok(()) => Event::default()
+                            .event(BILL)
+                            .json_data(metering.metered)
+                            .unwrap_or_else(|_| broke(&"the bill does not encode")),
+                    }
+                }
+                Err(error) => broke(&error),
+            })
+        }
+    });
+    Sse::new(head.chain(relayed).chain(stream::once(ready(Ok(Event::default().data(DONE))))))
+        // Both private models think before they speak, and a client with
+        // nothing arriving eventually stops waiting.
+        .keep_alive(KeepAlive::default())
+}
+
+/// A stream that ended badly says why. Correctness does not rest on it — the
+/// buyer's last frame is sealed, so a stream cut short cannot pass as whole —
+/// but a silent disconnection is nothing to debug with.
+fn broke(error: &impl ToString) -> Event {
+    let said = error.to_string();
+    tracing::warn!(error = %said, "a stream ended early");
+    Event::default().event("error").data(said)
 }
 
 #[derive(Debug, Default, Deserialize)]

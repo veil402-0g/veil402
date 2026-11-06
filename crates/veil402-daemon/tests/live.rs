@@ -29,7 +29,7 @@ use veil402_sdk::{
     Config as Proving, Note, Owner, Secret, Send, Spend, Transaction, Veil,
     evm::{PoolClient, Withdrawal},
     session::{Keyring, RootSeed},
-    wire::{Message, Offer, Prompt},
+    wire::{Offer, Prompt},
 };
 
 const DEPOSIT: u64 = 1_000;
@@ -425,8 +425,18 @@ async fn serve(
             state: state.join("sessions.redb"),
             bind: "127.0.0.1:0".parse()?,
             rpc: var("RPC_URL")?,
+            upstream: "http://127.0.0.1:0".to_owned(),
+            upstream_key: "sk-test".to_owned(),
+            trust: "private".to_owned(),
+            markup: 1,
+            ceiling: 1_024,
         },
         escrows,
+        // M1 proves the chain half: a lock, three metered calls, a
+        // settlement and the envelope that follows it. What served the calls
+        // is not the thing under test, and a provider that has to be up for
+        // it to run is a flake waiting to happen.
+        Arc::new(Priced),
     )?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let served = format!("http://{}", listener.local_addr()?);
@@ -447,13 +457,13 @@ async fn metered(
     for sequence in 0..3 {
         owed = envelopes
             .dispatch(
+                MODEL,
                 &Prompt {
-                    model: MODEL.to_owned(),
-                    messages: vec![Message {
-                        role: "user".to_owned(),
-                        content: "x".repeat(40),
-                    }],
-                    stream: false,
+                    body: format!(
+                        r#"{{"model":"{MODEL}","messages":[{{"role":"user","content":"{}"}}]}}"#,
+                        "x".repeat(40)
+                    )
+                    .into_bytes(),
                     reply_to: [0; 32],
                 },
                 &format!("call-{sequence}"),
@@ -464,4 +474,47 @@ async fn metered(
     }
     assert!(owed > 0, "three calls cost something");
     Ok(owed)
+}
+
+/// An upstream that charges by the question's length. Stands in for a
+/// provider so M1 measures the chain rather than somebody's uptime.
+struct Priced;
+
+#[async_trait::async_trait]
+impl veil402_enclave::Upstream for Priced {
+    async fn catalogue(
+        &self,
+    ) -> Result<Vec<veil402_enclave::Listing>, veil402_enclave::UpstreamError> {
+        Ok(vec![veil402_enclave::Listing {
+            model: MODEL.to_owned(),
+            prompt: 1,
+            completion: 1,
+            max_output: 1_024,
+            confidential: true,
+        }])
+    }
+
+    async fn ask(
+        &self,
+        ask: veil402_enclave::Ask,
+    ) -> Result<
+        futures_util::stream::BoxStream<
+            'static,
+            Result<veil402_enclave::Served, veil402_enclave::UpstreamError>,
+        >,
+        veil402_enclave::UpstreamError,
+    > {
+        let cost = ask.body.len() as u64;
+        if cost > ask.budget {
+            return Err(veil402_enclave::UpstreamError::Unaffordable);
+        }
+        Ok(Box::pin(futures_util::stream::iter(vec![
+            Ok(veil402_enclave::Served::Frame(b"answered".to_vec())),
+            Ok(veil402_enclave::Served::Done(veil402_enclave::Receipt {
+                cost,
+                reference: "m1".to_owned(),
+                ..veil402_enclave::Receipt::default()
+            })),
+        ])))
+    }
 }

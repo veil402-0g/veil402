@@ -61,9 +61,15 @@ fn gateway(
             }],
             state: state.join("sessions.redb"),
             bind: "127.0.0.1:0".parse()?,
+            upstream: "http://127.0.0.1:0".to_owned(),
+            upstream_key: "sk-test".to_owned(),
+            trust: "private".to_owned(),
+            markup: 1,
+            ceiling: 1_024,
             rpc: "http://127.0.0.1:0".to_owned(),
         },
         escrows,
+        Arc::new(support::Upstream { frames: 2, breaks: false }),
     )?)
 }
 

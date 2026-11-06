@@ -69,7 +69,15 @@ const fn verdict(error: &MeterError) -> (StatusCode, Action) {
         // Nothing backs this session, so another call will not help and
         // another seller cannot fix it: the buyer has to lock first.
         MeterError::Unreserved(_) => (StatusCode::PAYMENT_REQUIRED, Action::Pay),
-        MeterError::Refused(_) => (StatusCode::UNPROCESSABLE_ENTITY, Action::Fail),
+        // Already served. Retrying buys the same work twice, and there is
+        // nothing kept to hand back instead.
+        MeterError::Repeated => (StatusCode::CONFLICT, Action::Fail),
+        // Reused is the idempotency draft's own case — one key, two
+        // requests — and lands on the same status as anything else the
+        // caller got wrong: nothing about sending it again helps.
+        MeterError::Reused | MeterError::Refused(_) => {
+            (StatusCode::UNPROCESSABLE_ENTITY, Action::Fail)
+        }
     }
 }
 
