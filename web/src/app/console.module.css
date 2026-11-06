@@ -1098,7 +1098,7 @@
 
 .s126 {
   display: grid;
-  grid-template-columns: minmax(150px,1.4fr) 150px minmax(120px,1fr) 110px 84px 176px;
+  grid-template-columns: minmax(150px,1.4fr) 140px minmax(110px,1fr) 100px 76px 268px;
   gap: 18px;
   padding: 0 0 10px;
   border-bottom: 1px solid #e3e5ea;
@@ -1113,7 +1113,7 @@
 .s128 {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(150px,1.4fr) 150px minmax(120px,1fr) 110px 84px 176px;
+  grid-template-columns: minmax(150px,1.4fr) 140px minmax(110px,1fr) 100px 76px 268px;
   gap: 18px;
   align-items: center;
   padding: 15px 12px;
@@ -2391,23 +2391,6 @@
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
-}
-
-/* A mandate is an API key; the row offers the one this browser kept. */
-.keyCopy {
-  align-self: flex-start;
-  border: 0;
-  cursor: pointer;
-  background: rgba(18,48,214,.06);
-  color: #1230d6;
-  padding: 2px 7px;
-  border-radius: 4px;
-  font: 500 10px 'JetBrains Mono',monospace;
-  letter-spacing: .02em;
-}
-
-.keyCopy:hover {
-  background: rgba(18,48,214,.12);
 }
 
 /* Shown until dismissed: nothing can produce this value a second time. */

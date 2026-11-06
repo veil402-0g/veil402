@@ -745,15 +745,6 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                       >
                         {a.id} · {a.purpose}
                       </span>
-                      {a.keyKnown ? (
-                        <button
-                          className={s.keyCopy}
-                          onClick={a.copyKey}
-                          title="Copy this mandate's API key"
-                        >
-                          {a.keyMask} ⧉
-                        </button>
-                      ) : null}
                     </div>
                   </div>
                   <div
@@ -801,6 +792,15 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                     {a.lastF}
                   </span>
                   <div className={s.rowActions}>
+                    {a.keyKnown ? (
+                      <button
+                        className={s.s142}
+                        onClick={a.copyKey}
+                        title={`Copy API key ${a.keyMask}`}
+                      >
+                        Copy key
+                      </button>
+                    ) : null}
                     {a.canPause ? (
                       <button
                         className={s.s142}
