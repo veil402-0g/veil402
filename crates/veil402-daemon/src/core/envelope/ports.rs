@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use futures_util::stream::BoxStream;
 use thiserror::Error;
 use veil402_sdk::{
     Field, Prepared, Secret, Transaction,
@@ -7,7 +8,7 @@ use veil402_sdk::{
     wire::Prompt,
 };
 
-use super::{Agreement, Answered, ChainError, ProveError, Settlement};
+use super::{Agreement, ChainError, Piece, ProveError, Settlement};
 use crate::core::StoreError;
 
 /// Where a submitted call ended up.
@@ -125,7 +126,7 @@ pub trait Enclave: Send + Sync {
         nullifier: Field,
         prompt: &Prompt,
         attempt: &str,
-    ) -> Result<Answered, EnclaveError>;
+    ) -> Result<BoxStream<'static, Result<Piece, EnclaveError>>, EnclaveError>;
 
     /// Proves the settlement. `dust` asks for the smallest one that frees the
     /// note, for an envelope nobody owes anything on.

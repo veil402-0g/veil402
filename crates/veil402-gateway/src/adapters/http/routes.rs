@@ -11,6 +11,8 @@ use axum::{
     routing::{get, post},
 };
 use futures_util::{StreamExt, future::ready, stream};
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 use serde::Deserialize;
 use veil402_sdk::{
     Field,
@@ -27,6 +29,11 @@ const HEAD: &str = "head";
 /// Carries what the call cost. The frames are sealed; this is not, because
 /// this side is the one that has to bill it.
 const BILL: &str = "bill";
+
+/// How far ahead of a reader the relay may run. Bounded, so a slow client
+/// still slows the relay down rather than filling memory with an answer
+/// nobody is reading.
+const FRAMES: usize = 32;
 
 /// Says the stream ended on purpose. Not load-bearing — the last sealed
 /// frame says so in a way the host cannot forge — but a reader without the
@@ -107,16 +114,20 @@ fn relayed(
     opened: Opened,
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
     let head = stream::once(ready(Ok(Event::default().event(HEAD).data(encode(&opened.head)))));
-    let relayed = opened.frames.then(move |billed| {
-        let service = service.clone();
-        let attempt = attempt.clone();
-        let asked = asked.clone();
-        async move {
-            Ok(match billed {
+
+    // Driven rather than polled. A relay that only moves while someone is
+    // reading it stops billing the moment a client gives up — and the
+    // provider has already been paid for every token it produced. So the
+    // call is drained to its end either way, and the reader gets whatever
+    // of it is still wanted.
+    let (sender, receiver) = mpsc::channel(FRAMES);
+    tokio::spawn(async move {
+        let mut frames = opened.frames;
+        let mut listening = true;
+        while let Some(billed) = frames.next().await {
+            let event = match billed {
                 Ok(Billed::Frame(bytes)) => Event::default().data(encode(&bytes)),
                 Ok(Billed::Bill(metering)) => {
-                    // Filed before it is announced, so a crash between the
-                    // two loses the announcement rather than the record.
                     match service.billed(nullifier, &attempt, &asked, &metering).await {
                         Err(error) => broke(&error),
                         Ok(()) => Event::default()
@@ -126,10 +137,17 @@ fn relayed(
                     }
                 }
                 Err(error) => broke(&error),
-            })
+            };
+            if listening && sender.send(Ok(event)).await.is_err() {
+                listening = false;
+            }
         }
+        let _ = sender
+            .send(Ok(Event::default().data(DONE)))
+            .await;
     });
-    Sse::new(head.chain(relayed).chain(stream::once(ready(Ok(Event::default().data(DONE))))))
+
+    Sse::new(head.chain(ReceiverStream::new(receiver)))
         // Both private models think before they speak, and a client with
         // nothing arriving eventually stops waiting.
         .keep_alive(KeepAlive::default())

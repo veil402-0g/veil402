@@ -2,7 +2,8 @@ use std::{sync::Arc, time::Duration};
 
 use alloy::primitives::Address;
 use thiserror::Error;
-use tokio::time::sleep;
+use futures_util::{StreamExt, stream::BoxStream};
+use tokio::{sync::Mutex, time::sleep};
 use veil402_sdk::{
     Field, Secret,
     evm::{PoolClient, Session},
@@ -11,8 +12,8 @@ use veil402_sdk::{
 };
 
 use super::{
-    Agreement, Answered, Broadcaster, ChainError, Enclave, EnclaveError, Envelope, EnvelopeStore,
-    Landed, ProveError, Prover,
+    Agreement, Answered, Broadcaster, ChainError, Enclave, EnclaveError, Envelope, EnvelopeStore, Landed,
+    Piece, ProveError, Prover,
 };
 use crate::core::{
     StoreError,
@@ -83,6 +84,8 @@ pub struct EnvelopeService {
     prover: Arc<dyn Prover>,
     envelopes: Arc<dyn EnvelopeStore>,
     terms: Terms,
+    /// Held while an envelope is being replaced, so it happens once.
+    rolling: Mutex<()>,
 }
 
 /// What shapes an envelope, beyond the ports it runs over.
@@ -104,7 +107,7 @@ pub struct Terms {
 
 impl EnvelopeService {
     #[must_use]
-    pub const fn new(
+    pub fn new(
         wallet: Arc<WalletService>,
         index: Arc<IndexService>,
         enclave: Arc<dyn Enclave>,
@@ -121,6 +124,7 @@ impl EnvelopeService {
             prover,
             envelopes,
             terms,
+            rolling: Mutex::new(()),
         }
     }
 
@@ -202,17 +206,17 @@ impl EnvelopeService {
         &self,
         prompt: &Prompt,
         attempt: &str,
-    ) -> Result<Answered, EnvelopeError> {
+    ) -> Result<BoxStream<'static, Result<Piece, EnclaveError>>, EnvelopeError> {
         let nullifier = match self.live().await? {
             Some(nullifier) => nullifier,
-            None => self.next(None).await?,
+            None => self.roll(self.envelopes.newest().await?).await?,
         };
         match self.enclave.chat(nullifier, prompt, attempt).await {
-            Ok(answered) => Ok(answered),
+            Ok(pieces) => Ok(pieces),
             // The envelope is spent, expiring, or gone. Replace it and ask
             // once more; a second failure was never about the envelope.
             Err(refused) if replaceable(&refused) => {
-                let nullifier = self.next(Some(nullifier)).await?;
+                let nullifier = self.roll(Some(nullifier)).await?;
                 Ok(self.enclave.chat(nullifier, prompt, attempt).await?)
             }
             Err(refused) => Err(refused.into()),
@@ -237,11 +241,25 @@ impl EnvelopeService {
         }
     }
 
-    /// Settles whatever was serving and opens the next envelope.
-    async fn next(&self, spent: Option<Field>) -> Result<Field, EnvelopeError> {
-        if let Some(nullifier) = spent {
-            // Settling frees the note and mints the next envelope's, so the
-            // replacement needs no split.
+    /// Replaces the envelope the caller found wanting.
+    ///
+    /// One at a time. An envelope runs out for everybody at once, and
+    /// without this every request in flight would settle it and open its own
+    /// replacement — a proof, a lock and a note each.
+    ///
+    /// `known` is what the caller was going on, and the check is against the
+    /// registry rather than the chain: `open` writes there before the lock
+    /// is even sent, so it answers while the chain is still catching up. A
+    /// caller that queued behind someone else finds the registry has moved
+    /// on, and takes what they made.
+    async fn roll(&self, known: Option<Field>) -> Result<Field, EnvelopeError> {
+        let _rolling = self.rolling.lock().await;
+        if let Some(newest) = self.envelopes.newest().await?
+            && Some(newest) != known
+        {
+            return Ok(newest);
+        }
+        if let Some(nullifier) = known {
             self.settle(nullifier, false).await?;
         }
         Ok(self
@@ -406,6 +424,33 @@ const fn replaceable(refused: &EnclaveError) -> bool {
         refused,
         EnclaveError::CeilingReached | EnclaveError::Unknown
     )
+}
+
+/// Reads a whole answer out of the pieces it arrives in.
+///
+/// For callers that wanted one rather than a stream: a request that asked
+/// for no streaming, and anything measuring what a session cost.
+///
+/// # Errors
+///
+/// Returns [`EnclaveError`] when a piece refuses, or the stream ends without
+/// saying what the call cost.
+pub async fn collected(
+    mut pieces: BoxStream<'static, Result<Piece, EnclaveError>>,
+) -> Result<Answered, EnclaveError> {
+    let mut completion = Vec::new();
+    let mut metered = None;
+    while let Some(piece) = pieces.next().await {
+        match piece? {
+            Piece::Body(bytes) => completion.extend_from_slice(&bytes),
+            Piece::Billed(bill) => metered = Some(bill),
+        }
+    }
+    Ok(Answered {
+        completion,
+        metered: metered
+            .ok_or_else(|| EnclaveError::Refused("an answer with no bill".into()))?,
+    })
 }
 
 /// Mirrors `Pool.MAX_LOCK`: the pool refuses a longer reservation, and a

@@ -33,10 +33,19 @@ pub struct Agreement {
     pub lock: Vec<u8>,
 }
 
-/// What one call returned, and what it cost.
+/// One piece of an answer on its way back.
+#[derive(Clone, Debug)]
+pub enum Piece {
+    /// The provider's own bytes, as they came back sealed.
+    Body(Vec<u8>),
+    /// What the call cost. Last, because an upstream prices work only once
+    /// it has done it.
+    Billed(Metered),
+}
+
+/// A whole answer, for a caller that wanted one rather than a stream.
 #[derive(Clone, Debug)]
 pub struct Answered {
-    /// The provider's own answer, byte for byte, as it came back sealed.
     pub completion: Vec<u8>,
     pub metered: Metered,
 }

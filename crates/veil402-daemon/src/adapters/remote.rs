@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use eventsource_stream::Eventsource;
-use futures_util::StreamExt;
+use eventsource_stream::{Event, Eventsource, EventStreamError};
+use futures_util::{StreamExt, stream, stream::BoxStream};
 use reqwest::{Client, Response};
 use veil402_sdk::{
     Field,
@@ -15,7 +15,7 @@ use veil402_sdk::{
     },
 };
 
-use crate::core::envelope::{Agreement, Answered, Enclave, EnclaveError, Metered, Settlement};
+use crate::core::envelope::{Agreement, Enclave, EnclaveError, Metered, Piece, Settlement};
 
 /// Header naming the call a retry repeats, so one served twice is billed once.
 const IDEMPOTENCY: &str = "idempotency-key";
@@ -152,7 +152,7 @@ impl Enclave for RemoteEnclave {
         nullifier: Field,
         prompt: &Prompt,
         attempt: &str,
-    ) -> Result<Answered, EnclaveError> {
+    ) -> Result<BoxStream<'static, Result<Piece, EnclaveError>>, EnclaveError> {
         let Some(sealing) = self.sealing.read().await.get(&nullifier).cloned() else {
             return Err(EnclaveError::Unknown);
         };
@@ -183,7 +183,7 @@ impl Enclave for RemoteEnclave {
         if !response.status().is_success() {
             return Err(refusal(response).await);
         }
-        collected(&exchange, response).await
+        Ok(reading(exchange, response))
     }
 
     async fn settle(&self, nullifier: Field, dust: bool) -> Result<Settlement, EnclaveError> {
@@ -208,54 +208,102 @@ impl Enclave for RemoteEnclave {
     }
 }
 
-/// Reads a relayed stream to its end and returns the whole answer.
-///
-/// The frames are sealed in sequence, so the gateway cannot reorder them or
-/// slip one in; and the last is sealed as the last, so a relay that stops
-/// early leaves the stream unfinished rather than looking complete.
-async fn collected(exchange: &Exchange, response: Response) -> Result<Answered, EnclaveError> {
-    let mut frames = response.bytes_stream().eventsource();
-    let mut inbound = None;
-    let mut answer = Vec::new();
-    let mut metered = None;
+/// What is left of a relayed stream, and what it takes to read it.
+struct Reading {
+    frames: BoxStream<'static, Result<Event, EventStreamError<reqwest::Error>>>,
+    exchange: Exchange,
+    inbound: Option<Inbound>,
+    ended: bool,
+}
 
-    while let Some(event) = frames.next().await {
-        let event = event.map_err(unreachable)?;
-        match event.event.as_str() {
-            HEAD => inbound = Some(opening(exchange, &event.data)?),
-            BILL => {
-                metered = Some(
-                    serde_json::from_str::<MeteredBody>(&event.data).map_err(unreachable)?,
-                );
-            }
-            ERROR => return Err(EnclaveError::Refused(event.data)),
-            _ if event.data.trim() == DONE => break,
-            _ => {
-                let inbound = inbound
-                    .as_mut()
-                    .ok_or_else(|| EnclaveError::Refused("a frame before its key".into()))?;
-                let sealed = bytes(&event.data).map_err(unreachable)?;
-                // Which frame ended the answer is the enclave's to say, and
-                // it said it inside the seal. Nothing between us gets a vote.
-                answer.extend_from_slice(&inbound.frame(&sealed).map_err(unreachable)?.payload);
-            }
+impl Reading {
+    /// The end of the stream, which is only an end if the sender said so.
+    ///
+    /// Every frame that arrived may have opened perfectly and the answer
+    /// still be half of one: a relay that stops forwarding leaves exactly
+    /// that. The last frame is sealed as the last, so its absence is the
+    /// only thing that can say it.
+    fn ending(mut self) -> Option<(Result<Piece, EnclaveError>, Self)> {
+        if self.ended {
+            return None;
         }
+        self.ended = true;
+        if self.inbound.as_ref().is_some_and(Inbound::done) {
+            return None;
+        }
+        Some((
+            Err(EnclaveError::Refused("the answer was cut short".into())),
+            self,
+        ))
     }
+}
 
-    let inbound = inbound.ok_or_else(|| EnclaveError::Refused("a stream with no key".into()))?;
-    if !inbound.done() {
-        return Err(EnclaveError::Refused("the answer was cut short".into()));
-    }
-    let metered = metered.ok_or_else(|| EnclaveError::Refused("an answer with no bill".into()))?;
-    Ok(Answered {
-        completion: answer,
-        metered: Metered {
-            cost: metered.cost,
-            total: metered.total,
-            remaining: metered.remaining,
-            attestation: metered.attestation,
+/// Reads a relayed stream, unsealing each frame as it arrives.
+fn reading(
+    exchange: Exchange,
+    response: Response,
+) -> BoxStream<'static, Result<Piece, EnclaveError>> {
+    stream::unfold(
+        Reading {
+            frames: response.bytes_stream().eventsource().boxed(),
+            exchange,
+            inbound: None,
+            ended: false,
         },
-    })
+        |mut reading| async move {
+            loop {
+                let Some(event) = reading.frames.next().await else {
+                    return reading.ending();
+                };
+                let event = match event {
+                    Ok(event) => event,
+                    Err(error) => return Some((Err(unreachable(error)), reading)),
+                };
+                match event.event.as_str() {
+                    HEAD => match opening(&reading.exchange, &event.data) {
+                        Ok(inbound) => reading.inbound = Some(inbound),
+                        Err(refused) => return Some((Err(refused), reading)),
+                    },
+                    BILL => {
+                        return Some((metered(&event.data), reading));
+                    }
+                    ERROR => {
+                        return Some((Err(EnclaveError::Refused(event.data)), reading));
+                    }
+                    _ if event.data.trim() == DONE => return reading.ending(),
+                    _ => {
+                        let opened = match (reading.inbound.as_mut(), bytes(&event.data)) {
+                            (Some(inbound), Ok(sealed)) => inbound.frame(&sealed),
+                            (None, _) => {
+                                return Some((
+                                    Err(EnclaveError::Refused("a frame before its key".into())),
+                                    reading,
+                                ));
+                            }
+                            (_, Err(error)) => return Some((Err(unreachable(error)), reading)),
+                        };
+                        return Some((
+                            opened
+                                .map(|frame| Piece::Body(frame.payload))
+                                .map_err(unreachable),
+                            reading,
+                        ));
+                    }
+                }
+            }
+        },
+    )
+    .boxed()
+}
+
+fn metered(data: &str) -> Result<Piece, EnclaveError> {
+    let body: MeteredBody = serde_json::from_str(data).map_err(unreachable)?;
+    Ok(Piece::Billed(Metered {
+        cost: body.cost,
+        total: body.total,
+        remaining: body.remaining,
+        attestation: body.attestation,
+    }))
 }
 
 fn opening(exchange: &Exchange, head: &str) -> Result<Inbound, EnclaveError> {

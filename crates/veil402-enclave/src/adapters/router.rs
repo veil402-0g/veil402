@@ -43,6 +43,14 @@ const SCALE: u32 = 12;
 /// session, which is where the handshake would otherwise be paid again.
 const IDLE: Duration = Duration::from_secs(90);
 
+/// How long a stream may say nothing at all before it is abandoned.
+///
+/// Per read rather than per request: a whole-request timeout would cut off
+/// a long answer that was arriving perfectly well. A provider that simply
+/// stops would otherwise hold the envelope's budget, and the task draining
+/// it, for as long as it liked.
+const STALL: Duration = Duration::from_mins(1);
+
 pub struct Router {
     client: Client,
     base: String,
@@ -62,6 +70,7 @@ impl Router {
         Ok(Self {
             client: Client::builder()
                 .pool_idle_timeout(IDLE)
+                .read_timeout(STALL)
                 .build()
                 .map_err(|_| UpstreamError::Unavailable)?,
             base: base.trim_end_matches('/').to_owned(),
@@ -149,6 +158,9 @@ impl Upstream for Router {
             .scan(Tokens::default(), |tokens, event| {
                 future::ready(match event {
                     Ok(event) => framed(&event.data, tokens),
+                    // A stall arrives here as a decode failure rather than a
+                    // timeout, so the shape of the error is no guide to what
+                    // happened. Either way the stream is over.
                     Err(_) => Some(Err(UpstreamError::Unavailable)),
                 })
             })
