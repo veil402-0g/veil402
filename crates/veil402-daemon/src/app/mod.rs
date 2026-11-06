@@ -16,14 +16,10 @@ use alloy::{
 };
 use thiserror::Error;
 use tokio::time::sleep;
-use veil402_sdk::{
-    Config as Proving, Owner, Secret, Veil,
-    evm::PoolClient,
-    session::{Keyring, RootSeed},
-};
+use veil402_sdk::{Config as Proving, Owner, Secret, Veil, evm::PoolClient};
 
 use crate::{
-    adapters::{self, ChainSource, LocalEnclave, LocalProver, SqliteStore, Window},
+    adapters::{self, ChainSource, LocalProver, RemoteEnclave, SqliteStore, Window},
     core::{
         StoreError,
         envelope::{Broadcaster, ChainError, EnclaveError, EnvelopeError, EnvelopeService, Terms},
@@ -79,11 +75,8 @@ pub struct Config {
     /// The gnark worker, and the proving artifacts it is pinned to.
     pub worker: PathBuf,
     pub artifacts: PathBuf,
-    /// Seed every enclave key derives from. On real hardware this comes from
-    /// KMS gated on attestation; here it is configuration.
-    ///
-    /// Raw bytes, not a field element: it keys an HKDF, not a circuit.
-    pub root: [u8; 32],
+    /// Where the enclave is served from. The daemon never holds its keys.
+    pub gateway: String,
     /// Keys the notes belong to. Losing them loses the balance.
     pub owner: Owner,
     /// Size a settlement should leave behind as a second note. Zero returns
@@ -105,13 +98,6 @@ pub enum ConfigError {
 
 fn required(name: &'static str) -> Result<String, ConfigError> {
     env::var(name).map_err(|_| ConfigError::Missing(name))
-}
-
-fn seed(name: &'static str) -> Result<[u8; 32], ConfigError> {
-    hex::decode(required(name)?)
-        .map_err(|_| ConfigError::Invalid(name))?
-        .try_into()
-        .map_err(|_| ConfigError::Invalid(name))
 }
 
 fn key(name: &'static str) -> Result<Secret, ConfigError> {
@@ -151,7 +137,7 @@ impl Config {
             wallet_state: parsed("VEIL_WALLET_STATE", PathBuf::from(WALLET_STATE))?,
             worker: PathBuf::from(required("VEIL_WORKER")?),
             artifacts: PathBuf::from(required("VEIL_ARTIFACTS")?),
-            root: seed("VEIL_ROOT_SEED")?,
+            gateway: required("VEIL_GATEWAY_URL")?,
             owner: Owner {
                 spend: key("VEIL_SPEND_KEY")?,
                 view: key("VEIL_VIEW_KEY")?,
@@ -274,11 +260,7 @@ impl Daemon {
             Veil::open(Proving::new(config.worker, config.artifacts))
                 .map_err(|_| StartError::Artifacts)?,
         );
-        let enclave = Arc::new(LocalEnclave::new(
-            pool,
-            Keyring::new(RootSeed::from_bytes(config.root)),
-            veil.clone(),
-        )?);
+        let enclave = Arc::new(RemoteEnclave::new(&config.gateway)?);
 
         let wallet = Arc::new(WalletService::new(store.clone(), store.clone(), config.owner));
         let envelopes = Arc::new(EnvelopeService::new(

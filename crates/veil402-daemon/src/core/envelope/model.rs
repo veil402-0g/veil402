@@ -60,3 +60,14 @@ pub struct Metered {
     /// that made it. The enclave meters one total and never learns who asked.
     pub attestation: B256,
 }
+
+/// A settlement, as much of it as the sender needs.
+///
+/// Not the proof: the chain verifies that, and the daemon only broadcasts.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Settlement {
+    /// What the submission is tracked under — an output, since the lock
+    /// already used the nullifier.
+    pub key: Field,
+    pub calldata: Vec<u8>,
+}

@@ -23,10 +23,12 @@ use veil402_daemon::{
     app::{Config, Daemon, Retry, now},
     core::{index::IndexService, wallet::Minted},
 };
+use veil402_gateway::adapters::http::router;
 use veil402_sdk::{
     Config as Proving, Note, Owner, Secret, Send, Spend, Transaction, Veil,
-    evm::{Call, PoolClient, Withdrawal},
+    evm::{PoolClient, Withdrawal},
     session::{Keyring, RootSeed},
+    wire::Offer,
 };
 
 const DEPOSIT: u64 = 1_000;
@@ -213,6 +215,7 @@ async fn an_envelope_rolls_into_the_next() -> Result<(), Box<dyn StdError>> {
 
     // ---- the enclave the registry will vouch for -------------------------
     let root = [0x0A_u8; 32];
+    let seller = Address::repeat_byte(0x5E);
     let enclave = Keyring::new(RootSeed::from_bytes(root)).signer()?.address();
     let registry = IRegistry::new(var("REGISTRY")?.parse()?, &provider);
     if !registry.isLive(enclave).call().await? {
@@ -241,13 +244,16 @@ async fn an_envelope_rolls_into_the_next() -> Result<(), Box<dyn StdError>> {
     let receipt = provider.send_transaction(request).await?.get_receipt().await?;
     println!("shield gas       {}", receipt.gas_used);
 
+    // ---- the gateway that hosts the enclave ------------------------------
+    let served = serve(&pool, root, seller).await?;
+
     // ---- the daemon, from its own composition root -----------------------
     let state = tempfile::tempdir()?;
     let daemon = Arc::new(
         daemon(
             &pool,
             owner,
-            root,
+            &served,
             Minted {
                 commitment,
                 value: DEPOSIT,
@@ -269,18 +275,17 @@ async fn an_envelope_rolls_into_the_next() -> Result<(), Box<dyn StdError>> {
     caught_up(&daemon, commitment).await?;
 
     // ---- open: splits the cold note, locks, hands the session over -------
-    let seller = Address::repeat_byte(0x5E);
     let first = envelopes.open(seller, CEILING, 600).await?;
     assert_eq!(first.ceiling, CEILING, "the note's value is the ceiling");
     println!("opened           ceiling {}, deadline {}", first.ceiling, first.deadline);
 
     // ---- meter, then settle ----------------------------------------------
     let mut owed = 0;
-    for cost in [40_u64, 110, 150] {
-        let metered = envelopes
-            .record(first.nullifier, Call { cost, attestation: B256::repeat_byte(1) })
-            .await?;
-        owed = metered.total;
+    for (sequence, units) in [40_u64, 110, 150].into_iter().enumerate() {
+        owed = envelopes
+            .record(first.nullifier, units, &format!("call-{sequence}"))
+            .await?
+            .total;
     }
     assert_eq!(owed, 300);
     envelopes.settle(first.nullifier, false).await?;
@@ -359,7 +364,7 @@ fn keep_mining(provider: impl Provider + 'static) -> tokio::task::JoinHandle<()>
 async fn daemon(
     pool: &PoolClient,
     owner: Owner,
-    root: [u8; 32],
+    gateway: &str,
     note: Minted,
     state: &Path,
 ) -> Result<Daemon, Box<dyn StdError>> {
@@ -370,10 +375,10 @@ async fn daemon(
         verifier: var("VERIFIER")?.parse()?,
         database: format!("sqlite://{}?mode=rwc", state.join("veil.db").display()),
         signer: var("PRIVATE_KEY")?,
+        gateway: gateway.to_owned(),
         wallet_state: state.join("wallet.redb"),
         worker: worker()?,
         artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
-        root,
         owner,
         target: TARGET,
         window: Window {
@@ -388,4 +393,36 @@ async fn daemon(
     .await?;
     daemon.wallet().remember(&[note], now()).await?;
     Ok(daemon)
+}
+
+
+/// The gateway, on an ephemeral port. It holds the enclave the daemon talks
+/// to, which is the arrangement production runs: the buyer's daemon never
+/// holds an enclave key.
+async fn serve(
+    pool: &PoolClient,
+    root: [u8; 32],
+    seller: Address,
+) -> Result<String, Box<dyn StdError>> {
+    let service = veil402_gateway::app::assemble(&veil402_gateway::app::Config {
+        pool: *pool,
+        root,
+        worker: worker()?,
+        artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
+        offers: vec![Offer {
+            model: "stub".to_owned(),
+            seller,
+            // One token unit per unit consumed, so a test counts in whole
+            // numbers.
+            rate: 1,
+        }],
+        bind: "127.0.0.1:0".parse()?,
+    })?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let served = format!("http://{}", listener.local_addr()?);
+    let app = router(service);
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    Ok(served)
 }

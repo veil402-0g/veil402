@@ -11,17 +11,19 @@ alloy = { version = "1", features = ["contract", "provider-http", "sol-types", "
 async-trait = "0.1"
 dotenvy = "0.15"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-veil402-enclave = { path = "../veil402-enclave" }
 veil402-sdk = { path = "../veil402-sdk" }
 walletkit-rs = { git = "https://github.com/21r21a33333/walletkit", rev = "5af8b6ab3b9bc655c95dd8bc5d7655bce86e3cfe" }
 
 [dev-dependencies]
 alloy = { version = "1", features = ["network", "signer-local"] }
+axum = "0.8"
+veil402-gateway = { path = "../veil402-gateway" }
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }
 

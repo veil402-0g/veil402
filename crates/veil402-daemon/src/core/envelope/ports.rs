@@ -2,11 +2,11 @@ use async_trait::async_trait;
 use thiserror::Error;
 use veil402_sdk::{
     Field, Prepared, Secret, Transaction,
-    evm::{Call, Session, Voucher},
+    evm::{Session, Voucher},
     session::Sealed,
 };
 
-use super::{Agreement, ChainError, Metered, ProveError};
+use super::{Agreement, ChainError, Metered, ProveError, Settlement};
 use crate::core::StoreError;
 
 /// Where a submitted call ended up.
@@ -113,12 +113,24 @@ pub trait Enclave: Send + Sync {
     /// before it will meter anything.
     async fn accept(&self, sealed: Sealed, session: Session) -> Result<(), EnclaveError>;
 
-    /// Meters one served call.
-    async fn record(&self, nullifier: Field, call: Call) -> Result<Metered, EnclaveError>;
+    /// Meters what one call consumed.
+    ///
+    /// Units, never a price: the meter is what both sides trust, and a buyer
+    /// that named its own cost would be writing its own bill.
+    ///
+    /// `attempt` names the call rather than the retry, so one served twice is
+    /// billed once. It belongs to the caller because only the caller knows
+    /// which two requests are the same request.
+    async fn record(
+        &self,
+        nullifier: Field,
+        units: u64,
+        attempt: &str,
+    ) -> Result<Metered, EnclaveError>;
 
     /// Proves the settlement. `dust` asks for the smallest one that frees the
     /// note, for an envelope nobody owes anything on.
-    async fn settle(&self, nullifier: Field, dust: bool) -> Result<Prepared, EnclaveError>;
+    async fn settle(&self, nullifier: Field, dust: bool) -> Result<Settlement, EnclaveError>;
 }
 
 /// Holds the one secret an envelope cannot derive again.

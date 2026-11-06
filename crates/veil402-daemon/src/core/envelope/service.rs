@@ -5,7 +5,7 @@ use thiserror::Error;
 use tokio::time::sleep;
 use veil402_sdk::{
     Field, Secret,
-    evm::{Call, PoolClient, Session},
+    evm::{PoolClient, Session},
     session::{Handover, Recipient},
 };
 
@@ -183,8 +183,13 @@ impl EnvelopeService {
     ///
     /// Returns [`EnvelopeError::Enclave`] when the ceiling is reached or the
     /// enclave no longer holds the session.
-    pub async fn record(&self, nullifier: Field, call: Call) -> Result<Metered, EnvelopeError> {
-        Ok(self.enclave.record(nullifier, call).await?)
+    pub async fn record(
+        &self,
+        nullifier: Field,
+        units: u64,
+        attempt: &str,
+    ) -> Result<Metered, EnvelopeError> {
+        Ok(self.enclave.record(nullifier, units, attempt).await?)
     }
 
     /// Settles an envelope and writes down the change it leaves.
@@ -201,11 +206,10 @@ impl EnvelopeService {
         let Some(change_seed) = self.envelopes.change_seed(nullifier).await? else {
             return Err(EnvelopeError::Unknown);
         };
-        let prepared = self.enclave.settle(nullifier, dust).await?;
-        // Keyed by an output rather than the nullifier: the lock already used
-        // that key, and submission is idempotent on it.
-        let key = prepared.proof.public.commitments[0];
-        self.broadcast.submit(key, prepared.calldata).await?;
+        let settlement = self.enclave.settle(nullifier, dust).await?;
+        self.broadcast
+            .submit(settlement.key, settlement.calldata)
+            .await?;
 
         let now = self.broadcast.timestamp().await?;
         self.wallet

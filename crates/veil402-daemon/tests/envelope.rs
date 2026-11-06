@@ -20,7 +20,7 @@ use veil402_daemon::{
     core::{
         envelope::{
             Agreement, Broadcaster, ChainError, Enclave, EnclaveError, EnvelopeService, EnvelopeStore,
-            Landed, Metered, ProveError, Prover, Terms,
+            Landed, Metered, ProveError, Prover, Settlement, Terms,
         },
         index::IndexService,
         wallet::{Minted, NoteStore, WalletService},
@@ -28,7 +28,7 @@ use veil402_daemon::{
 };
 use veil402_sdk::{
     Field, Owner, Prepared, Secret, SessionKeys, Transaction,
-    evm::{Call, PoolClient, Session, Voucher},
+    evm::{PoolClient, Session, Voucher},
     session::{Keyring, RootSeed, Sealed},
 };
 
@@ -103,11 +103,11 @@ impl Enclave for Vouching {
         Ok(())
     }
 
-    async fn record(&self, _: Field, _: Call) -> Result<Metered, EnclaveError> {
+    async fn record(&self, _: Field, _: u64, _: &str) -> Result<Metered, EnclaveError> {
         Err(EnclaveError::Unknown)
     }
 
-    async fn settle(&self, _: Field, _: bool) -> Result<Prepared, EnclaveError> {
+    async fn settle(&self, _: Field, _: bool) -> Result<Settlement, EnclaveError> {
         Err(EnclaveError::Unknown)
     }
 }
