@@ -444,40 +444,81 @@ design those follow from is `docs/superpowers/specs/2026-10-29-session-envelope-
 | **A3** | envelope manager — open, meter, settle, roll | 3h |
 | **A4** | **M1 on anvil**: lock, N calls, settle, and the next envelope opens from the change | 2h |
 
-**Stage B — a product.** 14h
+**Stage B — a product.** 15h left
+
+B4b absorbed the live slice of C1. There was no point building a sealed
+stream pipe around a stub that returned a constant string, and the hard
+question — what happens when a ceiling is reached mid-stream — has no
+answerable form until a real provider is billing real tokens.
 
 | | | est |
 |---|---|---:|
 | ~~B1~~ | `veil402-gateway` — HTTP, 402, status codes, idempotency | done, `896e22a` |
-| ~~B2~~ | enclave restart resume, durable and opaque | done |
-| **B3** | the gateway checks the escrow before it serves | 1.5h |
-| **B4** | OpenAI-compatible API — the 402 drives `open`, per-agent reservation | 3.5h |
-| **B5** | mandates over the shared ceiling | 2h |
-| **B6** | **M2 on Hedera testnet** — many agents, rollover, re-shop | 2h |
+| ~~B2~~ | enclave restart resume, durable and opaque | done, `9cd20da` |
+| ~~B3~~ | the gateway checks the escrow before it serves | done, `0e2da58` |
+| ~~B4a~~ | sealed prompts, `dispatch`, the 402 loop closes | done, `389df3b` |
+| ~~B4b.0~~ | probe the 0G Router — design against what it sends | done, no commit |
+| ~~B4b.1~~ | sealed streams the relay cannot reorder or truncate | done, `8f62d3b` |
+| ~~B4b.2~~ | the `Upstream` port and the 0G Router adapter | done, `1a7c0e8` |
+| **B4b.3** | the gateway relays a sealed stream and bills it once | 1.5h |
+| **B4b.4** | the daemon consumes it; single-flight roll, overlapping envelopes | 2h |
+| **B4b.5** | the agent API — `/v1/chat/completions`, `/v1/models`, keys, ledger | 2.5h |
+| **B4b.6** | wire it up, run a real coding agent against it | 0.5h |
+| **B4b.7a** | **delivery proof** — provider lookup on chain, signature, ecrecover | 2h |
+| **B4b.7b** | **seal the last hop** — the `_e2ee` envelope, so 0G stops reading | 3h |
+| **B4b.8** | phase close — strip what the one-seller model killed | 1.5h |
+| **B5** | **M2 on Hedera testnet** — many agents, rollover mid-run | 2h |
 
-B3 is new and goes first. `Handover::accept` is pure arithmetic — its own
-documentation says so — so nothing today checks that the escrow a buyer names
-actually exists, that its root is one the pool reached, or that it names this
-enclave. A buyer can hand over a delegation for a note it owns in a tree it
-invented and be served for free; the settlement then reverts and the seller
-has given the work away. The gateway is the right place for the check: it is
-the part that is untrusted but networked, and the enclave is deliberately
-neither.
+What the probe settled, and what it costs us:
+
+The router bills in **micro-USD**, on a frame of its own just before `[DONE]`,
+so there is no scale factor to guess and the bill is read rather than relayed.
+Its errors are already OpenAI-shaped, so an upstream refusal reaches the agent
+without translation. Prices are in the catalogue, so a call is admitted
+against what it is *allowed* to produce — never against expected output, since
+a reasoning model can spend a whole budget thinking and return nothing.
+
+**Attested is not one thing.** Of 119 models, 67 are attested but only 8 are
+`TeeML`, where the weights run inside the enclave. The other 59 are `TeeTLS`:
+a TEE terminates TLS and forwards the prompt to a vendor who reads it.
+Treating those as private would be the mistake we refuse to make, so the
+catalogue is filtered and the key is pinned to `private` trust mode — which
+the router enforces, refusing a downgrade with `trust_mode_mismatch`. Three
+chat models qualify; `glm-5.3` is the one worth demonstrating.
+
+**Two pillars are not yet held, and 7a/7b are why they are scheduled rather
+than deferred.** On the plain router path 0G reads the prompt — `X-0g-E2ee:
+sealed` on a plaintext request means the *router* sealed it onward, having
+read it first — and no per-call attestation is served: `tee_verified` is never
+returned, and the signature is fetched from the provider, not the router. 7a
+buys the signature with an on-chain `getService` lookup and an `ecrecover`,
+which is cheap and lands delivery proof early. 7b seals the request so the
+router sees metadata only.
 
 B4 absorbs what B1 left open. The gateway returns a 402 with a challenge and
 nothing consumes it — the daemon maps the instruction to "re-shop" and no
 caller opens an envelope in response. Envelopes open today because a test asks
 for one. Closing that is what makes the x402 loop a loop.
 
-**Stage C — real externals.** 15h · C1 0G in the enclave, seller keys, price
-stream, portal 5h · C2 receipts and the HCS audit bundle 4h · C3 note
-discovery and recovery 6h
+**Stage C — real externals.** 14h · C1 seller keys under KMS, the price
+stream and the portal 2h · C2 mandates over the shared ceiling 2h · C3
+receipts and the HCS audit bundle 4h · C4 note discovery and recovery 6h
+
+C1 shrank: the inference half of it landed inside B4b, so what remains is the
+seller-facing work — a credential the host never sees, prices a seller can
+change, and somewhere to change them.
+
+Mandates moved behind C1 deliberately. A mandate bounds what an agent may
+spend, and until a real provider prices real tokens the only thing it could
+bound is a stub's byte count — a limit over a number we invented proves
+nothing. B4b files every call against the agent that made it, so C2 is a
+limit over a ledger that already exists rather than a new subsystem.
 
 **Stage D — hardware and demo.** 25h · D1 Nitro image, KMS, PCR0 6h ·
 D2 PCR pinning and x402 3h · D3 dashboard 6h · D4 `npx veil402 init` 3h ·
 D5 demo sandboxes and background traffic 7h
 
-Roughly 51h. **A4 is the one that matters** — everything before it is
+Roughly 54h. **A4 is the one that matters** — everything before it is
 machinery, and it is the first point where the whole claim is demonstrable,
 rollover included.
 
