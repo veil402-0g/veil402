@@ -22,6 +22,7 @@ use crate::{
     adapters::{self, ChainSource, LocalProver, RemoteEnclave, SqliteStore, Window},
     core::{
         StoreError,
+        agent::AgentService,
         envelope::{ChainError, EnclaveError, EnvelopeError, EnvelopeService, Terms},
         index::{IndexError, IndexService},
         wallet::{WalletError, WalletService},
@@ -50,6 +51,22 @@ pub struct Retry {
     pub interval: Duration,
     /// Consecutive failures tolerated before the loop gives up.
     pub attempts: u32,
+}
+
+/// Where the index and the notes live.
+fn database() -> String {
+    env::var("VEIL_DATABASE").unwrap_or_else(|_| DATABASE.to_owned())
+}
+
+/// The ledger on its own, for the commands that only touch keys.
+///
+/// # Errors
+///
+/// Returns [`StartError`] when the store cannot be opened.
+pub async fn agents() -> Result<AgentService, StartError> {
+    Ok(AgentService::new(Arc::new(
+        SqliteStore::open(&database()).await?,
+    )))
 }
 
 /// Seconds since the epoch, which is the clock holds and staleness use.
@@ -146,7 +163,7 @@ impl Config {
             pool: address("VEIL_POOL")?,
             token: address("VEIL_TOKEN")?,
             verifier: address("VEIL_VERIFIER")?,
-            database: env::var("VEIL_DATABASE").unwrap_or_else(|_| DATABASE.to_owned()),
+            database: database(),
             signer: required("VEIL_SIGNER_KEY")?,
             wallet_state: parsed("VEIL_WALLET_STATE", PathBuf::from(WALLET_STATE))?,
             worker: PathBuf::from(required("VEIL_WORKER")?),

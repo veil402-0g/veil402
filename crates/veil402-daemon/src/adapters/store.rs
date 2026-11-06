@@ -1,8 +1,10 @@
+use alloy::primitives::B256;
 use async_trait::async_trait;
 use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions, sqlite::SqliteRow};
 use veil402_sdk::{Field, Secret, StoredNode};
 
 use crate::core::{
+    agent::{Agent, AgentStore, Registered},
     envelope::{EnvelopeStore, SubmissionStore},
     StoreError,
     index::{Batch, Commitment, IndexStore},
@@ -88,7 +90,24 @@ impl SqliteStore {
                  created    INTEGER NOT NULL,
                  seed       BLOB
              );
-             CREATE INDEX IF NOT EXISTS owned_nullifier ON owned (nullifier);",
+             CREATE INDEX IF NOT EXISTS owned_nullifier ON owned (nullifier);
+             CREATE TABLE IF NOT EXISTS agents (
+                 id      TEXT    PRIMARY KEY,
+                 digest  BLOB    NOT NULL,
+                 label   TEXT    NOT NULL,
+                 budget  INTEGER,
+                 spent   INTEGER NOT NULL DEFAULT 0,
+                 calls   INTEGER NOT NULL DEFAULT 0,
+                 created INTEGER NOT NULL,
+                 used    INTEGER,
+                 revoked INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE IF NOT EXISTS charges (
+                 attestation BLOB    PRIMARY KEY,
+                 agent       TEXT    NOT NULL,
+                 cost        INTEGER NOT NULL,
+                 at          INTEGER NOT NULL
+             );",
         )
         .execute(&pool)
         .await
@@ -556,4 +575,117 @@ impl NoteStore for SqliteStore {
             .map(|_| ())
             .map_err(|_| StoreError::Unavailable)
     }
+}
+
+/// Everything an agent is, short of the digest that authenticates it.
+const AGENT: &str = "id, label, budget, spent, calls, created, used, revoked";
+
+#[async_trait]
+impl AgentStore for SqliteStore {
+    async fn issue(&self, agent: &Agent, digest: B256) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO agents (id, digest, label, budget, created)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&agent.id)
+        .bind(digest.to_vec())
+        .bind(&agent.label)
+        .bind(agent.budget.map(integer).transpose()?)
+        .bind(integer(agent.created)?)
+        .execute(&self.pool)
+        .await
+        .map(|_| ())
+        .map_err(|_| StoreError::Unavailable)
+    }
+
+    async fn registered(&self, id: &str) -> Result<Option<Registered>, StoreError> {
+        let row = sqlx::query(&format!("SELECT {AGENT}, digest FROM agents WHERE id = ?"))
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        row.map(|row| {
+            Ok(Registered {
+                agent: agent(&row)?,
+                digest: B256::try_from(row.get::<Vec<u8>, _>("digest").as_slice())
+                    .map_err(|_| StoreError::Corrupt)?,
+            })
+        })
+        .transpose()
+    }
+
+    async fn listed(&self) -> Result<Vec<Agent>, StoreError> {
+        sqlx::query(&format!("SELECT {AGENT} FROM agents ORDER BY created DESC"))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?
+            .iter()
+            .map(agent)
+            .collect()
+    }
+
+    async fn revoke(&self, id: &str) -> Result<bool, StoreError> {
+        let result = sqlx::query("UPDATE agents SET revoked = 1 WHERE id = ? AND revoked = 0")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    async fn charge(
+        &self,
+        attestation: B256,
+        agent: &str,
+        cost: u64,
+        now: u64,
+    ) -> Result<(), StoreError> {
+        let mut transaction = self.pool.begin().await.map_err(|_| StoreError::Unavailable)?;
+        let filed = sqlx::query(
+            "INSERT OR IGNORE INTO charges (attestation, agent, cost, at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(attestation.to_vec())
+        .bind(agent)
+        .bind(integer(cost)?)
+        .bind(integer(now)?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| StoreError::Unavailable)?;
+        // The charge is the record and the totals are a running sum of it,
+        // so a call already filed must not be added to them again.
+        if filed.rows_affected() == 1 {
+            sqlx::query(
+                "UPDATE agents SET spent = spent + ?, calls = calls + 1, used = ? WHERE id = ?",
+            )
+            .bind(integer(cost)?)
+            .bind(integer(now)?)
+            .bind(agent)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| StoreError::Unavailable)
+    }
+}
+
+fn agent(row: &SqliteRow) -> Result<Agent, StoreError> {
+    Ok(Agent {
+        id: row.get("id"),
+        label: row.get("label"),
+        budget: optional(row, "budget")?,
+        spent: count(row, "spent")?,
+        calls: count(row, "calls")?,
+        created: count(row, "created")?,
+        used: optional(row, "used")?,
+        revoked: row.get::<i64, _>("revoked") != 0,
+    })
+}
+
+fn optional(row: &SqliteRow, column: &str) -> Result<Option<u64>, StoreError> {
+    row.get::<Option<i64>, _>(column)
+        .map(|value| u64::try_from(value).map_err(|_| StoreError::Corrupt))
+        .transpose()
 }

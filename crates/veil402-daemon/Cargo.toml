@@ -10,12 +10,15 @@ description = "Self-hosted Veil gateway: index, wallet, sessions"
 alloy = { version = "1", features = ["contract", "provider-http", "sol-types", "rpc-types-eth"] }
 async-trait = "0.1"
 borsh = { version = "1", features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
 dotenvy = "0.15"
 eventsource-stream = "0.2"
 futures-util = "0.3"
+getrandom = "0.3"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2", "stream"] }
 serde_json = "1"
+subtle = "2"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time"] }
 tracing = "0.1"
