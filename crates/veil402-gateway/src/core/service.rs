@@ -17,7 +17,11 @@ use super::{Escrows, Metering, Meters, Opened, Replay, Resumes, Served, Settleme
 /// Covers proving and inclusion. The pool allows no grace on this side: a
 /// settlement a second late is refused outright, and the buyer keeps work
 /// it did not pay for.
-const BUFFER: u64 = 120;
+///
+/// Deliberately shorter than the buyer's: this is the fallback for a buyer
+/// that went away, so it must not pre-empt one that is still there. The gap
+/// is the head start the buyer gets.
+const BUFFER: u64 = 60;
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum MeterError {

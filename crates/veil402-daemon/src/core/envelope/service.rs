@@ -31,7 +31,10 @@ use crate::core::{
 ///
 /// Covers proving, inclusion and reorg margin. The pool allows `SETTLE_GRACE`
 /// beyond the deadline, which is the tail rather than the budget.
-const BUFFER: u64 = 90;
+///
+/// Must stay larger than the seller's own buffer, or its sweep fires first
+/// and the buyer never settles its own envelope.
+const BUFFER: u64 = 120;
 
 /// How long a submission may take to land, and its change to be placed,
 /// before the attempt is abandoned.
