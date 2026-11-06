@@ -153,7 +153,12 @@ services:
       OPENAI_COMPATIBLE_API_KEY: ${PLAYGROUND_KEY:-}
       OPENAI_API_BASE: http://daemon:8402/v1
       OPENAI_API_KEY: ${PLAYGROUND_KEY:-}
-    volumes: [langflow-data:/app/data]
+      # Read-only and shipped with the release, so the path is always there
+      # whether or not the demo it belongs to is switched on.
+      LANGFLOW_COMPONENTS_PATH: /components
+    volumes:
+      - langflow-data:/app/data
+      - ./playground/components:/components:ro
     depends_on:
       langflow-init: { condition: service_completed_successfully }
       daemon: { condition: service_healthy }
