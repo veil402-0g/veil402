@@ -1098,7 +1098,7 @@
 
 .s126 {
   display: grid;
-  grid-template-columns: minmax(150px,1.4fr) 150px minmax(120px,1fr) 110px 84px 84px;
+  grid-template-columns: minmax(150px,1.4fr) 150px minmax(120px,1fr) 110px 84px 176px;
   gap: 18px;
   padding: 0 0 10px;
   border-bottom: 1px solid #e3e5ea;
@@ -1113,7 +1113,7 @@
 .s128 {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(150px,1.4fr) 150px minmax(120px,1fr) 110px 84px 84px;
+  grid-template-columns: minmax(150px,1.4fr) 150px minmax(120px,1fr) 110px 84px 176px;
   gap: 18px;
   align-items: center;
   padding: 15px 12px;
@@ -2382,4 +2382,13 @@
   .s209 {
     animation: none;
   }
+}
+
+/* Pause and revoke share the row's last cell, rather than spilling into the
+   next row and reading as a block of their own. */
+.rowActions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
 }

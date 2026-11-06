@@ -791,33 +791,31 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                   >
                     {a.lastF}
                   </span>
-                  {a.canPause ? (
-                    <button
-                      className={s.s142}
-                      onClick={a.togglePause}
-                    >
-                      {a.pauseLabel}
-                    </button>
-                  ) : null}
-                  {a.canRevoke ? (
-                    <>
-                    <button
-                      className={s.s142}
-                      onClick={a.revoke}
-                    >
-                      Revoke
-                    </button>
-                    </>
-                  ) : null}
-                  {a.isRevoked ? (
-                    <>
-                    <span
-                      className={s.s143}
-                    >
-                      nullified
-                    </span>
-                    </>
-                  ) : null}
+                  <div className={s.rowActions}>
+                    {a.canPause ? (
+                      <button
+                        className={s.s142}
+                        onClick={a.togglePause}
+                      >
+                        {a.pauseLabel}
+                      </button>
+                    ) : null}
+                    {a.canRevoke ? (
+                      <button
+                        className={s.s142}
+                        onClick={a.revoke}
+                      >
+                        Revoke
+                      </button>
+                    ) : null}
+                    {a.isRevoked ? (
+                      <span
+                        className={s.s143}
+                      >
+                        nullified
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
                 </Fragment>
               ))}
