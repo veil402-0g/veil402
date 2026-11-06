@@ -24,12 +24,11 @@ const SESSION = process.env.ARC_SESSION ?? 'veil-shop'
 /** Open invoices, by id. A real seller would persist and expire these. */
 const invoices = new Map()
 
-function arc(request) {
-  const prompt = `${request} (quick preset)`
+function arcRun(args) {
   return new Promise((resolve, reject) => {
     execFile(
       'arc-studio',
-      ['run', prompt, '--session', SESSION, '--output', 'json'],
+      args,
       { maxBuffer: 64 * 1024 * 1024, timeout: 25 * 60 * 1000 },
       (err, stdout, stderr) => {
         let doc
@@ -44,11 +43,39 @@ function arc(request) {
   })
 }
 
+/** Run one task, auto-answering Arc's planning questions with the defaults. */
+async function arc(request) {
+  const prompt = `${request}. Write it and deploy it to Arc Testnet. (quick preset)`
+  let doc = await arcRun(['run', prompt, '--session', SESSION, '--output', 'json'])
+  for (let guard = 0; doc.status === 'needs_input' && doc.questions && guard < 3; guard++) {
+    const answers = (doc.questions.questions || []).map((q) => ({
+      questionId: q.id,
+      selectedOptionIds: [q.options?.[0]?.id].filter(Boolean),
+      selectedOptionLabels: [q.options?.[0]?.label].filter(Boolean),
+    }))
+    console.log(`[shop] Arc asked ${answers.length} planning question(s); answering with defaults`)
+    doc = await arcRun(['run', 'answers: use the defaults', '--session', SESSION, '--answers-json', JSON.stringify(answers), '--output', 'json'])
+  }
+  return doc
+}
+
 async function myAddress() {
   const res = await fetch(`${DAEMON_B}/address`)
   const body = await res.json()
   if (body.status !== 'ok') throw new Error(`daemon B /address: ${body.error}`)
   return body.result.address
+}
+
+/** Read one file out of the Arc Studio sandbox — the actual computed result. */
+function cat(path) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'arc-studio',
+      ['cat', path, '--session', SESSION],
+      { maxBuffer: 16 * 1024 * 1024, timeout: 60_000 },
+      (err, stdout) => (err ? reject(err) : resolve(stdout)),
+    )
+  })
 }
 
 /** Ask B's own daemon whether it holds the note the payer is claiming. */
@@ -62,16 +89,39 @@ async function paid(commitment, blinding, amount) {
   return body.status === 'ok' && body.result.confirmed === true
 }
 
-/** Do the actual work once payment is proven. */
+/** Do the actual work once payment is proven, and return the artifact itself. */
 async function fulfil(request) {
   if (process.env.STUB) {
     console.log('[shop] STUB mode: returning a canned contract (no Arc call)')
-    return { contract: 'VeilDemo', address: `0x${'de'.repeat(20)}`, network: 'stub', explorerUrl: null, txHash: null, webUrl: null }
+    return {
+      contract: 'VeilToken',
+      address: `0x${'de'.repeat(20)}`,
+      network: 'stub',
+      explorerUrl: null,
+      txHash: null,
+      webUrl: null,
+      sourcePath: 'contracts/VeilToken.sol',
+      source:
+        '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\n\ncontract VeilToken {\n    // canned stub — unset STUB for a real Arc Studio build\n}\n',
+    }
   }
   console.log(`[shop] building on Arc Studio: ${request}`)
   const doc = await arc(request)
   if (doc.status !== 'completed') throw new Error(doc.errorMessage || `arc status ${doc.status}`)
+
   const deployed = (doc.deployments || [])[0] || null
+  // The artifact A actually paid for: pull the Solidity back out of the sandbox.
+  const sol =
+    (doc.filesChanged || []).find((p) => /\.sol$/.test(p) && /contract/i.test(p)) ||
+    (doc.filesChanged || []).find((p) => /\.sol$/.test(p))
+  let source = null
+  if (sol) {
+    try {
+      source = await cat(sol)
+    } catch (error) {
+      console.error('[shop] could not read the source:', error.message)
+    }
+  }
   return {
     contract: deployed?.contract ?? null,
     address: deployed?.address ?? null,
@@ -79,6 +129,8 @@ async function fulfil(request) {
     explorerUrl: deployed?.explorerUrl ?? null,
     txHash: deployed?.txHash ?? null,
     webUrl: doc.webUrl ?? null,
+    sourcePath: sol ?? null,
+    source,
   }
 }
 

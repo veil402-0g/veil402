@@ -7,6 +7,8 @@
 // B is the note's blinding — a secret only the payer holds — so B can confirm
 // it was paid without the payment ever being public.
 
+import { writeFileSync } from 'node:fs'
+
 const SHOP = process.env.AGENT_B ?? 'http://127.0.0.1:8500'
 const DAEMON_A = process.env.DAEMON_A ?? 'http://127.0.0.1:8402/api/v1'
 const request =
@@ -51,7 +53,15 @@ async function main() {
       console.log(`[client] ← 200 OK. delivered: ${r.contract ?? 'a draft'}${r.address ? ' @ ' + r.address : ''}`)
       if (r.network) console.log(`[client]   network: ${r.network}`)
       if (r.explorerUrl) console.log(`[client]   explorer: ${r.explorerUrl}`)
-      console.log('[client] done — paid for the work, privately, over x402.')
+      if (r.source) {
+        const out = `./${r.contract || 'Contract'}.sol`
+        writeFileSync(out, r.source)
+        const lines = r.source.split('\n')
+        console.log(`[client]   received the computed contract (${lines.length} lines), saved to ${out}:`)
+        console.log('    ' + lines.slice(0, 22).join('\n    '))
+        if (lines.length > 22) console.log('    … (full file on disk)')
+      }
+      console.log('[client] done — requested, paid privately over x402, and received the computed result.')
       return
     }
     await sleep(2000)
