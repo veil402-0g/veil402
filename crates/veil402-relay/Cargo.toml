@@ -1,0 +1,25 @@
+[package]
+name = "veil402-relay"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Broadcasts pool calls under its own key, so a buyer's never appears on chain"
+
+[dependencies]
+alloy = { version = "1", features = ["provider-http", "signers", "signer-local", "sol-types"] }
+axum = "0.8"
+dotenvy = "0.15"
+redb = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+tower-http = { version = "0.6", features = ["trace", "timeout"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+veil402-sdk = { path = "../veil402-sdk" }
+walletkit-rs = { git = "https://github.com/21r21a33333/walletkit", rev = "5af8b6ab3b9bc655c95dd8bc5d7655bce86e3cfe" }
+
+[lints]
+workspace = true

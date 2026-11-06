@@ -408,6 +408,7 @@ async fn daemon(
         session: CEILING,
         lock_for: 600,
         wallet_state: state.join("wallet.redb"),
+        relay: None,
             worker: worker()?,
             artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
         owner,

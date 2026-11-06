@@ -7357,6 +7357,7 @@ dependencies = [
  "eventsource-stream",
  "futures-util",
  "getrandom 0.3.4",
+ "hex",
  "http-body-util",
  "reqwest 0.12.28",
  "serde",
@@ -7418,6 +7419,25 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "veil402-enclave",
+ "veil402-sdk",
+ "walletkit-rs",
+]
+
+[[package]]
+name = "veil402-relay"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "axum",
+ "dotenvy",
+ "redb 2.6.4",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
  "veil402-sdk",
  "walletkit-rs",
 ]

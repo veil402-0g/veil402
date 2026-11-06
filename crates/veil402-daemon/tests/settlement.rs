@@ -169,6 +169,7 @@ fn buying(
         session,
         lock_for: WINDOW,
         wallet_state: state.join("wallet.redb"),
+        relay: None,
         worker: worker()?,
         artifacts: artifacts()?,
         // Fixed, not random. These keys are the balance: a second handle on

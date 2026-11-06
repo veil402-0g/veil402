@@ -23,13 +23,15 @@ use veil402_sdk::{Config as Proving, Field, Note, Owner, Secret, Veil, evm::Pool
 
 use crate::{
     adapters::{
-        self, Api, ChainSource, Console, LocalProver, Purse, RemoteEnclave, Settings, SqliteStore,
-        Window,
+        self, Api, ChainSource, Console, LocalProver, Purse, RelayBroadcaster, RemoteEnclave,
+        Settings, SqliteStore, Window,
     },
     core::{
         StoreError,
         agent::AgentService,
-        envelope::{ChainError, EnclaveError, EnvelopeError, EnvelopeService, Terms},
+        envelope::{
+            Broadcaster, ChainError, EnclaveError, EnvelopeError, EnvelopeService, Terms,
+        },
         treasury::TreasuryService,
         index::{IndexError, IndexService},
         wallet::{Deposit, Minted, WalletError, WalletService},
@@ -266,6 +268,9 @@ pub struct Config {
     pub signer: String,
     /// Where the transaction engine keeps the calls it is still tracking.
     pub wallet_state: PathBuf,
+    /// A relay to broadcast through, so our own key never signs a lock or a
+    /// settlement. Unset means we send them ourselves.
+    pub relay: Option<String>,
     /// The gnark worker, and the proving artifacts it is pinned to.
     pub worker: PathBuf,
     pub artifacts: PathBuf,
@@ -347,6 +352,7 @@ impl Config {
             database: database(),
             signer: required("VEIL_SIGNER_KEY")?,
             wallet_state: parsed("VEIL_WALLET_STATE", PathBuf::from(WALLET_STATE))?,
+            relay: env::var("VEIL_RELAY_URL").ok().filter(|url| !url.is_empty()),
             worker: PathBuf::from(required("VEIL_WORKER")?),
             artifacts: PathBuf::from(required("VEIL_ARTIFACTS")?),
             gateway: required("VEIL_GATEWAY_URL")?,
@@ -377,6 +383,29 @@ impl Config {
             },
         })
     }
+}
+
+/// Who puts a lock or a settlement on the chain, when it is not us.
+///
+/// Deposits stay on our own key — `shield` pulls tokens from whoever calls
+/// it — but a lock and a settlement carry their own authorisation, so
+/// nothing is lost by letting someone else send them and the buyer's
+/// address stays off the chain.
+///
+/// The relay is asked to answer before anything depends on it. Falling back
+/// to our own key would keep the daemon working and quietly stop it being
+/// private, which is the one failure worth refusing to start over.
+async fn relaying(config: &Config) -> Result<Option<Arc<dyn Broadcaster>>, StartError> {
+    let Some(url) = &config.relay else {
+        return Ok(None);
+    };
+    let provider = ProviderBuilder::new()
+        .connect(&config.rpc)
+        .await
+        .map_err(|_| StartError::Chain(host(&config.rpc)))?;
+    Ok(Some(Arc::new(
+        RelayBroadcaster::open(url, provider).await?,
+    )))
 }
 
 #[derive(Debug, Error)]
@@ -485,6 +514,9 @@ impl Daemon {
             .connect(&config.rpc)
             .await
             .map_err(|_| StartError::Chain(host(&config.rpc)))?;
+        let sending = relaying(&config)
+            .await?
+            .unwrap_or_else(|| broadcast.clone());
         let chain_id = provider
             .get_chain_id()
             .await
@@ -511,7 +543,7 @@ impl Daemon {
             wallet.clone(),
             index.clone(),
             enclave,
-            broadcast.clone(),
+            sending,
             Arc::new(LocalProver::new(veil, pool)),
             store,
             Terms {
