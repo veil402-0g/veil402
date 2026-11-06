@@ -110,7 +110,8 @@ fn model() -> String {
 /// Starts a seller on `bind`, with its own sweep running.
 fn seller(bind: &str, state: &Path) -> Result<(), Box<dyn StdError>> {
     let config = veil402_gateway::app::Config {
-        vouched: std::collections::HashMap::new(),
+        serving_rpc: String::new(),
+            serving: alloy::primitives::Address::ZERO,
         fee_cap: 20_000_000_000_000,
         pool: pool()?,
         root: alloy::hex::decode(var("VEIL_ROOT_SEED")?)?

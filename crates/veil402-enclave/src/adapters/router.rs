@@ -5,7 +5,7 @@
 //! body to the provider's own enclave is a second adapter beside this one,
 //! and the port is shaped so nothing above has to know which is in use.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use alloy::primitives::{Address, Signature, eip191_hash_message};
 use async_trait::async_trait;
@@ -17,7 +17,7 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 
 use crate::core::ports::{
-    Ask, Attested, Attestor, Listing, Receipt, Served, Tokens, Upstream, UpstreamError,
+    Ask, Attested, Listing, Receipt, Registry, Served, Tokens, Upstream, UpstreamError,
 };
 
 /// Names the signature a provider holds for a call it served.
@@ -73,9 +73,8 @@ pub struct Router {
     ceiling: u32,
     /// Prices, as of the first call that needed them.
     catalogue: RwLock<Vec<Listing>>,
-    /// Providers whose signing key has been attested out of band, and where
-    /// to ask each for the signature over a call it served.
-    vouched: Arc<HashMap<Address, Attestor>>,
+    /// Where a provider's attested key and endpoint are looked up.
+    vouched: Arc<dyn Registry>,
 }
 
 impl Router {
@@ -87,7 +86,7 @@ impl Router {
         key: &str,
         trust: &str,
         ceiling: u32,
-        vouched: HashMap<Address, Attestor>,
+        vouched: Arc<dyn Registry>,
     ) -> Result<Self, UpstreamError> {
         Ok(Self {
             client: Client::builder()
@@ -100,7 +99,7 @@ impl Router {
             trust: trust.to_owned(),
             ceiling,
             catalogue: RwLock::new(Vec::new()),
-            vouched: Arc::new(vouched),
+            vouched,
         })
     }
 
@@ -225,7 +224,7 @@ fn framed(data: &str, tokens: &mut Tokens) -> Option<Result<Served, UpstreamErro
 #[derive(Clone)]
 struct Vouching {
     client: Client,
-    vouched: Arc<HashMap<Address, Attestor>>,
+    vouched: Arc<dyn Registry>,
     served: Option<String>,
 }
 
@@ -246,7 +245,7 @@ impl Vouching {
         let (Some(provider), Some(served)) = (provider, self.served.as_ref()) else {
             return Attested::Absent;
         };
-        let Some(attestor) = self.vouched.get(&provider) else {
+        let Some(attestor) = self.vouched.attestor(provider).await else {
             return Attested::Absent;
         };
         let signed = self

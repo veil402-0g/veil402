@@ -135,6 +135,14 @@ pub struct MeteredBody {
     /// stream, so there is nothing to bind it to.
     #[serde(default)]
     pub delivered: Option<B256>,
+    /// The rest of what `attestation` was computed over. Absent for the
+    /// same reason.
+    #[serde(default)]
+    pub witness: Option<Witness>,
+    /// Where this call sits in the attestation list the settlement roots,
+    /// which is what a buyer needs to prove its own call is among them.
+    #[serde(default)]
+    pub sequence: u64,
 }
 
 /// Folds the sealed frames of one answer, in the order they were sent.
@@ -165,6 +173,39 @@ impl Delivered {
     pub fn finish(self) -> B256 {
         self.0.finalize()
     }
+}
+
+/// What an attestation was computed over.
+///
+/// Carried beside the digest so a buyer can recompute it rather than take
+/// it on trust: a digest nobody can reproduce commits the seller to nothing
+/// it could later be held to.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Witness {
+    /// What the upstream calls this call, so it can be looked up later.
+    pub reference: String,
+    pub prompt: u64,
+    pub completion: u64,
+    pub provider: Option<Address>,
+}
+
+/// Binds one call: what was delivered, what it cost us, and who served it.
+///
+/// Shared, like [`Delivered`], because the seller writes it into what
+/// settles and the buyer checks it — two copies would be one drift away
+/// from a bill nobody could verify.
+#[must_use]
+pub fn attestation(delivered: B256, cost: u64, witness: &Witness) -> B256 {
+    let mut bound = Vec::with_capacity(128);
+    bound.extend_from_slice(delivered.as_slice());
+    bound.extend_from_slice(witness.reference.as_bytes());
+    bound.extend_from_slice(&cost.to_be_bytes());
+    bound.extend_from_slice(&witness.prompt.to_be_bytes());
+    bound.extend_from_slice(&witness.completion.to_be_bytes());
+    if let Some(provider) = witness.provider {
+        bound.extend_from_slice(provider.as_slice());
+    }
+    keccak256(bound)
 }
 
 /// An upstream's refusal, carried without being read.

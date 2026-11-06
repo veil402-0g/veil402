@@ -1,7 +1,7 @@
 //! Composition root: builds the gateway from its configuration and serves it.
 
 use std::{
-    collections::HashMap, env, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc,
+    env, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc,
     time::Duration,
 };
 
@@ -9,7 +9,7 @@ use alloy::{hex, primitives::Address};
 use thiserror::Error;
 use tokio::time::sleep;
 use tower_http::trace::TraceLayer;
-use veil402_enclave::{Attestor, Upstream, adapters::Router};
+use veil402_enclave::{Upstream, adapters::Router};
 use veil402_sdk::{
     Config as Proving, Veil,
     evm::PoolClient,
@@ -57,9 +57,10 @@ pub enum ConfigError {
 pub struct Config {
     /// Most this gateway will pay per unit of gas, in wei.
     pub fee_cap: u128,
-    /// Providers whose signing key an attested quote has been checked
-    /// against, out of band, and where each answers for what it signed.
-    pub vouched: HashMap<Address, Attestor>,
+    /// Where the serving contract that names each provider's attested key
+    /// lives. Separate from the pool's chain: the two need not be the same.
+    pub serving_rpc: String,
+    pub serving: Address,
     pub pool: PoolClient,
     /// Seed every enclave key derives from. On real hardware this comes from
     /// KMS gated on attestation; here it is configuration.
@@ -135,7 +136,8 @@ impl Config {
         .map_err(|_| ConfigError::Invalid("VEIL_POOL"))?;
         Ok(Self {
             fee_cap: parsed("VEIL_MAX_FEE_GWEI", MAX_FEE_GWEI)? * GWEI,
-            vouched: vouched(&env::var("VEIL_TEE_PROVIDERS").unwrap_or_default())?,
+            serving_rpc: env::var("VEIL_0G_CHAIN_RPC").unwrap_or_else(|_| SERVING_RPC.to_owned()),
+            serving: parsed("VEIL_0G_INFERENCE", SERVING)?,
             pool,
             root: hex::decode(required("VEIL_ROOT_SEED")?)
                 .map_err(|_| ConfigError::Invalid("VEIL_ROOT_SEED"))?
@@ -183,37 +185,9 @@ const MAX_FEE_GWEI: u128 = 20_000;
 /// Gwei, in wei.
 const GWEI: u128 = 1_000_000_000;
 
-/// Reads the providers whose attestation an operator has already checked.
-///
-/// `<provider>|<endpoint>|<signer>`, semicolon separated. Pinned rather than
-/// discovered: the quote binding a signer to real hardware is verified out
-/// of band, and naming the endpoint here means a reply can never send this
-/// side somewhere of its choosing.
-fn vouched(configured: &str) -> Result<HashMap<Address, Attestor>, ConfigError> {
-    configured
-        .split(';')
-        .map(str::trim)
-        .filter(|entry| !entry.is_empty())
-        .map(|entry| {
-            let [provider, endpoint, signer] = *entry.split('|').collect::<Vec<_>>() else {
-                return Err(ConfigError::Invalid("VEIL_TEE_PROVIDERS"));
-            };
-            Ok((
-                provider
-                    .trim()
-                    .parse()
-                    .map_err(|_| ConfigError::Invalid("VEIL_TEE_PROVIDERS"))?,
-                Attestor {
-                    endpoint: endpoint.trim().to_owned(),
-                    signer: signer
-                        .trim()
-                        .parse()
-                        .map_err(|_| ConfigError::Invalid("VEIL_TEE_PROVIDERS"))?,
-                },
-            ))
-        })
-        .collect()
-}
+/// 0G mainnet, where the serving contract names each provider's attested key.
+const SERVING_RPC: &str = "https://evmrpc.0g.ai";
+const SERVING: Address = alloy::primitives::address!("47340d900bdFec2BD393c626E12ea0656F938d84");
 
 #[derive(Debug, Error)]
 pub enum StartError {
@@ -221,6 +195,8 @@ pub enum StartError {
     Config(#[from] ConfigError),
     #[error(transparent)]
     Meter(#[from] MeterError),
+    #[error("the serving contract is unreachable: {0}")]
+    Serving(String),
     #[error("the proving artifacts could not be opened")]
     Artifacts,
     #[error(transparent)]
@@ -277,7 +253,11 @@ pub async fn serve(config: Config) -> Result<(), StartError> {
         &config.upstream_key,
         &config.trust,
         config.ceiling,
-        config.vouched.clone(),
+        Arc::new(
+            adapters::registrar(&config.serving_rpc, config.serving)
+                .await
+                .map_err(StartError::Serving)?,
+        ),
     )?);
     let service = assemble(&config, escrows, upstream)?;
     let settler = Arc::new(

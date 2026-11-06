@@ -3,7 +3,7 @@ use std::{convert::Infallible, sync::Arc};
 use axum::{
     Json, RequestPartsExt, Router,
     body::Bytes,
-    extract::{FromRequestParts, Path, State},
+    extract::{FromRequestParts, Path, Query, State},
     http::{HeaderMap, header::CONTENT_TYPE, request::Parts},
     response::{
         IntoResponse, Response,
@@ -19,13 +19,13 @@ use futures_util::{StreamExt, stream::BoxStream};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
-use alloy::hex;
+use alloy::{hex, primitives::B256};
 
 use super::primitives::Refusal;
 use crate::{
     app::now,
     core::{
-        agent::{Agent, AgentService, Hold},
+        agent::{Agent, AgentService, Audit, Charge, Hold},
         envelope::{EnclaveError, EnvelopeError, EnvelopeService, Metered, Piece, collected},
         index::IndexService,
     },
@@ -59,6 +59,7 @@ pub fn router(api: Api) -> Router {
         .route("/v1/chat/completions", post(completions))
         .route("/v1/models", get(models))
         .route("/v1/models/{model}", get(model))
+        .route("/v1/audit", get(audit))
         .route("/healthz", get(healthz))
         .with_state(api)
 }
@@ -109,9 +110,9 @@ async fn completions(
     let pieces = api.envelopes.dispatch(&body, &attempt(&headers)).await?;
 
     if asked.stream {
-        Ok(streaming(api, agent.id, hold, pieces))
+        Ok(streaming(api, agent.id, hold, pieces, asked.model))
     } else {
-        whole(api, agent.id, hold, pieces).await
+        whole(api, agent.id, hold, pieces, asked.model).await
     }
 }
 
@@ -121,9 +122,10 @@ fn streaming(
     agent: String,
     hold: Hold,
     pieces: BoxStream<'static, Result<Piece, EnclaveError>>,
+    model: String,
 ) -> Response {
     let (sender, receiver) = mpsc::channel(FRAMES);
-    tokio::spawn(relaying(api, agent, hold, pieces, sender));
+    tokio::spawn(relaying(api, agent, hold, pieces, sender, model));
     Sse::new(ReceiverStream::new(receiver))
         // A model that thinks before it speaks says nothing for a while, and
         // a client with nothing arriving eventually stops waiting.
@@ -141,6 +143,7 @@ async fn relaying(
     hold: Hold,
     mut pieces: BoxStream<'static, Result<Piece, EnclaveError>>,
     sender: mpsc::Sender<Result<Event, Infallible>>,
+    model: String,
 ) {
     let mut hold = Some(hold);
     let mut listening = true;
@@ -151,7 +154,7 @@ async fn relaying(
             // sees. What the agent is told about tokens came from the
             // upstream and has already gone past in a chunk of its own.
             Ok(Piece::Billed(metered)) => {
-                bill(&api, &agent, &mut hold, metered).await;
+                bill(&api, &agent, &mut hold, &metered, &model).await;
                 continue;
             }
             // One frame carrying the failure, then the end: a stream that
@@ -174,12 +177,13 @@ async fn whole(
     agent: String,
     hold: Hold,
     pieces: BoxStream<'static, Result<Piece, EnclaveError>>,
+    asked: String,
 ) -> Result<Response, Refusal> {
     let (tell, told) = oneshot::channel();
     tokio::spawn(async move {
         let answered = collected(pieces).await;
         if let Ok(answered) = &answered {
-            bill(&api, &agent, &mut Some(hold), answered.metered).await;
+            bill(&api, &agent, &mut Some(hold), &answered.metered, &asked).await;
         }
         let _ = tell.send(answered);
     });
@@ -194,17 +198,87 @@ async fn whole(
         .into_response())
 }
 
-async fn bill(api: &Api, agent: &str, hold: &mut Option<Hold>, metered: Metered) {
+async fn bill(api: &Api, agent: &str, hold: &mut Option<Hold>, metered: &Metered, model: &str) {
     let Some(hold) = hold.take() else { return };
-    if let Err(error) = api
-        .agents
-        .charge(hold, metered.attestation, metered.cost, now())
-        .await
-    {
+    let charge = Charge {
+        attestation: metered.attestation,
+        cost: metered.cost,
+        at: now(),
+        nullifier: metered.nullifier,
+        delivered: metered.delivered,
+        witness: metered.witness.clone(),
+        sequence: metered.sequence,
+        model: model.to_owned(),
+    };
+    if let Err(error) = api.agents.charge(hold, &charge).await {
         // The envelope paid for this either way. What is lost is knowing
         // whose it was.
         tracing::error!(%error, agent, cost = metered.cost, "a served call was not filed");
     }
+}
+
+/// What an audit narrows to. Everything absent means everything.
+#[derive(Deserialize)]
+struct Scope {
+    agent: Option<String>,
+    from: Option<u64>,
+    to: Option<u64>,
+    /// One call, by the digest that settles it.
+    tx: Option<String>,
+}
+
+/// The calls an audit covers, each with what proves it.
+///
+/// Read-only and narrowed: this is what an auditor is handed, so it carries
+/// the binding and the settlement it belongs to, never the answer itself.
+async fn audit(State(api): State<Api>, Query(scope): Query<Scope>) -> Result<Response, Refusal> {
+    let attestation = scope
+        .tx
+        .as_deref()
+        .map(|tx| {
+            veil402_sdk::wire::bytes(tx)
+                .ok()
+                .and_then(|raw| <[u8; 32]>::try_from(raw).ok())
+                .map(B256::from)
+                .ok_or_else(|| Refusal::malformed("tx is not a 32-byte digest".to_owned()))
+        })
+        .transpose()?;
+
+    let filed = api
+        .agents
+        .audit(&Audit {
+            agent: scope.agent,
+            from: scope.from,
+            to: scope.to,
+            attestation,
+        })
+        .await
+        .map_err(|_| Refusal::internal("the ledger could not be read"))?;
+
+    let calls: Vec<_> = filed
+        .iter()
+        .map(|filed| {
+            let charge = &filed.charge;
+            serde_json::json!({
+                "agent": filed.agent,
+                "label": filed.label,
+                "model": charge.model,
+                "cost": charge.cost,
+                "at": charge.at,
+                "attestation": charge.attestation,
+                // Enough to recompute the attestation and place it in the
+                // root the settlement signed; the answer stays sealed.
+                "proof": {
+                    "nullifier": veil402_sdk::wire::encode(&charge.nullifier.to_bytes()),
+                    "delivered": charge.delivered,
+                    "sequence": charge.sequence,
+                    "witness": charge.witness,
+                },
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({ "object": "list", "data": calls })).into_response())
 }
 
 /// A stream that ended badly says so in the shape a client already reads.

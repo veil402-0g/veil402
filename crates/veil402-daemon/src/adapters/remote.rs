@@ -12,7 +12,7 @@ use veil402_sdk::{
     session::{Exchange, Inbound, Recipient},
     wire::{
         AcceptBody, Action, AgreeBody, CallBody, Delivered, MeteredBody, Offer, Prompt,
-        RefusedBody, Reply, SessionBody, SettlementBody, bytes, encode, field,
+        RefusedBody, Reply, SessionBody, SettlementBody, attestation, bytes, encode, field,
     },
 };
 
@@ -235,7 +235,7 @@ impl Enclave for RemoteEnclave {
                     |refused| upstream(status, &refused, &exchange),
                 ));
         }
-        Ok(reading(exchange, response))
+        Ok(reading(exchange, response, nullifier))
     }
 
     async fn settle(&self, nullifier: Field, dust: bool) -> Result<Settlement, EnclaveError> {
@@ -270,6 +270,9 @@ struct Reading {
     /// them, so the bill can be held against the answer.
     delivered: Delivered,
     frames_seen: bool,
+    /// Which envelope the call was made under, so the bill can be filed
+    /// against the settlement that covers it.
+    nullifier: Field,
 }
 
 impl Reading {
@@ -298,6 +301,7 @@ impl Reading {
 fn reading(
     exchange: Exchange,
     response: Response,
+    nullifier: Field,
 ) -> BoxStream<'static, Result<Piece, EnclaveError>> {
     stream::unfold(
         Reading {
@@ -307,6 +311,7 @@ fn reading(
             ended: false,
             delivered: Delivered::new(),
             frames_seen: false,
+            nullifier,
         },
         |mut reading| async move {
             loop {
@@ -325,7 +330,8 @@ fn reading(
                     BILL => {
                         let delivered = core::mem::take(&mut reading.delivered).finish();
                         let seen = reading.frames_seen;
-                        return Some((metered(&event.data, delivered, seen), reading));
+                        let under = reading.nullifier;
+                        return Some((metered(&event.data, delivered, seen, under), reading));
                     }
                     ERROR => {
                         return Some((Err(EnclaveError::Refused(event.data)), reading));
@@ -367,11 +373,25 @@ fn reading(
 ///
 /// A bill with nothing to bind is only honest when nothing was streamed: a
 /// remembered answer is served as the bill alone.
-fn metered(data: &str, delivered: B256, streamed: bool) -> Result<Piece, EnclaveError> {
+fn metered(
+    data: &str,
+    delivered: B256,
+    streamed: bool,
+    nullifier: Field,
+) -> Result<Piece, EnclaveError> {
     let body: MeteredBody = serde_json::from_str(data).map_err(unreachable)?;
     if streamed && body.delivered != Some(delivered) {
         return Err(EnclaveError::Refused(
             "the bill does not account for the answer that arrived".into(),
+        ));
+    }
+    // What settles is this digest, so a buyer that cannot reproduce it is
+    // keeping a record it could never hold the seller to.
+    if let Some(witness) = body.witness.as_ref()
+        && attestation(delivered, body.cost, witness) != body.attestation
+    {
+        return Err(EnclaveError::Refused(
+            "the bill's attestation does not match what it was computed over".into(),
         ));
     }
     Ok(Piece::Billed(Metered {
@@ -379,6 +399,10 @@ fn metered(data: &str, delivered: B256, streamed: bool) -> Result<Piece, Enclave
         total: body.total,
         remaining: body.remaining,
         attestation: body.attestation,
+        delivered: body.delivered,
+        witness: body.witness,
+        sequence: body.sequence,
+        nullifier,
     }))
 }
 

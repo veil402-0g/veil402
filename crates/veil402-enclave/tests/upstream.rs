@@ -5,7 +5,7 @@
 //! whose weights run in an enclave, one that only proxies to a vendor, and
 //! one that is not chat at all.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use alloy::{
     primitives::Address,
@@ -58,7 +58,7 @@ async fn upstream(
     let web = Web::new()
         .route("/models", get(|| async { ([(CONTENT_TYPE, "application/json")], MODELS) }))
         .route("/chat/completions", post(completions));
-    Ok(Router::new(&serving(web).await?, "sk-test", "private", CEILING, vouched)?)
+    Ok(Router::new(&serving(web).await?, "sk-test", "private", CEILING, Arc::new(vouched))?)
 }
 
 /// A provider that will say what it signed, for the one call it served.
@@ -249,7 +249,7 @@ async fn a_real_model_streams_and_reports_what_it_cost() -> Fallible {
         &std::env::var("VEIL_0G_KEY")?,
         "private",
         CEILING,
-        HashMap::new(),
+        Arc::new(HashMap::new()),
     )?;
     let listed = upstream.catalogue().await?;
     let model = listed

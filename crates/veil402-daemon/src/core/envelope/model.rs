@@ -1,5 +1,5 @@
 use alloy::primitives::{Address, B256};
-use veil402_sdk::Field;
+use veil402_sdk::{Field, wire::Witness};
 
 /// A note reserved against one seller, for one ceiling, until one deadline.
 ///
@@ -51,7 +51,7 @@ pub struct Answered {
 }
 
 /// What one metered call cost, and what proves it.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Metered {
     /// What this one call cost, for the agent it gets filed against.
     pub cost: u64,
@@ -62,6 +62,14 @@ pub struct Metered {
     /// Digest binding this call, for the daemon to file against the agent
     /// that made it. The enclave meters one total and never learns who asked.
     pub attestation: B256,
+    /// What the attestation was computed over, kept so the digest can be
+    /// recomputed by whoever is shown it rather than taken on trust.
+    pub delivered: Option<B256>,
+    pub witness: Option<Witness>,
+    /// This call's index in the list the settlement roots.
+    pub sequence: u64,
+    /// The envelope it was served under.
+    pub nullifier: Field,
 }
 
 /// A settlement, as much of it as the sender needs.
