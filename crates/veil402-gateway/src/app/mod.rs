@@ -14,7 +14,7 @@ use veil402_sdk::{
 
 use crate::{
     adapters::{self, Enclave, Replays, Sessions, http::router},
-    core::{Escrows, MeterError, MeteringService},
+    core::{Escrows, MeterError, MeteringService, Pricing},
 };
 
 /// Where the gateway listens when nothing says otherwise.
@@ -67,8 +67,11 @@ pub struct Config {
     /// runs the weights in an enclave and refuses to fall back to one that
     /// does not.
     pub trust: String,
-    /// Pool units per micro-USD of upstream cost: the seller's margin.
-    pub markup: u64,
+    /// Pool units per micro-USD, and what we add over cost. Separate
+    /// because the first is a fact about the token and the second is a
+    /// decision.
+    pub scale: u64,
+    pub margin_bps: u64,
     /// What one call may spend when the request names no limit of its own.
     pub ceiling: u32,
 }
@@ -123,7 +126,8 @@ impl Config {
             upstream: required("VEIL_0G_BASE")?,
             upstream_key: required("VEIL_0G_KEY")?,
             trust: env::var("VEIL_0G_TRUST_MODE").unwrap_or_else(|_| TRUST.to_owned()),
-            markup: parsed("VEIL_MARKUP", 1)?,
+            scale: parsed("VEIL_TOKEN_SCALE", 1)?,
+            margin_bps: parsed("VEIL_MARGIN_BPS", 0)?,
             ceiling: parsed("VEIL_CALL_CEILING", CEILING)?,
         })
     }
@@ -165,7 +169,7 @@ pub fn assemble(
         Keyring::new(RootSeed::from_bytes(config.root)),
         veil,
         upstream,
-        config.markup,
+        Pricing::new(config.scale, config.margin_bps),
     )?;
     tracing::info!(signer = %enclave.signer(), "the registry must vouch for this address");
     Ok(Arc::new(MeteringService::new(

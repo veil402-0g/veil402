@@ -21,7 +21,9 @@ use veil402_sdk::{
     wire::{AgreeBody, MeteredBody, Offer, Prompt, SettlementBody, encode},
 };
 
-use crate::core::{Accepted, Billed, Kept, MeterError, Metering, Meters, Opened, Replayed};
+use crate::core::{
+    Accepted, Billed, Kept, MeterError, Metering, Meters, Opened, Pricing, Replayed,
+};
 
 fn refused(error: impl std::fmt::Display) -> MeterError {
     MeterError::Refused(error.to_string())
@@ -38,9 +40,9 @@ pub struct Enclave {
     signer: PrivateKeySigner,
     veil: Arc<Veil>,
     upstream: Arc<dyn Upstream>,
-    /// Pool units per micro-USD of upstream cost: the seller's margin, and
-    /// the only place the two currencies meet.
-    markup: u64,
+    /// Where the upstream's currency becomes the pool's, and the only place
+    /// the two meet.
+    pricing: Pricing,
     /// Shared because a call's bill lands after its stream has left this
     /// struct behind, and the stream has to outlive the borrow.
     meters: Arc<RwLock<HashMap<Field, Meter>>>,
@@ -55,7 +57,7 @@ impl Enclave {
         keyring: Keyring,
         veil: Arc<Veil>,
         upstream: Arc<dyn Upstream>,
-        markup: u64,
+        pricing: Pricing,
     ) -> Result<Self, MeterError> {
         let signer = keyring.signer().map_err(refused)?;
         Ok(Self {
@@ -64,7 +66,7 @@ impl Enclave {
             signer,
             veil,
             upstream,
-            markup,
+            pricing,
             meters: Arc::new(RwLock::new(HashMap::new())),
         })
     }
@@ -99,8 +101,8 @@ impl Meters for Enclave {
             .filter(|listing| listing.confidential)
             .map(|listing| Offer {
                 model: listing.model,
-                prompt: listing.prompt.saturating_mul(self.markup),
-                completion: listing.completion.saturating_mul(self.markup),
+                prompt: self.pricing.charge(listing.prompt),
+                completion: self.pricing.charge(listing.completion),
             })
             .collect())
     }
@@ -147,7 +149,7 @@ impl Meters for Enclave {
         let budget = {
             let meters = self.meters.read().await;
             let meter = meters.get(&nullifier).ok_or(MeterError::Unknown)?;
-            meter.headroom() / self.markup.max(1)
+            self.pricing.affords(meter.headroom())
         };
         // Asked for before a byte is sent, and refused here rather than
         // part-way through: an upstream prices a call once it has served it,
@@ -174,7 +176,7 @@ impl Meters for Enclave {
                 key: self.keyring.handover(nullifier),
                 nullifier,
                 attempt: attempt.to_owned(),
-                markup: self.markup,
+                pricing: self.pricing,
             }),
         })
     }
@@ -245,7 +247,7 @@ struct Relay {
     key: EnclaveKey,
     nullifier: Field,
     attempt: String,
-    markup: u64,
+    pricing: Pricing,
 }
 
 /// Seals each frame on its way past, and bills the call when it ends.
@@ -291,7 +293,7 @@ async fn bill(relay: &mut Relay, receipt: &Receipt) -> Result<Metering, MeterErr
     // call may cost; a capture above that is the seller paying the
     // difference, so one that fires is worth knowing about rather than
     // absorbing quietly.
-    let owed = receipt.cost.saturating_mul(relay.markup);
+    let owed = relay.pricing.charge(receipt.cost);
     let cost = owed.min(meter.headroom());
     if cost < owed {
         tracing::warn!(

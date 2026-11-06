@@ -41,7 +41,8 @@ fn gateway(
             upstream: "http://127.0.0.1:0".to_owned(),
             upstream_key: "sk-test".to_owned(),
             trust: "private".to_owned(),
-            markup: 1,
+            scale: 1,
+            margin_bps: 0,
             ceiling: 1_024,
         },
         backing(DEADLINE)?,
@@ -143,4 +144,26 @@ async fn a_stream_that_breaks_says_why() -> Fallible {
         "a call that never finished was billed"
     );
     Ok(())
+}
+
+/// A margin under a doubling has to be expressible, and admission has to use
+/// the same arithmetic that bills: a call let through on one sum and charged
+/// on another is a seller quietly paying the difference.
+#[test]
+fn what_a_call_is_admitted_for_is_what_it_is_billed() {
+    use veil402_gateway::core::Pricing;
+
+    let at_cost = Pricing::new(1, 0);
+    assert_eq!(at_cost.charge(233), 233);
+    assert_eq!(at_cost.affords(233), 233);
+
+    // Ten per cent over, which no whole-number multiplier could say.
+    let tenth = Pricing::new(1, 1_000);
+    assert_eq!(tenth.charge(1_000), 1_100);
+    assert_eq!(tenth.affords(1_100), 1_000);
+
+    // An eighteen-decimal token, where the scale alone is a trillion.
+    let wei = Pricing::new(1_000_000_000_000, 2_500);
+    assert_eq!(wei.charge(1), 1_250_000_000_000);
+    assert_eq!(wei.affords(1_250_000_000_000), 1);
 }

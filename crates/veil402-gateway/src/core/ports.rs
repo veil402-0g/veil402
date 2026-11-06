@@ -72,6 +72,54 @@ pub enum Billed {
     Bill(Metering),
 }
 
+/// Basis points in one.
+const BPS: u128 = 10_000;
+
+/// What this seller charges for what an upstream charged it.
+///
+/// Two numbers rather than one multiplier, because they are two different
+/// kinds of thing. The scale is a fact about the token the pool holds; the
+/// margin is a decision. Folding them together also makes any margin under
+/// a doubling inexpressible, since a whole-number multiplier has no way to
+/// say "a tenth more".
+#[derive(Clone, Copy, Debug)]
+pub struct Pricing {
+    /// Pool units per micro-USD. One, for a six-decimal stablecoin.
+    scale: u64,
+    /// Basis points over cost. Zero sells at cost.
+    margin: u64,
+}
+
+impl Pricing {
+    #[must_use]
+    pub const fn new(scale: u64, margin: u64) -> Self {
+        Self { scale, margin }
+    }
+
+    /// What to charge for an upstream bill.
+    #[must_use]
+    pub fn charge(self, micro_usd: u64) -> u64 {
+        let gross = u128::from(micro_usd)
+            * u128::from(self.scale)
+            * (BPS + u128::from(self.margin))
+            / BPS;
+        u64::try_from(gross).unwrap_or(u64::MAX)
+    }
+
+    /// The largest upstream bill this much headroom could still cover.
+    ///
+    /// The inverse of `charge`, so a call is admitted against the same
+    /// arithmetic that will bill it.
+    #[must_use]
+    pub fn affords(self, headroom: u64) -> u64 {
+        let per = u128::from(self.scale) * (BPS + u128::from(self.margin));
+        if per == 0 {
+            return u64::MAX;
+        }
+        u64::try_from(u128::from(headroom) * BPS / per).unwrap_or(u64::MAX)
+    }
+}
+
 /// A call the enclave has admitted and begun.
 ///
 /// Admission happens before this exists, so a refusal is still a status the

@@ -34,6 +34,11 @@ const DATABASE: &str = "sqlite://veil402.db?mode=rwc";
 /// index: it is the engine's, and it rebroadcasts from it on its own.
 const WALLET_STATE: &str = "veil402-wallet.redb";
 
+/// What one envelope reserves when nothing says otherwise. Around a dollar
+/// of inference at a scale of one unit per micro-USD: a few thousand calls
+/// between settlements rather than a few dozen.
+const CEILING: u64 = 1_000_000;
+
 /// Blocks per log query. Relays cap the span; a thousand is under every cap
 /// we have met.
 const CHUNK: NonZeroU64 = NonZeroU64::new(1_000).unwrap();
@@ -77,8 +82,15 @@ pub struct Config {
     pub artifacts: PathBuf,
     /// Where the enclave is served from. The daemon never holds its keys.
     pub gateway: String,
-    /// Who this daemon buys from, and what one envelope reserves from them.
+    /// Who this daemon buys from.
     pub seller: Address,
+    /// What one envelope reserves, in pool units.
+    ///
+    /// This is how much work a single note buys before the envelope has to
+    /// be settled and another opened, and a rollover costs a proof and two
+    /// transactions — so it wants to be worth thousands of calls, not tens.
+    /// At a scale of one pool unit per micro-USD, a real call runs 60 to 250
+    /// units, which puts a useful envelope in the hundreds of thousands.
     pub ceiling: u64,
     /// How long one envelope holds its reservation for.
     pub lock_for: u64,
@@ -144,7 +156,7 @@ impl Config {
             artifacts: PathBuf::from(required("VEIL_ARTIFACTS")?),
             gateway: required("VEIL_GATEWAY_URL")?,
             seller: address("VEIL_SELLER")?,
-            ceiling: parsed("VEIL_ENVELOPE_CEILING", 1_000)?,
+            ceiling: parsed("VEIL_ENVELOPE_CEILING", CEILING)?,
             lock_for: parsed("VEIL_ENVELOPE_WINDOW", 600)?,
             owner: Owner {
                 spend: key("VEIL_SPEND_KEY")?,
