@@ -218,11 +218,14 @@ services:
     # scratch, because the CLI writes its session state next to it and a
     # read-only mount there stops every build with EROFS.
     volumes:
+      # Durable, because the CLI keeps its session here and a session is what
+      # makes every build continue the same Arc project. On scratch storage a
+      # restart loses it and the next build starts a new project instead.
+      - agent-arc:/home/node/.arc-studio
       - ./.arc-studio/credentials.json:/home/node/.arc-studio/credentials.json:ro
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
-      - /home/node/.arc-studio:size=8m,mode=0700,uid=1000,gid=1000
       - /home/node/.cache:size=64m,mode=0700,uid=1000,gid=1000
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -249,6 +252,7 @@ networks:
   veil:
 
 volumes:
+  agent-arc:
   langflow-data:
   daemon-b-state:
   daemon-state:
