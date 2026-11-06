@@ -317,11 +317,14 @@ impl EnvelopeService {
                     .escrow(nullifier)
                     .await?
                     .is_some_and(|deadline| deadline > now);
-            if open {
-                match self.settle(nullifier, false).await {
-                    Ok(()) | Err(EnvelopeError::Enclave(EnclaveError::Unknown)) => {}
-                    Err(refused) => return Err(refused),
-                }
+            // The guard narrows the race rather than closing it: the index
+            // lags the chain, and the seller may sweep between the check and
+            // the settlement. Losing it costs the meter and not the money —
+            // the change is sealed on chain for the scan to find — so a
+            // rollover says so and carries on rather than failing the call
+            // that asked for it.
+            if open && let Err(refused) = self.settle(nullifier, false).await {
+                tracing::warn!(%refused, "an envelope was replaced without settling");
             }
         }
         Ok(self
@@ -520,6 +523,7 @@ impl EnvelopeService {
             root: witness.root,
             change_seed: Secret::from_bytes(change_seed.to_bytes())
                 .map_err(|_| WalletError::Owner)?,
+            view: self.wallet.view(),
             seller: envelope.seller,
             deadline: envelope.deadline,
             pool: self.terms.pool.address(),

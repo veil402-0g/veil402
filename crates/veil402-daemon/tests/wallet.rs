@@ -14,7 +14,7 @@ use veil402_daemon::{
         wallet::{Held, Minted, NoteStore, Recovered, WalletError, WalletService, choose},
     },
 };
-use veil402_sdk::{Field, Owner, Secret, SessionKeys};
+use veil402_sdk::{Field, Note, Opening, Owner, Secret, SessionKeys, session::seal_note};
 
 type Fallible = Result<(), Box<dyn std::error::Error>>;
 
@@ -433,5 +433,84 @@ async fn a_resubmission_keeps_the_first_handle() -> Fallible {
 
     assert_eq!(store.handle(field(1)).await?, Some(b"first".to_vec()));
     assert_eq!(store.handle(field(2)).await?, None, "an unsent key has no handle");
+    Ok(())
+}
+
+/// Puts one real note in the tree: the commitment the pool would emit, and
+/// beside it the opening sealed to `view`, exactly as a sender writes it.
+async fn shielded(
+    store: &SqliteStore,
+    leaf: u32,
+    commitment: Field,
+    view: [u8; 32],
+    opening: &Opening,
+) -> Fallible {
+    let sealed = seal_note(view, &borsh::to_vec(opening)?)?;
+    let mut note = sealed.encapsulated.to_vec();
+    note.extend_from_slice(&sealed.ciphertext);
+    let batch = Batch {
+        commitments: vec![Commitment {
+            leaf_index: leaf,
+            commitment,
+            note,
+            block: u64::from(leaf) + 1,
+        }],
+        through: u64::from(leaf) + 1,
+        ..Batch::default()
+    };
+    Ok(store.append(&batch, &[]).await?)
+}
+
+/// Losing the database must not lose the balance. Every opening is sealed to
+/// the viewing key and emitted with its commitment, so a wallet that has
+/// never seen a note before finds it by scanning — which is the same thing
+/// a wallet rebuilt from its keys alone does.
+#[tokio::test]
+async fn a_wallet_finds_its_own_notes_with_no_record_of_them() -> Fallible {
+    let store = store().await?;
+    let owner = Owner {
+        spend: Secret::from_bytes([1; 32])?,
+        view: Secret::from_bytes([2; 32])?,
+    };
+    let wallet = wallet(&store, Owner {
+        spend: Secret::from_bytes([1; 32])?,
+        view: Secret::from_bytes([2; 32])?,
+    });
+    let view = wallet.view();
+
+    // One note held outright, one belonging to a session owner.
+    let random = Secret::from_bytes([3; 32])?;
+    let plain = Note { value: 900, asset: ASSET, random: Secret::from_bytes([3; 32])? };
+    let seed = Secret::from_bytes([4; 32])?;
+    let keys = SessionKeys::from_seed(&seed)?;
+    let session = Note { value: 600, asset: ASSET, random: SessionKeys::from_seed(&seed)?.random };
+
+    shielded(&store, 0, plain.commitment(&owner)?, view,
+        &Opening { value: 900, asset: ASSET.to_bytes(), secret: random.to_bytes(), session: false }).await?;
+    shielded(&store, 1, session.commitment_for(keys.owner.public()?)?, view,
+        &Opening { value: 600, asset: ASSET.to_bytes(), secret: seed.to_bytes(), session: true }).await?;
+
+    // A note sealed to somebody else, which must be passed over in silence.
+    shielded(&store, 2, field(77), [7; 32],
+        &Opening { value: 1, asset: ASSET.to_bytes(), secret: [8; 32], session: false }).await?;
+
+    // Sealed to us, but opening onto a commitment nobody made: anyone can
+    // seal to a viewing key, so an opening is only worth what it hashes to.
+    shielded(&store, 3, field(88), view,
+        &Opening { value: 9_999, asset: ASSET.to_bytes(), secret: [9; 32], session: false }).await?;
+
+    assert_eq!(wallet.discover(0).await?, 2, "the wallet did not find its own notes");
+    wallet.reconcile(0).await?;
+
+    let held: u64 = store
+        .spendable(ASSET, 0)
+        .await?
+        .iter()
+        .map(|note| note.value)
+        .sum();
+    assert_eq!(held, 1_500, "the recovered notes do not add up");
+
+    // Scanning again is idempotent, and costs nothing the second time.
+    assert_eq!(wallet.discover(0).await?, 0, "a note was found twice");
     Ok(())
 }

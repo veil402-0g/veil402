@@ -574,6 +574,9 @@ impl Daemon {
     /// transaction most needs rebroadcasting.
     async fn pass(&self) -> Result<(), PassError> {
         let health = self.index.sync().await?;
+        // Before reconciling: a note found on chain this pass should be
+        // placed in the same one rather than waiting for the next.
+        let found = self.wallet.discover(now()).await?;
         let seen = self.wallet.reconcile(now()).await?;
         // A seller settles for itself when a deadline nears, so an envelope
         // can be spent without us asking. Its change is still ours.
@@ -586,6 +589,7 @@ impl Daemon {
             placed = seen.placed,
             spent = seen.spent,
             escrowed = seen.escrowed,
+            found,
             "synced"
         );
         if seen.stale > 0 {

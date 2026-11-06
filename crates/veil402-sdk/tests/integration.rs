@@ -277,6 +277,7 @@ async fn meters_a_session_and_settles() -> Result<(), Box<dyn StdError>> {
         siblings: MerklePath::only_leaf()?.siblings,
         root: Field::from_bytes(contract.currentRoot().call().await?.to_be_bytes())?,
         change_seed: Secret::random()?,
+        view: [0; 32],
         seller,
         deadline,
         pool: pool_address,

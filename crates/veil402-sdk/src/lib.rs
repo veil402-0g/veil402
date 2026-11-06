@@ -9,7 +9,8 @@ mod proving;
 
 pub use client::{Config, Error, Prepared, Proof, Veil};
 pub use protocol::{
-    Disclosure, Field, MAX_NOTE_BYTES, MerklePath, Note, Owner, PublicInputs, Secret, Send,
+    Disclosure, Field, MAX_NOTE_BYTES, MerklePath, Note, Opening, Owner, PublicInputs, Secret,
+    Send,
     SessionKeys, Spend,
     StoredNode, TREE_DEPTH, Transaction, Tree, Witness,
 };

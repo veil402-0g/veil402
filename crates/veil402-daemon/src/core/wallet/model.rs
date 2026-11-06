@@ -68,3 +68,12 @@ pub enum Recovered {
     /// What came back, written down and waiting for the index to place it.
     Change(Field),
 }
+
+/// A commitment the wallet has not yet tried to open.
+#[derive(Clone, Debug)]
+pub struct Unopened {
+    pub leaf_index: u32,
+    pub commitment: Field,
+    /// The ciphertext the pool carried beside it.
+    pub note: Vec<u8>,
+}
