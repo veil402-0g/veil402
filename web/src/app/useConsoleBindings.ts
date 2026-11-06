@@ -148,14 +148,15 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
   // The daemon's own addresses, limits and catalogue: read once, because a
   // console built against one deployment and pointed at another should say
   // so rather than quietly draw the wrong chain.
+  // Both at once: waiting for the settings before asking for the ledger
+  // would leave the page on zeroes for a round trip it does not need.
   useEffect(() => {
-    if (!api) return
     let dropped = false
-    api
-      .config()
-      .then((read) => {
+    Promise.all([api.config(), snapshot(api)])
+      .then(([read, taken]) => {
         if (dropped) return
         setConfig(read)
+        setLedger((l) => fold(l, taken, read))
         setOffline('')
       })
       .catch((error: unknown) => {
@@ -166,27 +167,22 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     }
   }, [api])
 
-  useEffect(() => {
-    if (!api || !config) return
-    let dropped = false
-    const poll = () => {
-      snapshot(api)
-        .then((taken) => {
-          if (dropped) return
-          setLedger((l) => fold(l, taken, config))
-          setOffline('')
-        })
-        .catch((error: unknown) => {
-          if (!dropped) setOffline(explain(error))
-        })
-    }
-    poll()
-    const id = window.setInterval(poll, CADENCE.activity)
-    return () => {
-      dropped = true
-      window.clearInterval(id)
+  const refresh = useCallback(async () => {
+    if (!config) return
+    try {
+      const taken = await snapshot(api)
+      setLedger((l) => fold(l, taken, config))
+      setOffline('')
+    } catch (error: unknown) {
+      setOffline(explain(error))
     }
   }, [api, config])
+
+  useEffect(() => {
+    void refresh()
+    const id = window.setInterval(() => void refresh(), CADENCE.activity)
+    return () => window.clearInterval(id)
+  }, [refresh])
 
   useEffect(() => {
     const id = window.setTimeout(() => setRangeIn(true), 350)
@@ -393,15 +389,19 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
         const paused = a.status !== 'paused'
         api
           .pause(a.id, paused)
-          .then(() => notify(`Mandate ${a.id} ${paused ? 'paused' : 'resumed'}`, a.name))
+          .then(() => {
+            void refresh()
+            notify(`Mandate ${a.id} ${paused ? 'paused' : 'resumed'}`, a.name)
+          })
           .catch((error: unknown) => notify('Refused', explain(error), '#ff4d1a'))
       },
       revoke: () => {
         api
           .revoke(a.id)
-          .then(() =>
-            notify(`Mandate ${a.id} revoked · ${a.name}`, 'the key no longer opens', '#ff4d1a'),
-          )
+          .then(() => {
+            void refresh()
+            notify(`Mandate ${a.id} revoked · ${a.name}`, 'the key no longer opens', '#ff4d1a')
+          })
           .catch((error: unknown) => notify('Revoke refused', explain(error), '#ff4d1a'))
       },
       ticks: Array.from({ length: TICKS }, (_, i) => {
@@ -798,6 +798,7 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
           models: form.mEndpoints.length ? form.mEndpoints : undefined,
         })
         .then((granted) => {
+          void refresh()
           setMandateOpen(false)
           setForm((f) => ({ ...f, mName: '', mError: '' }))
           notify(
@@ -984,7 +985,10 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
 
     fundOpen,
     mandateOpen,
-    openFund: () => setFundOpen(true),
+    openFund: () => {
+      setForm((f) => ({ ...f, fundAmount: String(ledger.depositable) }))
+      setFundOpen(true)
+    },
     openMandate: () => {
       setMandateOpen(true)
       setForm((f) => ({ ...f, mError: '' }))
@@ -997,6 +1001,7 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
 
     fundAmount: form.fundAmount,
     depositableF: `${money(ledger.depositable)} USDC`,
+    walletF: `${money(ledger.depositable)} unshielded in wallet`,
     setFundAmount: (e: ChangeEvent<HTMLInputElement>) =>
       setForm((f) => ({ ...f, fundAmount: e.target.value })),
     fundPresets: shares(ledger.depositable).map(({ label, amount }) => ({

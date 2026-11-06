@@ -165,6 +165,11 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                   >
                     {v.lastDeposit}
                   </span>
+                  <span
+                    className={s.s039}
+                  >
+                    {v.walletF}
+                  </span>
                 </div>
               </div>
               <p
