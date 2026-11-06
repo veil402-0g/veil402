@@ -8,7 +8,7 @@ import {
   type MouseEvent,
 } from 'react'
 import { useNavigate } from 'react-router'
-import { clock, compact, money, randomHex, relative, shortHash } from '../../lib/format'
+import { clock, compact, money, randomHex, relative, shortHash } from '../ledger/format'
 import {
   AMOUNT_SIGN,
   ENDPOINTS,
@@ -22,8 +22,8 @@ import {
   totals,
   type Ledger,
   type Totals,
-} from './model'
-import { useViewTransition } from '../../transition/context'
+} from '../ledger/model'
+import { useViewTransition } from '../transition/context'
 
 /** Treemap grid for the pool-composition dot field. */
 const DOT_ROWS = 6

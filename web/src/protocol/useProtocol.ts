@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { PROTOCOL_SCENES, SCENE_HOP, SCENE_REACH, pillColours } from '../data/protocol'
-import { useFitScale } from './useFitScale'
-import { useInView } from './useInView'
+import { PROTOCOL_SCENES, SCENE_HOP, SCENE_REACH, pillColours } from './data'
+import { EASE, prefersReducedMotion } from '../motion/config'
+import { useFitScale } from '../ui/useFitScale'
+import { useInView } from '../ui/useInView'
 
 const SCENE_COUNT = PROTOCOL_SCENES.length
 const DWELL_MS = 3600
@@ -15,7 +16,7 @@ const DIAGRAM_H = 430
 const MIN_FIT_W = 700
 
 const NODE_COUNT = 6
-const TRAVEL = 'left 1.5s cubic-bezier(.65,0,.25,1), width 1.5s cubic-bezier(.65,0,.25,1), opacity .3s ease'
+const TRAVEL = `left 1.5s ${EASE.sweep}, width 1.5s ${EASE.sweep}, opacity .3s ease`
 
 type NodeIdx = 0 | 1 | 2 | 3 | 4 | 5
 type SceneIdx = 0 | 1 | 2 | 3 | 4 | 5 | 6
@@ -58,8 +59,7 @@ export function useProtocol() {
     settleTimer.current = window.setTimeout(() => setSettled(1), SETTLE_MS)
   }, [])
 
-  const reduced =
-    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const reduced = prefersReducedMotion()
 
   useEffect(() => {
     // Land on the final, fully-drawn frame instead of animating through.
@@ -135,7 +135,7 @@ export function useProtocol() {
       : i < scene
         ? 'inset(0 0 calc(100% - 2px) 0)'
         : 'inset(0 100% 0 0)'
-    chips[`pct${i}`] = on ? 'clip-path .55s cubic-bezier(.65,0,.25,1)' : 'clip-path .35s ease'
+    chips[`pct${i}`] = on ? `clip-path .55s ${EASE.sweep}` : 'clip-path .35s ease'
     chips[`pgp${i}`] = chipRunning ? 'scaleX(1)' : 'scaleX(0)'
     chips[`pgt${i}`] = chipRunning ? 'transform 3.4s linear .2s' : 'none'
     chips[`pcc${i}`] = chipRunning ? '#fff' : '#0d0e12'
@@ -168,13 +168,13 @@ export function useProtocol() {
     // The shielded note drops down while the pool scene is up.
     ntT: `${scene === 2 && settled ? 338 : 163}px`,
     ntO: scene === 2 ? 1 : 0,
-    ntTr: settled ? 'top 1.5s cubic-bezier(.65,0,.25,1), opacity .3s ease' : 'none',
+    ntTr: settled ? `top 1.5s ${EASE.sweep}, opacity .3s ease` : 'none',
     brS: scene >= 2 ? 'scaleY(1)' : 'scaleY(0)',
 
     // The reply sweeps all the way back on the final scene.
     rpL: `${(last && settled ? 70 : 880) - 7}px`,
     rpO: last ? 1 : 0,
-    rpTr: last && settled ? 'left 2.4s cubic-bezier(.65,0,.25,1), opacity .3s ease' : 'none',
+    rpTr: last && settled ? `left 2.4s ${EASE.sweep}, opacity .3s ease` : 'none',
     rLit: last ? 1 : 0,
     rLabC: last ? '#1230d6' : '#8b8e97',
     stC: scene === 2 || last ? '#1230d6' : '#8b8e97',

@@ -1,5 +1,96 @@
+/* The one stylesheet: palette and type scale from the design file, the base
+   reset, and global keyframes. Everything else is a CSS Module beside its
+   component. */
+
+:root {
+  --ink: #0d0e12;
+  --ink-2: #4d505a;
+  --ink-3: #5c5f69;
+  --ink-4: #6b6e78;
+  --ink-5: #8b8e97;
+  --ink-6: #a3a6ae;
+  --ink-7: #c4c6cc;
+
+  --blue: #1230d6;
+  --blue-2: #2c63e6;
+  --blue-3: #4c86ee;
+  --blue-4: #8fb0f2;
+  --blue-5: #b9c6f7;
+  --blue-wash: #e3e8ff;
+  --blue-page: #f4f6fd;
+
+  --sand: #d8b9a6;
+  --orange: #ff4d1a;
+
+  --line: #e3e5ea;
+  --line-2: #d0d2d8;
+
+  --font-sans: 'Plus Jakarta Sans', Helvetica, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --page-max: 1440px;
+  --page-gutter: clamp(20px, 4vw, 56px);
+
+  /* The hero / showcase / avatar mesh, reused verbatim in ~30 places. */
+  --mesh: radial-gradient(60% 50% at 30% 30%, #2c63e6 0%, transparent 70%),
+    radial-gradient(40% 30% at 88% 34%, #d8b9a6 0%, transparent 70%),
+    radial-gradient(70% 45% at 40% 92%, #c3d3f6 0%, transparent 70%),
+    linear-gradient(170deg, #3d74ea 0%, #4c86ee 45%, #8fb0f2 80%, #b6c9f4 100%);
+}
+
+/* --- base ------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  overflow-x: clip;
+}
+
+body {
+  margin: 0;
+  background: #fff;
+  font-family: var(--font-sans);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--blue);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--ink);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+input,
+select {
+  font-family: inherit;
+}
+
+body[data-page='console'] {
+  background: var(--blue-page);
+}
+
+/* Covers the viewport while a route chunk is in flight. */
+.route-fallback {
+  min-height: 100dvh;
+  background: inherit;
+}
+
+/* --- keyframes --------------------------------------------------------- */
+
 /* Global copies, for animations set from JS inline styles. The generated
    stylesheets carry their own, because CSS Modules rewrites animation names. */
+
 @keyframes vwipe {
   0% { transform: scaleX(0); transform-origin: left; }
   45% { transform: scaleX(1); transform-origin: left; }

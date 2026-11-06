@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { useInView } from './useInView'
+import { useInView } from '../ui/useInView'
 
 const CARD_COUNT = 6
 

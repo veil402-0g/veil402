@@ -1,6 +1,6 @@
 // A self-running ledger simulation, as the design shipped it: no network, so the
 // console is useful before a backend exists.
-import { randomHex } from '../../lib/format'
+import { randomHex } from './format'
 
 export const VENDORS = [
   '0G · llama-3.3-70b',

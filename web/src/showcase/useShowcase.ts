@@ -7,9 +7,10 @@ import {
   MESH_GRADIENT,
   MUTED_GRADIENT,
   initials,
-} from '../data/showcase'
-import { useFitScale } from './useFitScale'
-import { useInView } from './useInView'
+} from './data'
+import { useFitScale } from '../ui/useFitScale'
+import { useInView } from '../ui/useInView'
+import { EASE } from '../motion/config'
 import { usePinnedListHeight } from './usePinnedListHeight'
 
 const STAGE_COUNT = 5
@@ -163,7 +164,7 @@ export function useShowcase() {
     perStage[`rNc${n}`] = on ? '#1230d6' : '#a3a6ae'
     perStage[`rY${n}`] = on ? 1 : 0
     perStage[`rYd${n}`] = on ? '.2s' : '0s'
-    perStage[`rTr${n}`] = `clip-path ${on ? '.6s' : '.45s'} cubic-bezier(.65,0,.25,1)`
+    perStage[`rTr${n}`] = `clip-path ${on ? '.6s' : '.45s'} ${EASE.sweep}`
     perStage[`rPg${n}`] = on ? 'scaleX(1)' : 'scaleX(0)'
     perStage[`rPt${n}`] = on ? 'transform 3.5s linear .3s' : 'none'
     perStage[`rT${n}`] = on ? 'translateX(8px)' : 'translateX(0)'

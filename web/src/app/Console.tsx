@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useDocumentTitle } from '../../hooks/useDocumentTitle'
+import { useDocumentTitle } from '../ui/useDocumentTitle'
 import { ConsoleView } from './ConsoleView'
 import { useConsoleBindings } from './useConsoleBindings'
 

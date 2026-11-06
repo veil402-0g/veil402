@@ -264,6 +264,16 @@ class Generator {
         if (decls.length) out.push(`.${e.cls}${state} {\n  ${decls.join('\n  ')}\n}`)
       }
     }
+    // Grain is a texture, not an animation. The design jitters it five times a
+    // second, which reads as noise crawling across the large flat panels, so it
+    // is held still everywhere while the gradients and blobs keep drifting.
+    const grainy = [...this.classes.values()]
+      .filter((e) => e.body.some((d) => /^animation:.*\bvgrain\b/.test(d)))
+      .map((e) => `.${e.cls}`)
+    if (grainy.length) {
+      out.push(`${grainy.join(',\n')} {\n  animation: none;\n}`)
+    }
+
     // Replaces the design's `[style*="vbgshift"]` rule, which could only match
     // while the animation lived in an inline style attribute.
     const drifting = [...this.classes.values()]

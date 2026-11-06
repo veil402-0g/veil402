@@ -23,18 +23,20 @@ for (const [from, to] of Object.entries(LANDING_SECTIONS)) {
   const src = read(`src/generated/landing/${from}.tsx`)
     .replace(/'\.\/bindings'/g, "'./useLandingBindings'")
     .replace(/'\.\/styles\.module\.css'/g, "'./landing.module.css'")
+    .replace(/'\.\.\/\.\.\/styles\/css-vars'/g, "'../ui/css-vars'")
     .replace(`export function ${from}(`, `export function ${to}(`)
-  write(`src/pages/landing/${to}.tsx`, src)
+  write(`src/app/${to}.tsx`, src)
 }
 
 write(
-  'src/pages/console/ConsoleView.tsx',
+  'src/app/ConsoleView.tsx',
   read('src/generated/console/Root.tsx')
     .replace(/'\.\/bindings'/g, "'./useConsoleBindings'")
     .replace(/'\.\/styles\.module\.css'/g, "'./console.module.css'")
+    .replace(/'\.\.\/\.\.\/styles\/css-vars'/g, "'../ui/css-vars'")
     .replace('export function Root(', 'export function ConsoleView('),
 )
-copyFileSync(`${ROOT}src/generated/console/styles.module.css`, `${ROOT}src/pages/console/console.module.css`)
+copyFileSync(`${ROOT}src/generated/console/styles.module.css`, `${ROOT}src/app/console.module.css`)
 
 // The app owns the page shell (progress bar + page treatment) and the veil in
 // src/transition, so those classes are hand-written. Generated classes are never
@@ -65,10 +67,10 @@ const SHELL = `/* --- page shell -----------------------------------------------
 }
 
 `
-write('src/pages/landing/landing.module.css', SHELL + read('src/generated/landing/styles.module.css'))
+write('src/app/landing.module.css', SHELL + read('src/generated/landing/styles.module.css'))
 
-copyFileSync(`${ROOT}src/generated/landing/bindings.ts`, `${ROOT}src/pages/landing/bindings.generated.ts`)
-copyFileSync(`${ROOT}src/generated/console/bindings.ts`, `${ROOT}src/pages/console/bindings.generated.ts`)
+copyFileSync(`${ROOT}src/generated/landing/bindings.ts`, `${ROOT}src/app/landing.bindings.generated.ts`)
+copyFileSync(`${ROOT}src/generated/console/bindings.ts`, `${ROOT}src/app/console.bindings.generated.ts`)
 
 rmSync(`${ROOT}src/generated`, { recursive: true, force: true })
 
@@ -76,8 +78,8 @@ rmSync(`${ROOT}src/generated`, { recursive: true, force: true })
 // generated class by hand once silently removed the logo's inner square, which
 // shared a style string with the page shell.
 const PAIRS = [
-  ['src/pages/landing/landing.module.css', Object.values(LANDING_SECTIONS).map((n) => `src/pages/landing/${n}.tsx`)],
-  ['src/pages/console/console.module.css', ['src/pages/console/ConsoleView.tsx']],
+  ['src/app/landing.module.css', Object.values(LANDING_SECTIONS).map((n) => `src/app/${n}.tsx`)],
+  ['src/app/console.module.css', ['src/app/ConsoleView.tsx']],
 ]
 let missing = 0
 for (const [sheet, components] of PAIRS) {
@@ -105,4 +107,4 @@ for (const [sheet] of PAIRS) {
 
 if (missing) process.exit(1)
 
-console.log('postgen: generated output moved into src/pages')
+console.log('postgen: generated output moved into src/app')

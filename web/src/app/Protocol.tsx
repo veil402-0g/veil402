@@ -1,4 +1,4 @@
-import type { CSSVars } from '../../styles/css-vars'
+import type { CSSVars } from '../ui/css-vars'
 import type { LandingBindings } from './useLandingBindings'
 import s from './landing.module.css'
 

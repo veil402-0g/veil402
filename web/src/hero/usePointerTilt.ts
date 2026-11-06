@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { prefersReducedMotion } from '../motion/config'
 
 /** After this long without pointer movement, the tilt drifts on its own. */
 const IDLE_MS = 2500
@@ -8,7 +9,7 @@ const EASE = 0.06
 export function usePointerTilt(active: boolean): void {
   useEffect(() => {
     if (!active) return
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (prefersReducedMotion()) return
 
     const layers = [...document.querySelectorAll<HTMLElement>('[data-h3d]')]
     if (!layers.length) return

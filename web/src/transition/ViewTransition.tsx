@@ -2,7 +2,7 @@ import { useCallback, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import s from './ViewTransition.module.css'
 import { ViewTransitionContext } from './context'
-import type { CSSVars } from '../styles/css-vars'
+import type { CSSVars } from '../ui/css-vars'
 
 /** 0 = idle, 1 = smoke rolling in, 2 = smoke dispersing. */
 type Phase = 0 | 1 | 2

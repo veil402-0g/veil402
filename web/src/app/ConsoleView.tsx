@@ -1,5 +1,5 @@
 import { Fragment } from 'react'
-import type { CSSVars } from '../../styles/css-vars'
+import type { CSSVars } from '../ui/css-vars'
 import type { ConsoleBindings } from './useConsoleBindings'
 import s from './console.module.css'
 

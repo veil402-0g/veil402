@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Halftone } from '../art/halftone'
+import { Halftone } from './halftone'
 
 /** Throttles the scanline pass to ~30fps, as the design does. */
 const FRAME_MS = 33
