@@ -3,6 +3,7 @@ import s from './landing.module.css'
 import { useLandingBindings } from './useLandingBindings'
 import { Hero } from './Hero'
 import { ConsoleShowcase } from './ConsoleShowcase'
+import { Posters } from './Posters'
 import { Protocol } from './Protocol'
 import { UseCases } from './UseCases'
 import { Footer } from './Footer'
@@ -21,6 +22,7 @@ export function Landing() {
       >
         <Hero v={v} />
         <ConsoleShowcase v={v} />
+        <Posters v={v} />
         <Protocol v={v} />
         <UseCases v={v} />
         <Footer v={v} />

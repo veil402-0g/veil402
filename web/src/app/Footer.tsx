@@ -6,14 +6,14 @@ export function Footer({ v }: { v: LandingBindings }) {
   return (
     <>
   <footer
-    className={s.s576}
+    className={s.s628}
     data-screen-label="Footer"
   >
     <div
-      className={s.s577}
+      className={s.s629}
     >
       <div
-        className={s.s578}
+        className={s.s630}
         aria-hidden="true"
       >
         <span
@@ -21,10 +21,10 @@ export function Footer({ v }: { v: LandingBindings }) {
         />
       </div>
       <div
-        className={s.s579}
+        className={s.s631}
       >
         <div
-          className={s.s580}
+          className={s.s632}
           aria-hidden="true"
         >
           <div
@@ -53,53 +53,53 @@ export function Footer({ v }: { v: LandingBindings }) {
           />
         </div>
         <div
-          className={s.s581}
+          className={s.s633}
         >
           <div
-            className={s.s582}
+            className={s.s634}
             data-h3d="3"
             style={{ '--d0': v.dispFont, '--d1': v.dispTrack } as CSSVars}
           >
             <span
-              className={s.s583}
+              className={s.s635}
               aria-hidden="true"
             >
               Veil402
             </span>
             <span
-              className={s.s584}
+              className={s.s636}
               aria-hidden="true"
             >
               Veil402
             </span>
             <span
-              className={s.s585}
+              className={s.s637}
               aria-hidden="true"
             >
               Veil402
             </span>
             <span
-              className={s.s586}
+              className={s.s638}
               aria-hidden="true"
             >
               Veil402
             </span>
             <span
-              className={s.s587}
+              className={s.s639}
             >
               Veil402
             </span>
           </div>
           <span
-            className={s.s588}
+            className={s.s640}
           >
             Confidential computing. Private payments. Verifiable execution.
           </span>
           <div
-            className={s.s589}
+            className={s.s641}
           >
             <a
-              className={s.s590}
+              className={s.s642}
               href="/console"
               onClick={v.openConsole}
               onMouseEnter={v.f1on}
@@ -110,7 +110,7 @@ export function Footer({ v }: { v: LandingBindings }) {
                 className={s.s058}
               >
                 <span
-                  className={s.s591}
+                  className={s.s643}
                   style={{ '--d0': v.fa1 } as CSSVars}
                 >
                   <span
@@ -127,7 +127,7 @@ export function Footer({ v }: { v: LandingBindings }) {
               </span>
             </a>
             <a
-              className={s.s590}
+              className={s.s642}
               href="#"
               onMouseEnter={v.f2on}
               onMouseLeave={v.f2off}
@@ -137,7 +137,7 @@ export function Footer({ v }: { v: LandingBindings }) {
                 className={s.s058}
               >
                 <span
-                  className={s.s592}
+                  className={s.s644}
                   style={{ '--d0': v.fa2 } as CSSVars}
                 >
                   <span
@@ -156,16 +156,16 @@ export function Footer({ v }: { v: LandingBindings }) {
           </div>
         </div>
         <div
-          className={s.s593}
+          className={s.s645}
         >
           <span
-            className={s.s594}
+            className={s.s646}
           >
             <span
               className={s.s149}
             >
               <span
-                className={s.s595}
+                className={s.s647}
                 aria-hidden="true"
               >
                 <span
@@ -173,7 +173,7 @@ export function Footer({ v }: { v: LandingBindings }) {
                 />
               </span>
               <span
-                className={s.s596}
+                className={s.s648}
               >
                 Veil402
               </span>
@@ -183,28 +183,28 @@ export function Footer({ v }: { v: LandingBindings }) {
             </span>
           </span>
           <div
-            className={s.s597}
+            className={s.s649}
           >
             <a
-              className={s.s598}
+              className={s.s650}
               href="#"
             >
               DOCS
             </a>
             <a
-              className={s.s598}
+              className={s.s650}
               href="#"
             >
               SOURCE
             </a>
             <a
-              className={s.s598}
+              className={s.s650}
               href="#"
             >
               PRIVACY
             </a>
             <a
-              className={s.s598}
+              className={s.s650}
               href="#"
             >
               TERMS

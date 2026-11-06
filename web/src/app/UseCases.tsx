@@ -6,30 +6,30 @@ export function UseCases({ v }: { v: LandingBindings }) {
   return (
     <>
   <section
-    className={s.s373}
+    className={s.s425}
     data-screen-label="Use cases"
     ref={v.ucRef}
   >
     <div
-      className={s.s374}
+      className={s.s426}
     >
       <div
-        className={s.s375}
+        className={s.s427}
       >
         <span
-          className={s.s470}
+          className={s.s522}
           style={{ '--d0': v.uzOp } as CSSVars}
         >
           USE CASES
         </span>
         <h2
-          className={s.s377}
+          className={s.s429}
         >
           <span
             className={s.s065}
           >
             <span
-              className={s.s471}
+              className={s.s523}
               style={{ '--d0': v.uzW } as CSSVars}
             >
               Where
@@ -39,7 +39,7 @@ export function UseCases({ v }: { v: LandingBindings }) {
             className={s.s065}
           >
             <span
-              className={s.s472}
+              className={s.s524}
               style={{ '--d0': v.uzW } as CSSVars}
             >
               private
@@ -49,7 +49,7 @@ export function UseCases({ v }: { v: LandingBindings }) {
             className={s.s065}
           >
             <span
-              className={s.s473}
+              className={s.s525}
               style={{ '--d0': v.uzW } as CSSVars}
             >
               AI
@@ -59,7 +59,7 @@ export function UseCases({ v }: { v: LandingBindings }) {
             className={s.s065}
           >
             <span
-              className={s.s474}
+              className={s.s526}
               style={{ '--d0': v.uzW } as CSSVars}
             >
               ships.
@@ -68,17 +68,17 @@ export function UseCases({ v }: { v: LandingBindings }) {
         </h2>
       </div>
       <p
-        className={s.s475}
+        className={s.s527}
         style={{ '--d0': v.uzOp, '--d1': v.uzUp } as CSSVars}
       >
         Confidential compute already runs in production across regulated industries. Veil402 adds the missing piece for agents: private, budgeted, provable payment.
       </p>
     </div>
     <div
-      className={s.s476}
+      className={s.s528}
     >
       <a
-        className={s.s477}
+        className={s.s529}
         href="https://phala.com/success-stories/financial-services"
         target="_blank"
         rel="noopener"
@@ -87,43 +87,43 @@ export function UseCases({ v }: { v: LandingBindings }) {
         style={{ '--d0': v.uzOp, '--d1': v.uzUp } as CSSVars}
       >
         <span
-          className={s.s478}
+          className={s.s530}
           aria-hidden="true"
           style={{ '--d0': v.uzK1 } as CSSVars}
         />
         <div
-          className={s.s479}
+          className={s.s531}
         >
           <div
-            className={s.s480}
+            className={s.s532}
             aria-hidden="true"
             style={{ '--d0': v.uzZ1 } as CSSVars}
           >
             <div
-              className={s.s481}
+              className={s.s533}
               style={{ '--d0': v.uzP1 } as CSSVars}
             />
             <div
-              className={s.s482}
+              className={s.s534}
               style={{ '--d0': v.uzP1 } as CSSVars}
             />
             <div
-              className={s.s483}
+              className={s.s535}
               style={{ '--d0': v.uzP1 } as CSSVars}
             />
           </div>
           <div
-            className={s.s484}
+            className={s.s536}
             aria-hidden="true"
           />
           <div
-            className={s.s485}
+            className={s.s537}
           >
             <div
-              className={s.s486}
+              className={s.s538}
             >
               <span
-                className={s.s487}
+                className={s.s539}
               >
                 SEALED ANALYSIS
               </span>
@@ -141,20 +141,20 @@ export function UseCases({ v }: { v: LandingBindings }) {
               </svg>
             </div>
             <div
-              className={s.s488}
+              className={s.s540}
             >
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 Risk
               </span>
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 Fraud
               </span>
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 Receipts
               </span>
@@ -162,29 +162,29 @@ export function UseCases({ v }: { v: LandingBindings }) {
           </div>
         </div>
         <div
-          className={s.s490}
+          className={s.s542}
         >
           <span
-            className={s.s491}
+            className={s.s543}
             style={{ '--d0': v.uzX1 } as CSSVars}
           >
             FINANCIAL SERVICES
           </span>
           <div
-            className={s.s492}
+            className={s.s544}
           >
             <h3
-              className={s.s493}
+              className={s.s545}
               style={{ '--d0': v.uzH1 } as CSSVars}
             >
               Private financial AI
             </h3>
             <span
-              className={s.s494}
+              className={s.s546}
               style={{ '--d0': `1px solid ${v.uzB1}`, '--d1': v.uzA1 } as CSSVars}
             >
               <svg
-                className={s.s495}
+                className={s.s547}
                 width="14"
                 height="14"
                 viewBox="0 0 16 16"
@@ -200,21 +200,21 @@ export function UseCases({ v }: { v: LandingBindings }) {
             </span>
           </div>
           <p
-            className={s.s496}
+            className={s.s548}
             style={{ '--d0': v.uzD1 } as CSSVars}
           >
             Run portfolio analysis, fraud detection and cross-institution risk models on sealed inputs. Every run carries a receipt compliance can audit — and the spend never reveals the strategy.
           </p>
           <div
-            className={s.s497}
+            className={s.s549}
             style={{ '--d0': `1px solid ${v.uzR1}` } as CSSVars}
           >
             <span
-              className={s.s498}
+              className={s.s550}
               style={{ '--d0': v.uzL1 } as CSSVars}
             />
             <span
-              className={s.s499}
+              className={s.s551}
               style={{ '--d0': v.uzC1 } as CSSVars}
             >
               READ THE REPORT
@@ -223,7 +223,7 @@ export function UseCases({ v }: { v: LandingBindings }) {
         </div>
       </a>
       <a
-        className={s.s500}
+        className={s.s552}
         href="https://phala.com/success-stories/healthcare-research"
         target="_blank"
         rel="noopener"
@@ -232,43 +232,43 @@ export function UseCases({ v }: { v: LandingBindings }) {
         style={{ '--d0': v.uzOp, '--d1': v.uzUp } as CSSVars}
       >
         <span
-          className={s.s501}
+          className={s.s553}
           aria-hidden="true"
           style={{ '--d0': v.uzK2 } as CSSVars}
         />
         <div
-          className={s.s502}
+          className={s.s554}
         >
           <div
-            className={s.s503}
+            className={s.s555}
             aria-hidden="true"
             style={{ '--d0': v.uzZ2 } as CSSVars}
           >
             <div
-              className={s.s504}
+              className={s.s556}
               style={{ '--d0': v.uzP2 } as CSSVars}
             />
             <div
-              className={s.s505}
+              className={s.s557}
               style={{ '--d0': v.uzP2 } as CSSVars}
             />
             <div
-              className={s.s506}
+              className={s.s558}
               style={{ '--d0': v.uzP2 } as CSSVars}
             />
           </div>
           <div
-            className={s.s484}
+            className={s.s536}
             aria-hidden="true"
           />
           <div
-            className={s.s485}
+            className={s.s537}
           >
             <div
-              className={s.s486}
+              className={s.s538}
             >
               <span
-                className={s.s487}
+                className={s.s539}
               >
                 SEALED PHI
               </span>
@@ -289,20 +289,20 @@ export function UseCases({ v }: { v: LandingBindings }) {
               </svg>
             </div>
             <div
-              className={s.s488}
+              className={s.s540}
             >
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 PHI
               </span>
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 Imaging
               </span>
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 Cohorts
               </span>
@@ -310,29 +310,29 @@ export function UseCases({ v }: { v: LandingBindings }) {
           </div>
         </div>
         <div
-          className={s.s507}
+          className={s.s559}
         >
           <span
-            className={s.s508}
+            className={s.s560}
             style={{ '--d0': v.uzX2 } as CSSVars}
           >
             HEALTHCARE RESEARCH
           </span>
           <div
-            className={s.s492}
+            className={s.s544}
           >
             <h3
-              className={s.s509}
+              className={s.s561}
               style={{ '--d0': v.uzH2 } as CSSVars}
             >
               Medical AI with sealed PHI
             </h3>
             <span
-              className={s.s510}
+              className={s.s562}
               style={{ '--d0': `1px solid ${v.uzB2}`, '--d1': v.uzA2 } as CSSVars}
             >
               <svg
-                className={s.s511}
+                className={s.s563}
                 width="14"
                 height="14"
                 viewBox="0 0 16 16"
@@ -348,21 +348,21 @@ export function UseCases({ v }: { v: LandingBindings }) {
             </span>
           </div>
           <p
-            className={s.s512}
+            className={s.s564}
             style={{ '--d0': v.uzD2 } as CSSVars}
           >
             Clinical assistants, radiology models and multi-hospital cohorts run on patient data the provider and host never see.
           </p>
           <div
-            className={s.s513}
+            className={s.s565}
             style={{ '--d0': `1px solid ${v.uzR2}` } as CSSVars}
           >
             <span
-              className={s.s514}
+              className={s.s566}
               style={{ '--d0': v.uzL2 } as CSSVars}
             />
             <span
-              className={s.s515}
+              className={s.s567}
               style={{ '--d0': v.uzC2 } as CSSVars}
             >
               READ THE REPORT
@@ -371,7 +371,7 @@ export function UseCases({ v }: { v: LandingBindings }) {
         </div>
       </a>
       <a
-        className={s.s516}
+        className={s.s568}
         href="https://tinfoil.sh/"
         target="_blank"
         rel="noopener"
@@ -380,43 +380,43 @@ export function UseCases({ v }: { v: LandingBindings }) {
         style={{ '--d0': v.uzOp, '--d1': v.uzUp } as CSSVars}
       >
         <span
-          className={s.s517}
+          className={s.s569}
           aria-hidden="true"
           style={{ '--d0': v.uzK3 } as CSSVars}
         />
         <div
-          className={s.s518}
+          className={s.s570}
         >
           <div
-            className={s.s519}
+            className={s.s571}
             aria-hidden="true"
             style={{ '--d0': v.uzZ3 } as CSSVars}
           >
             <div
-              className={s.s520}
+              className={s.s572}
               style={{ '--d0': v.uzP3 } as CSSVars}
             />
             <div
-              className={s.s521}
+              className={s.s573}
               style={{ '--d0': v.uzP3 } as CSSVars}
             />
             <div
-              className={s.s522}
+              className={s.s574}
               style={{ '--d0': v.uzP3 } as CSSVars}
             />
           </div>
           <div
-            className={s.s484}
+            className={s.s536}
             aria-hidden="true"
           />
           <div
-            className={s.s485}
+            className={s.s537}
           >
             <div
-              className={s.s486}
+              className={s.s538}
             >
               <span
-                className={s.s487}
+                className={s.s539}
               >
                 ATTESTED ENDPOINT
               </span>
@@ -440,20 +440,20 @@ export function UseCases({ v }: { v: LandingBindings }) {
               </svg>
             </div>
             <div
-              className={s.s488}
+              className={s.s540}
             >
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 Chat
               </span>
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 Code
               </span>
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 API
               </span>
@@ -461,29 +461,29 @@ export function UseCases({ v }: { v: LandingBindings }) {
           </div>
         </div>
         <div
-          className={s.s507}
+          className={s.s559}
         >
           <span
-            className={s.s523}
+            className={s.s575}
             style={{ '--d0': v.uzX3 } as CSSVars}
           >
             PRIVATE CHAT & CODING
           </span>
           <div
-            className={s.s492}
+            className={s.s544}
           >
             <h3
-              className={s.s524}
+              className={s.s576}
               style={{ '--d0': v.uzH3 } as CSSVars}
             >
               Coding agents on private compute
             </h3>
             <span
-              className={s.s525}
+              className={s.s577}
               style={{ '--d0': `1px solid ${v.uzB3}`, '--d1': v.uzA3 } as CSSVars}
             >
               <svg
-                className={s.s526}
+                className={s.s578}
                 width="14"
                 height="14"
                 viewBox="0 0 16 16"
@@ -499,21 +499,21 @@ export function UseCases({ v }: { v: LandingBindings }) {
             </span>
           </div>
           <p
-            className={s.s527}
+            className={s.s579}
             style={{ '--d0': v.uzD3 } as CSSVars}
           >
             Point Aider, OpenHands or any OpenAI-compatible tool at an attested enclave. Code and conversations stay encrypted to the hardware.
           </p>
           <div
-            className={s.s528}
+            className={s.s580}
             style={{ '--d0': `1px solid ${v.uzR3}` } as CSSVars}
           >
             <span
-              className={s.s529}
+              className={s.s581}
               style={{ '--d0': v.uzL3 } as CSSVars}
             />
             <span
-              className={s.s530}
+              className={s.s582}
               style={{ '--d0': v.uzC3 } as CSSVars}
             >
               SEE TINFOIL
@@ -522,7 +522,7 @@ export function UseCases({ v }: { v: LandingBindings }) {
         </div>
       </a>
       <a
-        className={s.s531}
+        className={s.s583}
         href="https://phala.com/success-stories/ai-saas-platform"
         target="_blank"
         rel="noopener"
@@ -531,43 +531,43 @@ export function UseCases({ v }: { v: LandingBindings }) {
         style={{ '--d0': v.uzOp, '--d1': v.uzUp } as CSSVars}
       >
         <span
-          className={s.s532}
+          className={s.s584}
           aria-hidden="true"
           style={{ '--d0': v.uzK4 } as CSSVars}
         />
         <div
-          className={s.s533}
+          className={s.s585}
         >
           <div
-            className={s.s534}
+            className={s.s586}
             aria-hidden="true"
             style={{ '--d0': v.uzZ4 } as CSSVars}
           >
             <div
-              className={s.s535}
+              className={s.s587}
               style={{ '--d0': v.uzP4 } as CSSVars}
             />
             <div
-              className={s.s536}
+              className={s.s588}
               style={{ '--d0': v.uzP4 } as CSSVars}
             />
             <div
-              className={s.s537}
+              className={s.s589}
               style={{ '--d0': v.uzP4 } as CSSVars}
             />
           </div>
           <div
-            className={s.s484}
+            className={s.s536}
             aria-hidden="true"
           />
           <div
-            className={s.s485}
+            className={s.s537}
           >
             <div
-              className={s.s486}
+              className={s.s538}
             >
               <span
-                className={s.s487}
+                className={s.s539}
               >
                 TENANT AUDIT
               </span>
@@ -591,15 +591,15 @@ export function UseCases({ v }: { v: LandingBindings }) {
               </svg>
             </div>
             <div
-              className={s.s488}
+              className={s.s540}
             >
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 Tenants
               </span>
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 No logs
               </span>
@@ -607,29 +607,29 @@ export function UseCases({ v }: { v: LandingBindings }) {
           </div>
         </div>
         <div
-          className={s.s507}
+          className={s.s559}
         >
           <span
-            className={s.s538}
+            className={s.s590}
             style={{ '--d0': v.uzX4 } as CSSVars}
           >
             AI SAAS PLATFORM
           </span>
           <div
-            className={s.s492}
+            className={s.s544}
           >
             <h3
-              className={s.s539}
+              className={s.s591}
               style={{ '--d0': v.uzH4 } as CSSVars}
             >
               Enterprise AI SaaS
             </h3>
             <span
-              className={s.s540}
+              className={s.s592}
               style={{ '--d0': `1px solid ${v.uzB4}`, '--d1': v.uzA4 } as CSSVars}
             >
               <svg
-                className={s.s541}
+                className={s.s593}
                 width="14"
                 height="14"
                 viewBox="0 0 16 16"
@@ -645,21 +645,21 @@ export function UseCases({ v }: { v: LandingBindings }) {
             </span>
           </div>
           <p
-            className={s.s542}
+            className={s.s594}
             style={{ '--d0': v.uzD4 } as CSSVars}
           >
             Ship AI features to enterprise customers whose prompts, documents and tickets never become visible to you or the model provider.
           </p>
           <div
-            className={s.s543}
+            className={s.s595}
             style={{ '--d0': `1px solid ${v.uzR4}` } as CSSVars}
           >
             <span
-              className={s.s544}
+              className={s.s596}
               style={{ '--d0': v.uzL4 } as CSSVars}
             />
             <span
-              className={s.s545}
+              className={s.s597}
               style={{ '--d0': v.uzC4 } as CSSVars}
             >
               READ THE REPORT
@@ -668,7 +668,7 @@ export function UseCases({ v }: { v: LandingBindings }) {
         </div>
       </a>
       <a
-        className={s.s546}
+        className={s.s598}
         href="https://phala.com/success-stories/decentralized-ai"
         target="_blank"
         rel="noopener"
@@ -677,43 +677,43 @@ export function UseCases({ v }: { v: LandingBindings }) {
         style={{ '--d0': v.uzOp, '--d1': v.uzUp } as CSSVars}
       >
         <span
-          className={s.s547}
+          className={s.s599}
           aria-hidden="true"
           style={{ '--d0': v.uzK5 } as CSSVars}
         />
         <div
-          className={s.s548}
+          className={s.s600}
         >
           <div
-            className={s.s549}
+            className={s.s601}
             aria-hidden="true"
             style={{ '--d0': v.uzZ5 } as CSSVars}
           >
             <div
-              className={s.s550}
+              className={s.s602}
               style={{ '--d0': v.uzP5 } as CSSVars}
             />
             <div
-              className={s.s551}
+              className={s.s603}
               style={{ '--d0': v.uzP5 } as CSSVars}
             />
             <div
-              className={s.s552}
+              className={s.s604}
               style={{ '--d0': v.uzP5 } as CSSVars}
             />
           </div>
           <div
-            className={s.s484}
+            className={s.s536}
             aria-hidden="true"
           />
           <div
-            className={s.s485}
+            className={s.s537}
           >
             <div
-              className={s.s486}
+              className={s.s538}
             >
               <span
-                className={s.s487}
+                className={s.s539}
               >
                 VERIFIABLE MESH
               </span>
@@ -756,20 +756,20 @@ export function UseCases({ v }: { v: LandingBindings }) {
               </svg>
             </div>
             <div
-              className={s.s488}
+              className={s.s540}
             >
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 GPUs
               </span>
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 Agents
               </span>
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 x402
               </span>
@@ -777,29 +777,29 @@ export function UseCases({ v }: { v: LandingBindings }) {
           </div>
         </div>
         <div
-          className={s.s490}
+          className={s.s542}
         >
           <span
-            className={s.s553}
+            className={s.s605}
             style={{ '--d0': v.uzX5 } as CSSVars}
           >
             DECENTRALIZED AI
           </span>
           <div
-            className={s.s492}
+            className={s.s544}
           >
             <h3
-              className={s.s554}
+              className={s.s606}
               style={{ '--d0': v.uzH5 } as CSSVars}
             >
               Agent payments on verifiable GPUs
             </h3>
             <span
-              className={s.s555}
+              className={s.s607}
               style={{ '--d0': `1px solid ${v.uzB5}`, '--d1': v.uzA5 } as CSSVars}
             >
               <svg
-                className={s.s556}
+                className={s.s608}
                 width="14"
                 height="14"
                 viewBox="0 0 16 16"
@@ -815,21 +815,21 @@ export function UseCases({ v }: { v: LandingBindings }) {
             </span>
           </div>
           <p
-            className={s.s557}
+            className={s.s609}
             style={{ '--d0': v.uzD5 } as CSSVars}
           >
             Agents pay for inference over x402 under wallet policy — daily caps, revocation and a receipt per action — while every GPU proves the hardware and runtime that actually ran.
           </p>
           <div
-            className={s.s558}
+            className={s.s610}
             style={{ '--d0': `1px solid ${v.uzR5}` } as CSSVars}
           >
             <span
-              className={s.s559}
+              className={s.s611}
               style={{ '--d0': v.uzL5 } as CSSVars}
             />
             <span
-              className={s.s560}
+              className={s.s612}
               style={{ '--d0': v.uzC5 } as CSSVars}
             >
               READ THE REPORT
@@ -838,7 +838,7 @@ export function UseCases({ v }: { v: LandingBindings }) {
         </div>
       </a>
       <a
-        className={s.s561}
+        className={s.s613}
         href="https://phala.com/success-stories/legal"
         target="_blank"
         rel="noopener"
@@ -847,43 +847,43 @@ export function UseCases({ v }: { v: LandingBindings }) {
         style={{ '--d0': v.uzOp, '--d1': v.uzUp } as CSSVars}
       >
         <span
-          className={s.s562}
+          className={s.s614}
           aria-hidden="true"
           style={{ '--d0': v.uzK6 } as CSSVars}
         />
         <div
-          className={s.s563}
+          className={s.s615}
         >
           <div
-            className={s.s564}
+            className={s.s616}
             aria-hidden="true"
             style={{ '--d0': v.uzZ6 } as CSSVars}
           >
             <div
-              className={s.s565}
+              className={s.s617}
               style={{ '--d0': v.uzP6 } as CSSVars}
             />
             <div
-              className={s.s566}
+              className={s.s618}
               style={{ '--d0': v.uzP6 } as CSSVars}
             />
             <div
-              className={s.s567}
+              className={s.s619}
               style={{ '--d0': v.uzP6 } as CSSVars}
             />
           </div>
           <div
-            className={s.s484}
+            className={s.s536}
             aria-hidden="true"
           />
           <div
-            className={s.s485}
+            className={s.s537}
           >
             <div
-              className={s.s486}
+              className={s.s538}
             >
               <span
-                className={s.s487}
+                className={s.s539}
               >
                 PRIVILEGE INTACT
               </span>
@@ -904,15 +904,15 @@ export function UseCases({ v }: { v: LandingBindings }) {
               </svg>
             </div>
             <div
-              className={s.s488}
+              className={s.s540}
             >
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 Matters
               </span>
               <span
-                className={s.s489}
+                className={s.s541}
               >
                 Redlines
               </span>
@@ -920,29 +920,29 @@ export function UseCases({ v }: { v: LandingBindings }) {
           </div>
         </div>
         <div
-          className={s.s507}
+          className={s.s559}
         >
           <span
-            className={s.s568}
+            className={s.s620}
             style={{ '--d0': v.uzX6 } as CSSVars}
           >
             LEGAL AI
           </span>
           <div
-            className={s.s492}
+            className={s.s544}
           >
             <h3
-              className={s.s569}
+              className={s.s621}
               style={{ '--d0': v.uzH6 } as CSSVars}
             >
               Legal AI with privilege intact
             </h3>
             <span
-              className={s.s570}
+              className={s.s622}
               style={{ '--d0': `1px solid ${v.uzB6}`, '--d1': v.uzA6 } as CSSVars}
             >
               <svg
-                className={s.s571}
+                className={s.s623}
                 width="14"
                 height="14"
                 viewBox="0 0 16 16"
@@ -958,21 +958,21 @@ export function UseCases({ v }: { v: LandingBindings }) {
             </span>
           </div>
           <p
-            className={s.s572}
+            className={s.s624}
             style={{ '--d0': v.uzD6 } as CSSVars}
           >
             Matter chat, drafting and redlines run inside a no-log runtime, so client records and strategy never reach the provider.
           </p>
           <div
-            className={s.s573}
+            className={s.s625}
             style={{ '--d0': `1px solid ${v.uzR6}` } as CSSVars}
           >
             <span
-              className={s.s574}
+              className={s.s626}
               style={{ '--d0': v.uzL6 } as CSSVars}
             />
             <span
-              className={s.s575}
+              className={s.s627}
               style={{ '--d0': v.uzC6 } as CSSVars}
             >
               READ THE REPORT

@@ -14,6 +14,7 @@ const write = (p, s) => writeFileSync(ROOT + p, s)
 const LANDING_SECTIONS = {
   Hero: 'Hero',
   Console: 'ConsoleShowcase',
+  Posters: 'Posters',
   Protocol: 'Protocol',
   UseCases: 'UseCases',
   Footer: 'Footer',

@@ -184,6 +184,28 @@ export interface LandingBindings {
   ppC: unknown
   ppD: unknown
   protoRef: unknown
+  pzC2: unknown
+  pzChip: unknown
+  pzChipSh: unknown
+  pzCirc: unknown
+  pzLift1: unknown
+  pzLift2: unknown
+  pzLift3: unknown
+  pzOff: unknown
+  pzOn1: unknown
+  pzOn2: unknown
+  pzOn3: unknown
+  pzRef: unknown
+  pzSh1: unknown
+  pzSh2: unknown
+  pzSh3: unknown
+  pzSq: unknown
+  pzSqR: unknown
+  pzSqSh: unknown
+  pzW: unknown
+  pzX: unknown
+  pzY: unknown
+  pzZoom: unknown
   rA1: unknown
   rA2: unknown
   rA3: unknown

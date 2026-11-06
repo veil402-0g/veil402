@@ -3,6 +3,7 @@ import { useArrowHover } from '../ui/useArrowHover'
 import { useHalftone } from '../hero/useHalftone'
 import { useHeroIntro } from '../hero/useHeroIntro'
 import { usePointerTilt } from '../hero/usePointerTilt'
+import { usePosters } from '../posters/usePosters'
 import { useProtocol } from '../protocol/useProtocol'
 import { useScrollEffects } from '../ui/useScrollEffects'
 import { useShowcase } from '../showcase/useShowcase'
@@ -30,6 +31,7 @@ export function useLandingBindings({ displayFont = 'Bagel Fat One' }: LandingOpt
   const hero = useHeroIntro()
   const command = useTypedCommand()
   const showcase = useShowcase()
+  const posters = usePosters()
   const protocol = useProtocol()
   const useCases = useUseCases()
   const transition = useViewTransition()
@@ -50,6 +52,7 @@ export function useLandingBindings({ displayFont = 'Bagel Fat One' }: LandingOpt
     ...hero,
     ...command,
     ...showcase,
+    ...posters,
     ...protocol,
     ...useCases,
 
