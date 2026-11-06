@@ -516,6 +516,7 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
         notify(`Key for ${a.name} copied`, a.id)
       },
       canPause: !revoked && config?.features.pause === true,
+      isPaused: a.status === 'paused',
       pauseLabel: a.status === 'paused' ? 'Resume' : 'Pause',
       togglePause: () => {
         const paused = a.status !== 'paused'

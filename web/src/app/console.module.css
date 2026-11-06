@@ -6,6 +6,8 @@
 
 @keyframes vbgshift{0%{background-position:0% 0%}50%{background-position:100% 45%}100%{background-position:35% 100%}}
 
+@keyframes vdrain{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+
 @keyframes vskel{from{background-position:-130% 0,0 0}to{background-position:230% 0,0 0}}
 
 @keyframes vin{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
@@ -1434,16 +1436,45 @@
   visibility: hidden;
 }
 
+/* Three actions a row deep, so they read as marks rather than a wall of
+   outlined words. */
+.rowIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #8b8e97;
+  cursor: pointer;
+  transition: color .2s ease,background .2s ease;
+}
+
+.rowIcon:hover {
+  background: rgba(18,48,214,.07);
+  color: #1230d6;
+}
+
+.rowIconWarn {
+  composes: rowIcon;
+}
+
+.rowIconWarn:hover {
+  background: rgba(255,77,26,.09);
+  color: #ff4d1a;
+}
+
 .statusPill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   width: max-content;
   height: 22px;
-  padding: 0 10px 0 4px;
-  border-radius: 999px;
-  background: #f4f6fd;
-  box-shadow: inset 0 0 0 1px rgba(13,14,18,.05);
+  padding: 0;
+  background: transparent;
   color: var(--d0);
   font-family: 'JetBrains Mono',monospace;
   font-size: 9px;
@@ -2551,39 +2582,60 @@
   color: #ff4d1a;
 }
 
+/* The same mesh the page uses for anything it wants read, rather than a
+   black slab that belongs to no part of it. */
 .s268 {
   position: fixed;
   left: 50%;
   bottom: 28px;
   transform: translateX(-50%);
-  background: #0d0e12;
+  overflow: hidden;
+  background: radial-gradient(70% 60% at 22% 20%,#5f93f0 0%,transparent 70%),radial-gradient(45% 40% at 92% 30%,#d8b9a6 0%,transparent 72%),radial-gradient(80% 60% at 45% 108%,#c3d3f6 0%,transparent 70%),linear-gradient(118deg,#2c63e6 0%,#4c86ee 42%,#8fb0f2 78%,#b6c9f4 100%);
   color: #fff;
-  padding: 13px 18px;
+  padding: 15px 44px 16px 20px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   z-index: 30;
   max-width: min(560px,calc(100vw - 32px));
   animation: vin .25s ease-out;
-  box-shadow: 0 14px 34px -12px rgba(13,14,18,.45);
+  box-shadow: 0 18px 40px -14px rgba(18,48,214,.55);
 }
 
+/* Stands in for the card's index in the same mesh elsewhere, and doubles as
+   how long the message has left. */
 .s269 {
-  width: 7px;
-  height: 7px;
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
   flex-shrink: 0;
-  background: var(--d0);
+  background: rgba(255,255,255,.85);
+  transform-origin: left center;
+  animation: vdrain 3.4s linear forwards;
 }
 
 .s270 {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
+}
+
+.s268::after {
+  content: '↗';
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  color: rgba(255,255,255,.75);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .s047,
-  .s209 {
+  .s209,
+  .s269 {
     animation: none;
   }
 }
@@ -2594,7 +2646,7 @@
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
 }
 
 /* Shown until dismissed: nothing can produce this value a second time. */
@@ -2709,14 +2761,14 @@
 }
 
 .toastTitle {
-  font-size: 13px;
-  letter-spacing: -0.01em;
+  font-size: 15px;
+  letter-spacing: -0.012em;
 }
 
 .toastSub {
   font: 400 10.5px 'JetBrains Mono',monospace;
   letter-spacing: .02em;
-  color: rgba(255,255,255,.58);
+  color: rgba(255,255,255,.72);
   word-break: break-all;
 }
 

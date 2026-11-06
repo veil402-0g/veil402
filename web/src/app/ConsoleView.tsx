@@ -4,6 +4,20 @@ import type { ConsoleBindings } from './useConsoleBindings'
 import s from './console.module.css'
 
 
+const COPY = 'M6 6V4.5A1.5 1.5 0 0 1 7.5 3h6A1.5 1.5 0 0 1 15 4.5v6a1.5 1.5 0 0 1-1.5 1.5H12M4.5 6h6A1.5 1.5 0 0 1 12 7.5v6A1.5 1.5 0 0 1 10.5 15h-6A1.5 1.5 0 0 1 3 13.5v-6A1.5 1.5 0 0 1 4.5 6Z'
+const PAUSE = 'M7 4v10M11 4v10'
+const PLAY = 'M6 4l7 5-7 5V4Z'
+const REVOKE = 'M5 5l8 8M13 5l-8 8'
+
+/** One stroked glyph, inheriting the button's colour. */
+function Glyph({ d }: { d: string }) {
+  return (
+    <svg viewBox="0 0 18 18" width="15" height="15" aria-hidden="true" focusable="false">
+      <path d={d} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 /** A value the daemon has not answered for yet. */
 function Skel({ w, h, r = 3 }: { w: number | string; h: number; r?: number }) {
   return (
@@ -842,27 +856,32 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                   <div className={s.rowActions}>
                     {a.keyKnown ? (
                       <button
-                        className={s.s142}
+                        className={s.rowIcon}
                         onClick={a.copyKey}
                         title={`Copy API key ${a.keyMask}`}
+                        aria-label="Copy API key"
                       >
-                        Copy key
+                        <Glyph d={COPY} />
                       </button>
                     ) : null}
                     {a.canPause ? (
                       <button
-                        className={s.s142}
+                        className={s.rowIcon}
                         onClick={a.togglePause}
+                        title={a.pauseLabel}
+                        aria-label={a.pauseLabel}
                       >
-                        {a.pauseLabel}
+                        <Glyph d={a.isPaused ? PLAY : PAUSE} />
                       </button>
                     ) : null}
                     {a.canRevoke ? (
                       <button
-                        className={s.s142}
+                        className={s.rowIconWarn}
                         onClick={a.revoke}
+                        title="Revoke"
+                        aria-label="Revoke"
                       >
-                        Revoke
+                        <Glyph d={REVOKE} />
                       </button>
                     ) : null}
                     {a.isRevoked ? (
