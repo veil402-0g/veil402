@@ -3,10 +3,9 @@ use std::sync::Arc;
 use thiserror::Error;
 use veil402_sdk::{
     Field, MerklePath, Note, Owner, Secret, SessionKeys, Send, Spend, Transaction,
-    change_random, split,
 };
 
-use super::{ChainFacts, Held, Minted, NoteStore, Reconciled};
+use super::{ChainFacts, Held, Minted, NoteStore, Reconciled, Recovered};
 use crate::core::StoreError;
 
 /// A note still unplaced after this long means its transaction never landed.
@@ -27,16 +26,10 @@ const GRACE: u64 = 60;
 pub enum WalletError {
     #[error(transparent)]
     Store(#[from] StoreError),
-    /// The balance covers the session but no single note does. A split fixes
-    /// this; a deposit does not.
-    #[error("no note covers {ceiling}: {balance} held across {notes} notes")]
-    Fragmented {
-        ceiling: u64,
-        balance: u64,
-        notes: usize,
-    },
-    #[error("{balance} held, {ceiling} needed")]
-    Insufficient { ceiling: u64, balance: u64 },
+    /// Nothing spendable. Only a deposit fixes this: with no size to meet,
+    /// the only way to have no note is to have none.
+    #[error("no spendable note")]
+    Empty,
     #[error("the owner key cannot derive a nullifier")]
     Owner,
 }
@@ -50,28 +43,30 @@ impl WalletError {
     }
 }
 
-/// The smallest note that covers `ceiling` on its own, by position.
+/// A note to run a session on, by position.
 ///
-/// A settlement the buyer cannot prove leaves the seller unpaid for work it
-/// has already delivered, so one note has to cover the session without needing
-/// a second input. Smallest sufficient keeps the rest of the balance free: a
-/// lock freezes its note for the whole deadline, not just for a block.
+/// A seeded note that covers `wanted` is the one to want: the last
+/// settlement minted it for exactly this, and handing it over costs nothing.
+/// Smallest sufficient, so a lock freezes no more of the balance than the
+/// session needs. Anything else has to be reseeded first, which costs a
+/// proof and a transaction, and is only worth doing against the largest
+/// note there is.
 ///
 /// # Errors
 ///
-/// Returns [`WalletError::Fragmented`] when the balance is there but no single
-/// note holds it, and [`WalletError::Insufficient`] when it is not.
-pub fn select(held: &[Held], ceiling: u64) -> Result<usize, WalletError> {
+/// Returns [`WalletError::Empty`] when nothing is spendable.
+pub fn choose(held: &[Held], wanted: u64) -> Result<usize, WalletError> {
     held.iter()
         .enumerate()
-        .filter(|(_, note)| note.value >= ceiling)
+        .filter(|(_, note)| note.seed.is_some() && note.value >= wanted)
         .min_by_key(|(_, note)| note.value)
+        .or_else(|| held.iter().enumerate().max_by_key(|(_, note)| note.value))
         .map(|(position, _)| position)
-        .ok_or_else(|| shortfall(held, ceiling))
+        .ok_or(WalletError::Empty)
 }
 
-/// A wallet note divided into one a session owns and the remainder.
-pub struct Split {
+/// A wallet note given an identity of its own.
+pub struct Reseeded {
     /// Ready to prove and broadcast.
     pub transaction: Transaction,
     /// Commitment of the session note, which is also the key its submission
@@ -79,44 +74,21 @@ pub struct Split {
     pub session: Field,
 }
 
-/// What dividing a note produces: the rows to keep and the outputs to prove.
-struct Divided {
-    minted: Vec<Minted>,
-    sends: Vec<Send>,
-    session: Field,
-}
-
-fn divide(note: &Held, ceiling: u64, owner: &Owner) -> Result<Divided, veil402_sdk::Error> {
+/// Mints the whole of `note` again under a key derived from one seed.
+///
+/// Whole rather than a piece of it: the session's ceiling is whatever the
+/// note holds, so there is no size to cut to, and a remainder would only be
+/// a second output to prove and write down.
+fn reseeded(note: &Held) -> Result<(Minted, Send), veil402_sdk::Error> {
     let seed = Secret::random()?;
     let keys = SessionKeys::from_seed(&seed)?;
-    let (session_note, session_send) = output(
+    output(
         note.asset,
-        ceiling,
+        note.value,
         keys.owner.public()?,
         &keys.random,
         Some(&seed),
-    )?;
-    let session = session_note.commitment;
-    let mut minted = vec![session_note];
-    let mut sends = vec![session_send];
-
-    let remainder = note.value.saturating_sub(ceiling);
-    if remainder > 0 {
-        let (kept, created) = output(
-            note.asset,
-            remainder,
-            owner.public()?,
-            &Secret::random()?,
-            None,
-        )?;
-        minted.push(kept);
-        sends.push(created);
-    }
-    Ok(Divided {
-        minted,
-        sends,
-        session,
-    })
+    )
 }
 
 /// One output, as the row to keep and the send to prove. Both carry the same
@@ -145,27 +117,26 @@ fn output(
     Ok((kept, created))
 }
 
-/// The notes a settlement minted, derived the way the enclave derived them.
+/// The note a settlement minted, derived the way the enclave derived it.
 /// The two must agree exactly: a mismatch loses the change outright.
 fn outputs(
     note: &Held,
     spent: u64,
     change_seed: &Secret,
-    owner: &Owner,
-    target: u64,
 ) -> Result<Vec<Minted>, veil402_sdk::Error> {
-    let mut amounts = split(note.value.saturating_sub(spent), target).into_iter();
-    let mut minted = Vec::new();
-    if let Some(value) = amounts.next() {
-        let keys = SessionKeys::from_seed(change_seed)?;
-        let seed = Secret::from_bytes(change_seed.to_bytes())?;
-        minted.push(mint(note.asset, value, keys.owner.public()?, keys.random, Some(seed))?);
+    let change = note.value.saturating_sub(spent);
+    if change == 0 {
+        return Ok(Vec::new());
     }
-    if let Some(value) = amounts.next() {
-        let random = change_random(change_seed)?;
-        minted.push(mint(note.asset, value, owner.public()?, random, None)?);
-    }
-    Ok(minted)
+    let keys = SessionKeys::from_seed(change_seed)?;
+    let seed = Secret::from_bytes(change_seed.to_bytes())?;
+    Ok(vec![mint(
+        note.asset,
+        change,
+        keys.owner.public()?,
+        keys.random,
+        Some(seed),
+    )?])
 }
 
 fn mint(
@@ -187,19 +158,6 @@ fn mint(
 
 /// Says whether a split or a deposit is what is missing, since only one of
 /// them is something the operator has to fund.
-fn shortfall(held: &[Held], ceiling: u64) -> WalletError {
-    let balance = held.iter().map(|note| note.value).sum();
-    if balance >= ceiling {
-        WalletError::Fragmented {
-            ceiling,
-            balance,
-            notes: held.len(),
-        }
-    } else {
-        WalletError::Insufficient { ceiling, balance }
-    }
-}
-
 /// Which notes we hold, and which of them a session may use.
 pub struct WalletService {
     notes: Arc<dyn NoteStore>,
@@ -228,10 +186,10 @@ impl WalletService {
     ///
     /// Returns [`WalletError`] when no note covers the ceiling on its own, or
     /// the store cannot be reached.
-    pub async fn reserve(&self, asset: Field, ceiling: u64, now: u64) -> Result<Held, WalletError> {
+    pub async fn reserve(&self, asset: Field, wanted: u64, now: u64) -> Result<Held, WalletError> {
         let mut free = self.notes.spendable(asset, now).await?;
         loop {
-            let note = free.swap_remove(select(&free, ceiling)?);
+            let note = free.swap_remove(choose(&free, wanted)?);
             if self
                 .notes
                 .hold(note.commitment, now, now.saturating_add(INTENT))
@@ -264,29 +222,31 @@ impl WalletService {
         Ok(self.notes.remember(minted, now).await?)
     }
 
-    /// Divides a wallet note into one a session owns and the remainder.
+    /// Gives a wallet note an identity of its own.
     ///
-    /// A shielded note belongs to this wallet's key, and delegating it would
-    /// delegate every note that key holds. The session note gets its own
-    /// seed, so handing that over hands over exactly one note.
+    /// A note belongs to this wallet's key, and that key spends every note
+    /// the wallet holds — so handing one over would hand over all of them.
+    /// The reseeded note is owned by a key derived from a single seed, and
+    /// nothing else was ever minted to that key, so the seed hands over
+    /// exactly one note.
     ///
-    /// Both outputs are written down before the transaction is built, for the
-    /// same reason every mint is: nothing recovers them afterwards.
+    /// Written down before the transaction is built, for the same reason
+    /// every mint is: nothing recovers it afterwards.
     ///
     /// # Errors
     ///
-    /// Returns [`WalletError`] when the store cannot be written or a note
+    /// Returns [`WalletError`] when the store cannot be written or the note
     /// cannot be derived.
-    pub async fn split(
+    pub async fn reseed(
         &self,
         note: &Held,
         merkle: MerklePath,
-        ceiling: u64,
         now: u64,
-    ) -> Result<Split, WalletError> {
-        let divided = divide(note, ceiling, &self.owner).map_err(|_| WalletError::Owner)?;
-        self.notes.remember(&divided.minted, now).await?;
-        let spend = Spend {
+    ) -> Result<Reseeded, WalletError> {
+        let (minted, send) = reseeded(note).map_err(|_| WalletError::Owner)?;
+        let session = minted.commitment;
+        self.notes.remember(&[minted], now).await?;
+        let input = Spend {
             note: Note {
                 value: note.value,
                 asset: note.asset,
@@ -296,10 +256,10 @@ impl WalletService {
             owner: self.owner_for(note)?,
             merkle,
         };
-        Ok(Split {
-            transaction: Transaction::new(vec![spend], divided.sends)
+        Ok(Reseeded {
+            transaction: Transaction::new(vec![input], vec![send])
                 .map_err(|_| WalletError::Owner)?,
-            session: divided.session,
+            session,
         })
     }
 
@@ -351,26 +311,25 @@ impl WalletService {
         &self,
         nullifier: Field,
         change_seed: &Secret,
-        target: u64,
         now: u64,
-    ) -> Result<usize, WalletError> {
-        let (Some(spent), Some(note)) = (
-            self.chain.settlement(nullifier).await?,
-            self.notes.by_nullifier(nullifier).await?,
-        ) else {
-            return Ok(0);
+    ) -> Result<Recovered, WalletError> {
+        let Some(note) = self.notes.by_nullifier(nullifier).await? else {
+            return Ok(Recovered::Nothing);
+        };
+        let Some(spent) = self.chain.settlement(nullifier).await? else {
+            return Ok(Recovered::Pending);
         };
         // A settlement to an address always pays something, so a zero means
         // the seller took a note instead and the amount stayed private.
         // Deriving against it would mint commitments the chain never saw.
         if spent == 0 {
-            return Ok(0);
+            return Ok(Recovered::Nothing);
         }
-        let minted = outputs(&note, spent, change_seed, &self.owner, target)
+        let minted = outputs(&note, spent, change_seed)
             .map_err(|_| WalletError::Owner)?;
-        let placed = minted.len();
+        let change = minted.first().map(|note| note.commitment);
         self.notes.remember(&minted, now).await?;
-        Ok(placed)
+        Ok(change.map_or(Recovered::Nothing, Recovered::Change))
     }
 
     /// Catches the notes up with the chain: places the ones the index has

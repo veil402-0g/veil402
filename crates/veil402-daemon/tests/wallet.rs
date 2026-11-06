@@ -11,7 +11,7 @@ use veil402_daemon::{
     core::{
         index::{Batch, Commitment, IndexStore, Locked, Nullified, Settled},
         envelope::SubmissionStore,
-        wallet::{Held, Minted, NoteStore, WalletError, WalletService, select},
+        wallet::{Held, Minted, NoteStore, Recovered, WalletError, WalletService, choose},
     },
 };
 use veil402_sdk::{Field, Owner, Secret, SessionKeys};
@@ -137,54 +137,51 @@ fn minted(
     })
 }
 
-fn holding(values: &[u64]) -> Result<Vec<Held>, Box<dyn std::error::Error>> {
-    values
+fn seeding(notes: &[(u64, bool)]) -> Result<Vec<Held>, Box<dyn std::error::Error>> {
+    notes
         .iter()
         .enumerate()
-        .map(|(index, value)| {
-            let index = u32::try_from(index)?;
+        .map(|(leaf, (value, seeded))| {
+            let leaf = u32::try_from(leaf)?;
             Ok(Held {
-                commitment: field(u64::from(index) + 1),
-                leaf: index,
-                nullifier: field(u64::from(index) + 1_000),
+                commitment: field(u64::from(leaf)),
+                leaf,
+                nullifier: field(u64::from(leaf) + 1_000),
                 value: *value,
                 asset: ASSET,
                 random: Secret::random()?,
-                seed: None,
+                seed: seeded.then(Secret::random).transpose()?,
             })
         })
         .collect()
 }
 
+/// A seeded note is the one to want — it was minted for this and costs
+/// nothing to hand over. Only when none of them covers the session is it
+/// worth reseeding something, and then it may as well be the biggest.
 #[test]
-fn select_takes_the_smallest_note_that_covers_the_session() -> Fallible {
-    let held = holding(&[10, 100, 30, 50])?;
+fn a_seeded_note_is_preferred_and_the_largest_is_the_fallback() -> Fallible {
+    // 10 and 50 carry a seed; 100 and 30 are the wallet's own.
+    let held = seeding(&[(10, true), (100, false), (30, false), (50, true)])?;
 
-    assert_eq!(select(&held, 30)?, 2, "an exact cover is still the smallest");
-    assert_eq!(select(&held, 31)?, 3);
-    assert_eq!(select(&held, 1)?, 0);
+    assert_eq!(choose(&held, 30)?, 3, "the smallest seeded note that covers it");
+    assert_eq!(choose(&held, 10)?, 0, "and smaller when a smaller one will do");
+    assert_eq!(
+        choose(&held, 51)?,
+        1,
+        "no seeded note covers it, so the largest is worth reseeding"
+    );
+
+    // Nothing seeded at all is the first envelope, before any settlement.
+    let cold = seeding(&[(10, false), (100, false)])?;
+    assert_eq!(choose(&cold, 30)?, 1);
     Ok(())
 }
 
-/// Which failure it is decides what the operator has to do, so they are not
-/// the same error.
+/// With no size to meet, the only way to have no note is to hold none.
 #[test]
-fn a_shortfall_says_whether_a_split_would_fix_it() -> Fallible {
-    let held = holding(&[10, 20, 30])?;
-
-    assert!(matches!(
-        select(&held, 45),
-        Err(WalletError::Fragmented {
-            balance: 60,
-            notes: 3,
-            ..
-        })
-    ));
-    assert!(matches!(
-        select(&held, 61),
-        Err(WalletError::Insufficient { balance: 60, .. })
-    ));
-    Ok(())
+fn an_empty_wallet_is_the_only_refusal() {
+    assert!(matches!(choose(&[], 1), Err(WalletError::Empty)));
 }
 
 #[tokio::test]
@@ -238,7 +235,7 @@ async fn only_one_session_can_claim_a_note() -> Fallible {
     );
     assert!(matches!(
         wallet.reserve(ASSET, 100, 0).await,
-        Err(WalletError::Insufficient { .. })
+        Err(WalletError::Empty)
     ));
     Ok(())
 }
@@ -374,12 +371,17 @@ async fn settled_change_is_recovered_from_the_chain_alone() -> Fallible {
     let nullifier = SessionKeys::from_seed(&session)?.owner.nullifier(0)?;
 
     settled(&store, nullifier, 300).await?;
-    assert_eq!(wallet.recover(nullifier, &change, 100, 0).await?, 2);
+    assert!(matches!(
+        wallet.recover(nullifier, &change, 0).await?,
+        Recovered::Change(_)
+    ));
 
-    // One note carries the next session, the other returns to the wallet.
+    // The whole remainder, seeded, so the next envelope opens on it without
+    // a reseed. Nothing is carved off for the wallet's own key: there is no
+    // size to carve to, and the seed already reaches this note.
     let recovered = store.unplaced().await?;
-    assert_eq!(recovered.len(), 2);
-    assert_eq!(recovered.iter().filter(|note| note.seed.is_some()).count(), 1);
+    assert_eq!(recovered.len(), 1);
+    assert!(recovered[0].seed.is_some(), "the change came back undelegatable");
 
     let commitments: Vec<Field> = recovered.iter().map(|note| note.commitment).collect();
     place(&store, &commitments, 1).await?;
@@ -391,7 +393,7 @@ async fn settled_change_is_recovered_from_the_chain_alone() -> Fallible {
         .iter()
         .map(|note| note.value)
         .collect();
-    assert_eq!(spendable, vec![100, 600], "the settled note's change is spendable");
+    assert_eq!(spendable, vec![700], "the settled note's change is spendable");
     Ok(())
 }
 
@@ -411,7 +413,10 @@ async fn a_private_settlement_recovers_nothing() -> Fallible {
     let nullifier = SessionKeys::from_seed(&session)?.owner.nullifier(0)?;
 
     settled(&store, nullifier, 0).await?;
-    assert_eq!(wallet.recover(nullifier, &Secret::random()?, 100, 0).await?, 0);
+    assert_eq!(
+        wallet.recover(nullifier, &Secret::random()?, 0).await?,
+        Recovered::Nothing
+    );
     assert!(store.unplaced().await?.is_empty(), "nothing was invented");
     Ok(())
 }

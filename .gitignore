@@ -43,3 +43,12 @@ docs
 *.db
 *.db-shm
 *.db-wal
+
+# Transaction engine state
+*.redb
+
+# Built prover worker
+prover/veil402-gnark/veil402-gnark
+
+# aider leaves these beside the repo it edits
+.aider*

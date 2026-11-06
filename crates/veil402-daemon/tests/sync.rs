@@ -22,7 +22,6 @@ async fn daemon(chain: Chain, attempts: u32) -> Result<Daemon, Box<dyn std::erro
     Ok(Daemon::new(
         index,
         Arc::new(wallet),
-        Arc::new(common::Silent),
         Retry {
             interval: Duration::from_secs(5),
             attempts,
@@ -60,7 +59,7 @@ async fn a_pass_that_succeeds_forgives_the_ones_before_it() -> Fallible {
     pause();
 
     assert!(
-        timeout(Duration::from_secs(600), daemon.run())
+        timeout(Duration::from_mins(10), daemon.run())
             .await
             .is_err(),
         "the loop gave up on an endpoint that keeps coming back"

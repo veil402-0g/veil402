@@ -1,12 +1,14 @@
 use async_trait::async_trait;
+use futures_util::stream::BoxStream;
 use thiserror::Error;
 use veil402_sdk::{
     Field, Prepared, Secret, Transaction,
-    evm::{Call, Session, Voucher},
+    evm::{Session, Voucher},
     session::Sealed,
+    wire::Offer,
 };
 
-use super::{Agreement, ChainError, Metered, ProveError};
+use super::{Agreement, ChainError, Piece, ProveError, Settlement};
 use crate::core::StoreError;
 
 /// Where a submitted call ended up.
@@ -37,10 +39,6 @@ pub trait Broadcaster: Send + Sync {
 
     /// Where a submitted call has reached, or `None` while it is in flight.
     async fn landed(&self, key: Field) -> Result<Option<Landed>, ChainError>;
-
-    /// Advances everything in flight: rebroadcasts, bumps fees, notices
-    /// reorgs. Nothing reaches a terminal state without it.
-    async fn tick(&self) -> Result<(), ChainError>;
 
     /// The latest block's timestamp.
     ///
@@ -88,6 +86,14 @@ pub enum EnclaveError {
     /// Serving this call would take the envelope past what its note can pay.
     #[error("the envelope's ceiling is reached")]
     CeilingReached,
+    /// The seller's upstream refused, in its own words. They came back
+    /// sealed, so the host that relayed them never read them.
+    #[error("the upstream refused with {status}")]
+    Upstream {
+        status: u16,
+        retry_after: Option<u64>,
+        body: Vec<u8>,
+    },
     #[error("the enclave refused: {0}")]
     Refused(String),
 }
@@ -105,6 +111,9 @@ impl EnclaveError {
 /// once there is hardware: that move must change one adapter and nothing else.
 #[async_trait]
 pub trait Enclave: Send + Sync {
+    /// What this seller sells, and what it charges for it.
+    async fn catalogue(&self) -> Result<Vec<Offer>, EnclaveError>;
+
     /// Agrees to meter a session, returning the signatures and the key its
     /// delegation must be sealed to.
     async fn agree(&self, session: &Session) -> Result<Agreement, EnclaveError>;
@@ -113,12 +122,23 @@ pub trait Enclave: Send + Sync {
     /// before it will meter anything.
     async fn accept(&self, sealed: Sealed, session: Session) -> Result<(), EnclaveError>;
 
-    /// Meters one served call.
-    async fn record(&self, nullifier: Field, call: Call) -> Result<Metered, EnclaveError>;
+    /// Sends the agent's request, and returns the answer to it.
+    ///
+    /// `body` is the agent's own bytes. Sealing them, and minting the
+    /// channel the answer comes back over, belong to whichever adapter is
+    /// in use — so the host that relays it learns which session is working
+    /// and what it cost, never what was asked. `attempt` names the call
+    /// rather than the retry, so one served twice is billed once.
+    async fn chat(
+        &self,
+        nullifier: Field,
+        body: &[u8],
+        attempt: &str,
+    ) -> Result<BoxStream<'static, Result<Piece, EnclaveError>>, EnclaveError>;
 
     /// Proves the settlement. `dust` asks for the smallest one that frees the
     /// note, for an envelope nobody owes anything on.
-    async fn settle(&self, nullifier: Field, dust: bool) -> Result<Prepared, EnclaveError>;
+    async fn settle(&self, nullifier: Field, dust: bool) -> Result<Settlement, EnclaveError>;
 }
 
 /// Holds the one secret an envelope cannot derive again.
@@ -130,4 +150,12 @@ pub trait EnvelopeStore: Send + Sync {
     async fn remember(&self, nullifier: Field, change_seed: &Secret) -> Result<(), StoreError>;
 
     async fn change_seed(&self, nullifier: Field) -> Result<Option<Secret>, StoreError>;
+
+    /// The last envelope opened.
+    ///
+    /// One seller and one shared ceiling mean one envelope serves whatever
+    /// is asked of it, whichever model that turns out to be. Seller,
+    /// deadline and ceiling are all on chain against the nullifier, and a
+    /// second copy of a fact the chain decides is one that can disagree.
+    async fn newest(&self) -> Result<Option<Field>, StoreError>;
 }

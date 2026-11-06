@@ -29,7 +29,7 @@ impl Config {
         Self {
             worker_executable: worker.into(),
             artifact_directory: artifacts.into(),
-            timeout: Duration::from_secs(120),
+            timeout: Duration::from_mins(2),
         }
     }
 
@@ -135,7 +135,8 @@ impl Veil {
         pool: &PoolClient,
         transaction: Transaction,
     ) -> Result<Prepared, Error> {
-        self.prepare(pool, transaction, Address::ZERO, 0, None).await
+        self.prepare(pool, transaction, Address::ZERO, 0, None)
+            .await
     }
 
     /// Proves a withdrawal and builds the call that consumes it.

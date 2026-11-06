@@ -7,21 +7,37 @@ license.workspace = true
 description = "Self-hosted Veil gateway: index, wallet, sessions"
 
 [dependencies]
-alloy = { version = "1", features = ["contract", "provider-http", "sol-types", "rpc-types-eth"] }
+alloy = { version = "1", features = ["contract", "network", "provider-http", "rpc-types-eth", "signer-local", "signers", "sol-types"] }
 async-trait = "0.1"
+axum = "0.8"
+axum-extra = { version = "0.10", features = ["typed-header"] }
+borsh = { version = "1", features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
 dotenvy = "0.15"
+eventsource-stream = "0.2"
+futures-util = "0.3"
+getrandom = "0.3"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2", "stream"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+subtle = "2"
 thiserror = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+tokio-stream = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-veil402-enclave = { path = "../veil402-enclave" }
 veil402-sdk = { path = "../veil402-sdk" }
 walletkit-rs = { git = "https://github.com/21r21a33333/walletkit", rev = "5af8b6ab3b9bc655c95dd8bc5d7655bce86e3cfe" }
 
 [dev-dependencies]
 alloy = { version = "1", features = ["network", "signer-local"] }
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+async-trait = "0.1"
+axum = "0.8"
+veil402-enclave = { path = "../veil402-enclave" }
+veil402-gateway = { path = "../veil402-gateway" }
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }
 

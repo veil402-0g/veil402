@@ -19,13 +19,15 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use veil402_daemon::{
+    core::envelope::EnvelopeService,
     adapters::{ChainSource, SqliteStore, Window},
     app::{Config, Daemon, Retry, now},
     core::{index::IndexService, wallet::Minted},
 };
+use veil402_gateway::adapters::http::router;
 use veil402_sdk::{
     Config as Proving, Note, Owner, Secret, Send, Spend, Transaction, Veil,
-    evm::{Call, PoolClient, Withdrawal},
+    evm::{PoolClient, Withdrawal},
     session::{Keyring, RootSeed},
 };
 
@@ -33,6 +35,7 @@ const DEPOSIT: u64 = 1_000;
 
 /// What the envelope reserves, and what a settlement leaves for the next one.
 const CEILING: u64 = 600;
+const MODEL: &str = "stub";
 const TARGET: u64 = 200;
 
 fn var(name: &str) -> Result<String, Box<dyn StdError>> {
@@ -95,6 +98,7 @@ async fn spends_the_second_note() -> Result<(), Box<dyn StdError>> {
         provider.clone(),
         pool_address,
         Window {
+            from: var("POOL_BLOCK").ok().and_then(|at| at.parse().ok()).unwrap_or(0),
             chunk: NonZeroU64::new(1_000).ok_or("chunk")?,
             confirmations: 0,
         },
@@ -213,6 +217,7 @@ async fn an_envelope_rolls_into_the_next() -> Result<(), Box<dyn StdError>> {
 
     // ---- the enclave the registry will vouch for -------------------------
     let root = [0x0A_u8; 32];
+    let seller = Address::repeat_byte(0x5E);
     let enclave = Keyring::new(RootSeed::from_bytes(root)).signer()?.address();
     let registry = IRegistry::new(var("REGISTRY")?.parse()?, &provider);
     if !registry.isLive(enclave).call().await? {
@@ -241,13 +246,18 @@ async fn an_envelope_rolls_into_the_next() -> Result<(), Box<dyn StdError>> {
     let receipt = provider.send_transaction(request).await?.get_receipt().await?;
     println!("shield gas       {}", receipt.gas_used);
 
+    // ---- the gateway that hosts the enclave ------------------------------
+    let housed = tempfile::tempdir()?;
+    let served = serve(&pool, root, seller, housed.path()).await?;
+
     // ---- the daemon, from its own composition root -----------------------
     let state = tempfile::tempdir()?;
     let daemon = Arc::new(
         daemon(
             &pool,
             owner,
-            root,
+            &served,
+            seller,
             Minted {
                 commitment,
                 value: DEPOSIT,
@@ -268,38 +278,31 @@ async fn an_envelope_rolls_into_the_next() -> Result<(), Box<dyn StdError>> {
     let envelopes = daemon.envelopes().ok_or("no envelope service")?.clone();
     caught_up(&daemon, commitment).await?;
 
-    // ---- open: splits the cold note, locks, hands the session over -------
-    let seller = Address::repeat_byte(0x5E);
+    // ---- open: reserves the cold note, locks, hands the session over -----
     let first = envelopes.open(seller, CEILING, 600).await?;
-    assert_eq!(first.ceiling, CEILING, "the note's value is the ceiling");
+    assert_eq!(first.ceiling, DEPOSIT, "the note's value is the ceiling");
     println!("opened           ceiling {}, deadline {}", first.ceiling, first.deadline);
 
     // ---- meter, then settle ----------------------------------------------
-    let mut owed = 0;
-    for cost in [40_u64, 110, 150] {
-        let metered = envelopes
-            .record(first.nullifier, Call { cost, attestation: B256::repeat_byte(1) })
-            .await?;
-        owed = metered.total;
-    }
-    assert_eq!(owed, 300);
+    // A seller is paid into the same account every run, so what one
+    // settlement moved is the difference rather than the balance.
+    let held = IToken::new(token_address, &provider).balanceOf(seller).call().await?;
+    let owed = metered(&envelopes, first.nullifier).await?;
     envelopes.settle(first.nullifier, false).await?;
 
-    let token = IToken::new(token_address, &provider);
-    assert_eq!(token.balanceOf(seller).call().await?, U256::from(owed));
-    assert!(
-        IPoolView::new(pool_address, &provider)
-            .nullifierSpent(U256::from_be_bytes(first.nullifier.to_bytes()))
-            .call()
-            .await?,
-        "the settlement did not spend the nullifier"
+    settled(&provider, pool_address, first.nullifier).await?;
+    assert_eq!(
+        IToken::new(token_address, &provider).balanceOf(seller).call().await? - held,
+        U256::from(owed),
+        "the settlement paid the seller something other than what it owed"
     );
 
     // ---- the claim: the next envelope needs no split ---------------------
     let second = envelopes.open(seller, TARGET, 600).await?;
     assert_ne!(second.nullifier, first.nullifier);
     assert_eq!(
-        second.ceiling, TARGET,
+        second.ceiling,
+        DEPOSIT - owed,
         "the settlement minted the next envelope's note already seeded"
     );
     println!("rolled over      into {} without a split", second.ceiling);
@@ -327,6 +330,30 @@ alloy::sol! {
 
 /// A note the index has not placed has no nullifier, and a reservation needs
 /// one — so the daemon has to be caught up before it can serve anything.
+/// Waits for a settlement to land.
+///
+/// Submitting and landing are different moments: the daemon hands the call
+/// to its engine and carries on, and a chain that mines on its own clock
+/// takes a block or two. The nullifier is the unambiguous signal — a
+/// balance is shared with every run before this one.
+async fn settled(
+    provider: impl Provider,
+    pool: Address,
+    nullifier: veil402_sdk::Field,
+) -> Result<(), Box<dyn StdError>> {
+    for _ in 0..60 {
+        if IPoolView::new(pool, &provider)
+            .nullifierSpent(U256::from_be_bytes(nullifier.to_bytes()))
+            .call()
+            .await?
+        {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    Err("the settlement never spent the nullifier".into())
+}
+
 async fn caught_up(daemon: &Daemon, commitment: veil402_sdk::Field) -> Result<(), Box<dyn StdError>> {
     for _ in 0..80 {
         if daemon.wallet().by_commitment(commitment).await?.is_some() {
@@ -359,24 +386,32 @@ fn keep_mining(provider: impl Provider + 'static) -> tokio::task::JoinHandle<()>
 async fn daemon(
     pool: &PoolClient,
     owner: Owner,
-    root: [u8; 32],
+    gateway: &str,
+    seller: Address,
     note: Minted,
     state: &Path,
 ) -> Result<Daemon, Box<dyn StdError>> {
     let daemon = Daemon::start(Config {
+        fee_cap: 20_000_000_000_000,
+        listen: "127.0.0.1:0".parse()?,
+        cap: 1_024,
         rpc: var("RPC_URL")?,
+        logs: var("RPC_URL")?,
         pool: pool.address(),
         token: var("TOKEN")?.parse()?,
         verifier: var("VERIFIER")?.parse()?,
         database: format!("sqlite://{}?mode=rwc", state.join("veil.db").display()),
         signer: var("PRIVATE_KEY")?,
+        gateway: gateway.to_owned(),
+        seller,
+        session: CEILING,
+        lock_for: 600,
         wallet_state: state.join("wallet.redb"),
-        worker: worker()?,
-        artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
-        root,
+            worker: worker()?,
+            artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
         owner,
-        target: TARGET,
         window: Window {
+            from: var("POOL_BLOCK").ok().and_then(|at| at.parse().ok()).unwrap_or(0),
             chunk: NonZeroU64::new(1_000).ok_or("chunk")?,
             confirmations: 0,
         },
@@ -388,4 +423,126 @@ async fn daemon(
     .await?;
     daemon.wallet().remember(&[note], now()).await?;
     Ok(daemon)
+}
+
+
+/// The gateway, on an ephemeral port. It holds the enclave the daemon talks
+/// to, which is the arrangement production runs: the buyer's daemon never
+/// holds an enclave key.
+async fn serve(
+    pool: &PoolClient,
+    root: [u8; 32],
+    seller: Address,
+    state: &Path,
+) -> Result<String, Box<dyn StdError>> {
+    // The real reader: M1 locks honestly, so the gateway's escrow check has a
+    // real escrow and a real root to find.
+    let escrows = Arc::new(veil402_gateway::adapters::connect(&var("RPC_URL")?, pool.address()).await?);
+    let service = veil402_gateway::app::assemble(
+        &veil402_gateway::app::Config {
+            vouched: std::collections::HashMap::new(),
+            fee_cap: 20_000_000_000_000,
+            pool: *pool,
+            root,
+        worker: worker()?,
+        artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
+            seller,
+            state: state.join("sessions.redb"),
+            bind: "127.0.0.1:0".parse()?,
+            rpc: var("RPC_URL")?,
+            upstream: "http://127.0.0.1:0".to_owned(),
+            upstream_key: "sk-test".to_owned(),
+            trust: "private".to_owned(),
+            scale: 1,
+            margin_bps: 0,
+            ceiling: 1_024,
+            signer: "0x0101010101010101010101010101010101010101010101010101010101010101".to_owned(),
+            multicall: alloy::primitives::Address::repeat_byte(0xCA),
+            wallet_state: std::path::PathBuf::from("/nonexistent/wallet.redb"),
+            confirmations: 0,
+        },
+        escrows,
+        // M1 proves the chain half: a lock, three metered calls, a
+        // settlement and the envelope that follows it. What served the calls
+        // is not the thing under test, and a provider that has to be up for
+        // it to run is a flake waiting to happen.
+        Arc::new(Priced),
+    )?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let served = format!("http://{}", listener.local_addr()?);
+    let app = router(service);
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    Ok(served)
+}
+
+/// Three requests through the loop, so the registry, the sealing and the
+/// metering are exercised the way an agent would exercise them.
+async fn metered(
+    envelopes: &EnvelopeService,
+    _nullifier: veil402_sdk::Field,
+) -> Result<u64, Box<dyn StdError>> {
+    let mut owed = 0;
+    for sequence in 0..3 {
+        let answered = envelopes
+            .dispatch(
+                format!(
+                    r#"{{"model":"{MODEL}","messages":[{{"role":"user","content":"{}"}}]}}"#,
+                    "x".repeat(40)
+                )
+                .as_bytes(),
+                &format!("call-{sequence}"),
+            )
+            .await?;
+        owed = veil402_daemon::core::envelope::collected(answered)
+            .await?
+            .metered
+            .total;
+    }
+    assert!(owed > 0, "three calls cost something");
+    Ok(owed)
+}
+
+/// An upstream that charges by the question's length. Stands in for a
+/// provider so M1 measures the chain rather than somebody's uptime.
+struct Priced;
+
+#[async_trait::async_trait]
+impl veil402_enclave::Upstream for Priced {
+    async fn catalogue(
+        &self,
+    ) -> Result<Vec<veil402_enclave::Listing>, veil402_enclave::UpstreamError> {
+        Ok(vec![veil402_enclave::Listing {
+            model: MODEL.to_owned(),
+            prompt: 1,
+            completion: 1,
+            max_output: 1_024,
+            confidential: true,
+        }])
+    }
+
+    async fn ask(
+        &self,
+        ask: veil402_enclave::Ask,
+    ) -> Result<
+        futures_util::stream::BoxStream<
+            'static,
+            Result<veil402_enclave::Served, veil402_enclave::UpstreamError>,
+        >,
+        veil402_enclave::UpstreamError,
+    > {
+        let cost = ask.body.len() as u64;
+        if cost > ask.budget {
+            return Err(veil402_enclave::UpstreamError::Unaffordable);
+        }
+        Ok(Box::pin(futures_util::stream::iter(vec![
+            Ok(veil402_enclave::Served::Frame(b"answered".to_vec())),
+            Ok(veil402_enclave::Served::Done(veil402_enclave::Receipt {
+                cost,
+                reference: "m1".to_owned(),
+                ..veil402_enclave::Receipt::default()
+            })),
+        ])))
+    }
 }

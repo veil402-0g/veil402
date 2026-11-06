@@ -1,0 +1,165 @@
+{
+    "object": "list",
+    "data": [
+        {
+            "id": "0gm-1.0-35b-a3b",
+            "object": "model",
+            "created": 1791806788,
+            "owned_by": "0G Foundation",
+            "name": "0GM-1.0-35B-A3B",
+            "description": "0G.AI in-house model optimized for agentic coding and tool use; thinking enabled by default. Stream long outputs: non-streaming requests must complete within about 10 minutes.",
+            "type": "chatbot",
+            "context_length": 262144,
+            "max_completion_tokens": 32768,
+            "architecture": {
+                "modality": "text+image->text",
+                "input_modalities": [
+                    "text",
+                    "image"
+                ],
+                "output_modalities": [
+                    "text"
+                ],
+                "instruct_type": "chatml",
+                "tokenizer": "qwen"
+            },
+            "supported_parameters": [
+                "temperature",
+                "top_p",
+                "top_k",
+                "max_tokens",
+                "frequency_penalty",
+                "presence_penalty",
+                "stop",
+                "tools",
+                "tool_choice",
+                "response_format",
+                "chat_template_kwargs",
+                "reasoning_effort",
+                "stream"
+            ],
+            "supported_formats": [
+                "openai",
+                "anthropic"
+            ],
+            "default_parameters": {
+                "temperature": 1,
+                "top_k": 20,
+                "top_p": 0.95
+            },
+            "pricing": {
+                "prompt": "468000000000",
+                "completion": "2800000000000"
+            },
+            "pricing_usd": {
+                "prompt": "0.00000008",
+                "completion": "0.00000048"
+            },
+            "verifiability": "TeeML",
+            "tee_attested": true,
+            "tee_type": "TDX",
+            "tee_verifier": "dstack",
+            "provider_count": 1
+        },
+        {
+            "id": "claude-sonnet-5",
+            "object": "model",
+            "created": 1789452998,
+            "owned_by": "0G Foundation",
+            "name": "Claude Sonnet 5",
+            "description": "Anthropic Claude Sonnet 5; text and image input, text output, with a 1M-token context window. Extended thinking and tool use supported.",
+            "type": "chatbot",
+            "context_length": 1000000,
+            "max_completion_tokens": 131072,
+            "architecture": {
+                "input_modalities": [
+                    "text",
+                    "image"
+                ],
+                "output_modalities": [
+                    "text"
+                ]
+            },
+            "supported_parameters": [
+                "system",
+                "stop_sequences",
+                "tools",
+                "tool_choice",
+                "thinking",
+                "output_config",
+                "cache_control",
+                "stream",
+                "max_tokens",
+                "metadata"
+            ],
+            "supported_formats": [
+                "openai",
+                "anthropic"
+            ],
+            "pricing": {
+                "prompt": "11650000000000",
+                "completion": "58280000000000",
+                "cache_write": "14562500000000",
+                "cache_write_1h": "23300000000000"
+            },
+            "pricing_usd": {
+                "prompt": "0.000002",
+                "completion": "0.00001",
+                "cache_write": "0.0000025",
+                "cache_write_1h": "0.000004"
+            },
+            "provider_count": 3
+        },
+        {
+            "id": "z-image-turbo",
+            "object": "model",
+            "created": 1793257434,
+            "owned_by": "0G Foundation",
+            "name": "Z-Image-Turbo",
+            "description": "Asynchronous text-to-image model with Base64 output. Generates at most 2 images per request \u2014 requesting more (n > 2) is refused with 400.",
+            "type": "text-to-image",
+            "context_length": 2048,
+            "architecture": {
+                "modality": "text->image",
+                "input_modalities": [
+                    "text"
+                ],
+                "output_modalities": [
+                    "image"
+                ]
+            },
+            "supported_parameters": [
+                "prompt",
+                "n",
+                "size",
+                "response_format"
+            ],
+            "supported_formats": [
+                "openai"
+            ],
+            "default_parameters": {
+                "n": 1,
+                "size": "1024x1024"
+            },
+            "image_capabilities": {
+                "max_n": 2
+            },
+            "pricing": {
+                "prompt": "0",
+                "completion": "0",
+                "image": "51489990000000000"
+            },
+            "pricing_usd": {
+                "prompt": "0",
+                "completion": "0",
+                "image": "0.0088"
+            },
+            "verifiability": "TeeML",
+            "tee_attested": true,
+            "tee_type": "TDX",
+            "tee_verifier": "dstack",
+            "async_supported": true,
+            "provider_count": 1
+        }
+    ]
+}

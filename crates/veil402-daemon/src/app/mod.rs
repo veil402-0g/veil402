@@ -2,6 +2,7 @@
 
 use std::{
     env, future,
+    net::SocketAddr,
     num::NonZeroU64,
     path::PathBuf,
     str::FromStr,
@@ -11,32 +12,55 @@ use std::{
 
 use alloy::{
     hex,
-    primitives::Address,
+    primitives::{Address, U256},
     providers::{Provider, ProviderBuilder},
+    sol,
 };
 use thiserror::Error;
 use tokio::time::sleep;
-use veil402_sdk::{
-    Config as Proving, Owner, Secret, Veil,
-    evm::PoolClient,
-    session::{Keyring, RootSeed},
-};
+use veil402_sdk::{Config as Proving, Field, Note, Owner, Secret, Veil, evm::PoolClient};
 
 use crate::{
-    adapters::{self, ChainSource, LocalEnclave, LocalProver, SqliteStore, Window},
+    adapters::{self, Api, ChainSource, LocalProver, RemoteEnclave, SqliteStore, Window},
     core::{
         StoreError,
-        envelope::{Broadcaster, ChainError, EnclaveError, EnvelopeError, EnvelopeService, Terms},
+        agent::AgentService,
+        envelope::{ChainError, EnclaveError, EnvelopeError, EnvelopeService, Terms},
         index::{IndexError, IndexService},
-        wallet::{WalletError, WalletService},
+        wallet::{Minted, WalletError, WalletService},
     },
 };
 
 const DATABASE: &str = "sqlite://veil402.db?mode=rwc";
 
+/// Loopback, because this process holds the keys that spend the notes and
+/// speaks no TLS. Reaching it from anywhere else is a decision, not a default.
+const LISTEN: &str = "127.0.0.1:8402";
+
+/// What a call is assumed to produce when its request names no limit.
+/// Only the reservation rests on it; the bill is whatever arrives.
+const CALL_CAP: u32 = 8_192;
+
+/// Most either process will pay per unit of gas.
+///
+/// A cap rather than a price: the oracle decides what a call costs, and this
+/// only stops a spike from draining the key that pays for them. The
+/// library's default is an Ethereum number, and Hedera prices gas to a
+/// dollar target — about a thousand gwei — so that default refuses every
+/// transaction on it.
+const MAX_FEE_GWEI: u128 = 20_000;
+
+/// Gwei, in wei.
+const GWEI: u128 = 1_000_000_000;
+
 /// Where the transaction engine's own durable state lives. Separate from the
 /// index: it is the engine's, and it rebroadcasts from it on its own.
 const WALLET_STATE: &str = "veil402-wallet.redb";
+
+/// What a session note wants to be worth when nothing says otherwise.
+/// Around a dollar of inference at one pool unit per micro-USD: a few
+/// thousand calls between settlements rather than a few dozen.
+const SESSION: u64 = 1_000_000;
 
 /// Blocks per log query. Relays cap the span; a thousand is under every cap
 /// we have met.
@@ -51,6 +75,149 @@ pub struct Retry {
     pub attempts: u32,
 }
 
+/// An endpoint's host, without the path or query a key usually hides in.
+fn host(endpoint: &str) -> String {
+    endpoint
+        .split_once("//")
+        .map_or(endpoint, |(_, rest)| rest)
+        .split(['/', '?'])
+        .next()
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// Where the index and the notes live.
+fn database() -> String {
+    env::var("VEIL_DATABASE").unwrap_or_else(|_| DATABASE.to_owned())
+}
+
+/// The ledger on its own, for the commands that only touch keys.
+///
+/// # Errors
+///
+/// Returns [`StartError`] when the store cannot be opened.
+pub async fn agents() -> Result<AgentService, StartError> {
+    Ok(AgentService::new(Arc::new(
+        SqliteStore::open(&database()).await?,
+    )))
+}
+
+sol! {
+    #[sol(rpc)]
+    interface IToken {
+        function approve(address spender, uint256 value) external returns (bool);
+        function allowance(address owner, address spender) external view returns (uint256);
+    }
+}
+
+/// Shields `amount` into the pool, under this daemon's own key.
+///
+/// Nothing reads a note back off the chain, so the wallet is told about the
+/// one this just made. Lose the keys and the balance goes with them.
+///
+/// # Errors
+///
+/// Returns [`StartError`] when the chain refuses either call, or the note
+/// cannot be written down.
+pub async fn deposit(config: &Config, amount: u64) -> Result<Field, StartError> {
+    let provider = ProviderBuilder::new()
+        .connect(&config.rpc)
+        .await
+        .map_err(|_| StartError::Chain(host(&config.rpc)))?;
+    let chain_id = provider
+        .get_chain_id()
+        .await
+        .map_err(|_| StartError::Chain(host(&config.rpc)))?;
+    let pool = PoolClient::new(config.pool, config.token, config.verifier, chain_id)
+        .map_err(|_| StartError::Pool(config.pool))?;
+    // The daemon's own engine state, not a second one beside it. Nonces are
+    // coordinated through that store, so a deposit that opened its own would
+    // hand the chain two transactions claiming the same nonce and watch one
+    // of them vanish. Sharing it means the running daemon holds the lock and
+    // this refuses outright, which is the answer a person can act on.
+    let sender = adapters::depositor(
+        &config.rpc,
+        &config.signer,
+        [config.pool, config.token],
+        &config.wallet_state,
+        config.fee_cap,
+    )
+    .await?;
+    let token = IToken::new(config.token, &provider);
+    let refused = |error: &dyn std::fmt::Display| StartError::Deposit(error.to_string());
+
+    // Approved once and left standing. The pool is the only spender this key
+    // ever names, and an allowance per deposit is a transaction per deposit
+    // for a permission that does not change.
+    let allowed = token
+        .allowance(sender.account(), config.pool)
+        .call()
+        .await
+        .map_err(|error| refused(&error))?;
+    if allowed < U256::from(amount) {
+        sender
+            .send(
+                config.token,
+                token
+                    .approve(config.pool, U256::MAX)
+                    .calldata()
+                    .to_vec(),
+            )
+            .await?;
+    }
+
+    let note = Note {
+        value: amount,
+        asset: pool.asset(),
+        random: Secret::random().map_err(|_| StartError::Deposit("no randomness".into()))?,
+    };
+    let commitment = note
+        .commitment(&config.owner)
+        .map_err(|error| refused(&error))?;
+    sender
+        .send(
+            config.pool,
+            pool.shield(
+                note.public_key(&config.owner).map_err(|error| refused(&error))?,
+                amount,
+                b"deposit",
+            )
+            .map_err(|error| refused(&error))?,
+        )
+        .await?;
+
+    let store = Arc::new(SqliteStore::open(&config.database).await?);
+    let random = Secret::from_bytes(note.random.to_bytes())
+        .map_err(|_| StartError::Deposit("the note will not re-encode".into()))?;
+    WalletService::new(store.clone(), store, owner(&config.owner)?)
+        .remember(
+            &[Minted {
+                commitment,
+                value: amount,
+                asset: pool.asset(),
+                random,
+                seed: None,
+            }],
+            now(),
+        )
+        .await
+        .map_err(|error| refused(&error))?;
+    Ok(commitment)
+}
+
+/// A second handle on the same keys. They are the balance, not a secret
+/// this process keeps from itself.
+fn owner(owner: &Owner) -> Result<Owner, StartError> {
+    let copied = |secret: &Secret| {
+        Secret::from_bytes(secret.to_bytes())
+            .map_err(|_| StartError::Deposit("the owner will not re-encode".into()))
+    };
+    Ok(Owner {
+        spend: copied(&owner.spend)?,
+        view: copied(&owner.view)?,
+    })
+}
+
 /// Seconds since the epoch, which is the clock holds and staleness use.
 #[must_use]
 pub fn now() -> u64 {
@@ -63,8 +230,13 @@ pub fn now() -> u64 {
 /// Everything the daemon needs to run.
 #[derive(Debug)]
 pub struct Config {
-    /// EVM endpoint the pool is read through.
+    /// EVM endpoint the pool is read through, and calls are sent to.
     pub rpc: String,
+    /// Endpoint the pool's history is read from, when that is a different
+    /// one. Reading logs and submitting calls are different jobs: a node
+    /// that serves a wide block range is not always one that will take a
+    /// transaction.
+    pub logs: String,
     /// Deployed pool, and the two addresses a proof is bound to.
     pub pool: Address,
     pub token: Address,
@@ -79,16 +251,28 @@ pub struct Config {
     /// The gnark worker, and the proving artifacts it is pinned to.
     pub worker: PathBuf,
     pub artifacts: PathBuf,
-    /// Seed every enclave key derives from. On real hardware this comes from
-    /// KMS gated on attestation; here it is configuration.
+    /// Where the enclave is served from. The daemon never holds its keys.
+    pub gateway: String,
+    /// Who this daemon buys from.
+    pub seller: Address,
+    /// What a session note wants to be worth, in pool units.
     ///
-    /// Raw bytes, not a field element: it keys an HKDF, not a circuit.
-    pub root: [u8; 32],
+    /// How much work one note buys before its envelope has to be settled and
+    /// another opened, and the size a settlement tries to leave behind for
+    /// the next one. A rollover costs a proof and two transactions, so it
+    /// wants to be worth thousands of calls rather than tens: at one pool
+    /// unit per micro-USD a real call runs sixty to two hundred and fifty.
+    pub session: u64,
+    /// How long one envelope holds its reservation for.
+    pub lock_for: u64,
+    /// Where the agent API is served from.
+    pub listen: SocketAddr,
+    /// Output a call is assumed to produce when it names no limit.
+    pub cap: u32,
+    /// Most this daemon will pay per unit of gas, in wei.
+    pub fee_cap: u128,
     /// Keys the notes belong to. Losing them loses the balance.
     pub owner: Owner,
-    /// Size a settlement should leave behind as a second note. Zero returns
-    /// change as one note and lets the wallet fragment.
-    pub target: u64,
     /// How far one pass reads.
     pub window: Window,
     /// How failure is handled.
@@ -105,13 +289,6 @@ pub enum ConfigError {
 
 fn required(name: &'static str) -> Result<String, ConfigError> {
     env::var(name).map_err(|_| ConfigError::Missing(name))
-}
-
-fn seed(name: &'static str) -> Result<[u8; 32], ConfigError> {
-    hex::decode(required(name)?)
-        .map_err(|_| ConfigError::Invalid(name))?
-        .try_into()
-        .map_err(|_| ConfigError::Invalid(name))
 }
 
 fn key(name: &'static str) -> Result<Secret, ConfigError> {
@@ -143,23 +320,30 @@ impl Config {
     pub fn from_env() -> Result<Self, ConfigError> {
         Ok(Self {
             rpc: required("VEIL_RPC_URL")?,
+            logs: env::var("VEIL_LOGS_URL").or_else(|_| required("VEIL_RPC_URL"))?,
             pool: address("VEIL_POOL")?,
             token: address("VEIL_TOKEN")?,
             verifier: address("VEIL_VERIFIER")?,
-            database: env::var("VEIL_DATABASE").unwrap_or_else(|_| DATABASE.to_owned()),
+            database: database(),
             signer: required("VEIL_SIGNER_KEY")?,
             wallet_state: parsed("VEIL_WALLET_STATE", PathBuf::from(WALLET_STATE))?,
             worker: PathBuf::from(required("VEIL_WORKER")?),
             artifacts: PathBuf::from(required("VEIL_ARTIFACTS")?),
-            root: seed("VEIL_ROOT_SEED")?,
+            gateway: required("VEIL_GATEWAY_URL")?,
+            seller: address("VEIL_SELLER")?,
+            session: parsed("VEIL_SESSION_NOTE", SESSION)?,
+            lock_for: parsed("VEIL_ENVELOPE_WINDOW", 600)?,
+            listen: parsed("VEIL_LISTEN", LISTEN.parse().map_err(|_| ConfigError::Invalid("VEIL_LISTEN"))?)?,
+            cap: parsed("VEIL_CALL_CAP", CALL_CAP)?,
+            fee_cap: parsed("VEIL_MAX_FEE_GWEI", MAX_FEE_GWEI)? * GWEI,
             owner: Owner {
                 spend: key("VEIL_SPEND_KEY")?,
                 view: key("VEIL_VIEW_KEY")?,
             },
-            target: parsed("VEIL_NOTE_TARGET", 0)?,
             window: Window {
                 chunk: parsed("VEIL_CHUNK", CHUNK)?,
                 confirmations: parsed("VEIL_CONFIRMATIONS", 0)?,
+                from: parsed("VEIL_POOL_BLOCK", 0)?,
             },
             retry: Retry {
                 interval: Duration::from_secs(parsed("VEIL_INTERVAL", 5)?),
@@ -183,8 +367,13 @@ pub enum StartError {
     Config(#[from] ConfigError),
     #[error("the index store could not be opened")]
     Store(#[from] StoreError),
+    /// Named by its host only. An endpoint URL commonly carries the key
+    /// that authenticates it, and an error goes to logs, crash reports and
+    /// whatever is reading the terminal.
     #[error("the chain endpoint at {0} could not be reached")]
     Chain(String),
+    #[error("the deposit did not land: {0}")]
+    Deposit(String),
     #[error(transparent)]
     Index(#[from] IndexError),
 }
@@ -223,6 +412,8 @@ pub enum Halted {
     Untrusted(PassError),
     #[error("the daemon failed {attempts} passes in a row: {source}")]
     Exhausted { attempts: u32, source: PassError },
+    #[error("the agent API could not be served: {0}")]
+    Unserved(String),
 }
 
 /// The chain index, the notes we own, and the loop that keeps both current.
@@ -230,8 +421,14 @@ pub struct Daemon {
     index: Arc<IndexService>,
     wallet: Arc<WalletService>,
     envelopes: Option<Arc<EnvelopeService>>,
-    broadcast: Arc<dyn Broadcaster>,
+    api: Option<Serving>,
     retry: Retry,
+}
+
+/// The agent API, and where it answers from.
+struct Serving {
+    listen: SocketAddr,
+    api: Api,
 }
 
 impl Daemon {
@@ -250,36 +447,34 @@ impl Daemon {
                 &config.wallet_state,
                 store.clone(),
                 config.window.confirmations,
+                config.fee_cap,
             )
             .await?,
         );
         let provider = ProviderBuilder::new()
             .connect(&config.rpc)
             .await
-            .map_err(|_| StartError::Chain(config.rpc.clone()))?;
+            .map_err(|_| StartError::Chain(host(&config.rpc)))?;
         let chain_id = provider
             .get_chain_id()
             .await
-            .map_err(|_| StartError::Chain(config.rpc.clone()))?;
-        let source = Arc::new(ChainSource::new(provider, config.pool, config.window));
+            .map_err(|_| StartError::Chain(host(&config.rpc)))?;
+        let reading = ProviderBuilder::new()
+            .connect(&config.logs)
+            .await
+            .map_err(|_| StartError::Chain(host(&config.logs)))?;
+        let source = Arc::new(ChainSource::new(reading, config.pool, config.window));
         let index = Arc::new(IndexService::load(source, store.clone()).await?);
 
         let pool = PoolClient::new(config.pool, config.token, config.verifier, chain_id)
-            .map_err(|_| StartError::Pool(config.pool))?;
-        let change_owner = config
-            .owner
-            .public()
             .map_err(|_| StartError::Pool(config.pool))?;
         let veil = Arc::new(
             Veil::open(Proving::new(config.worker, config.artifacts))
                 .map_err(|_| StartError::Artifacts)?,
         );
-        let enclave = Arc::new(LocalEnclave::new(
-            pool,
-            Keyring::new(RootSeed::from_bytes(config.root)),
-            veil.clone(),
-        )?);
+        let enclave = Arc::new(RemoteEnclave::new(&config.gateway, pool)?);
 
+        let agents = Arc::new(AgentService::new(store.clone()));
         let wallet = Arc::new(WalletService::new(store.clone(), store.clone(), config.owner));
         let envelopes = Arc::new(EnvelopeService::new(
             wallet.clone(),
@@ -290,26 +485,34 @@ impl Daemon {
             store,
             Terms {
                 pool,
-                change_owner,
-                target: config.target,
+                seller: config.seller,
+                session: config.session,
+                window: config.lock_for,
             },
         ));
-        Ok(Self::new(index, wallet, broadcast, config.retry).serving(envelopes))
+        Ok(Self {
+            api: Some(Serving {
+                listen: config.listen,
+                api: Api {
+                    agents,
+                    envelopes: envelopes.clone(),
+                    index: index.clone(),
+                    cap: config.cap,
+                    started: now(),
+                },
+            }),
+            ..Self::new(index, wallet, config.retry).serving(envelopes)
+        })
     }
 
     /// Builds a daemon over services that are already wired.
     #[must_use]
-    pub const fn new(
-        index: Arc<IndexService>,
-        wallet: Arc<WalletService>,
-        broadcast: Arc<dyn Broadcaster>,
-        retry: Retry,
-    ) -> Self {
+    pub const fn new(index: Arc<IndexService>, wallet: Arc<WalletService>, retry: Retry) -> Self {
         Self {
             index,
             wallet,
             envelopes: None,
-            broadcast,
+            api: None,
             retry,
         }
     }
@@ -339,6 +542,12 @@ impl Daemon {
         &self.index
     }
 
+    /// The agent ledger, for whatever issues or reads keys.
+    #[must_use]
+    pub fn agents(&self) -> Option<&Arc<AgentService>> {
+        self.api.as_ref().map(|serving| &serving.api.agents)
+    }
+
     /// Syncs until the process is signalled, or until the index can no longer
     /// be trusted.
     ///
@@ -354,18 +563,23 @@ impl Daemon {
         tokio::select! {
             () = signalled() => Ok(()),
             halted = self.syncing() => Err(halted),
+            halted = self.answering() => Err(halted),
         }
     }
 
-    /// One pass: advance what is in flight, catch the index up, then catch
-    /// the notes up with it.
+    /// One pass: catch the index up, then catch the notes up with it.
     ///
-    /// Ticking first is deliberate — a lock that confirms in this pass should
-    /// be visible to the index read that follows, not a pass later.
+    /// What is in flight advances on its own clock rather than here: this
+    /// loop backs off when the endpoint is away, which is when a stuck
+    /// transaction most needs rebroadcasting.
     async fn pass(&self) -> Result<(), PassError> {
-        self.broadcast.tick().await?;
         let health = self.index.sync().await?;
         let seen = self.wallet.reconcile(now()).await?;
+        // A seller settles for itself when a deadline nears, so an envelope
+        // can be spent without us asking. Its change is still ours.
+        if let Some(envelopes) = &self.envelopes {
+            envelopes.recovered().await?;
+        }
         tracing::debug!(
             leaves = health.leaves,
             block = health.block,
@@ -378,6 +592,22 @@ impl Daemon {
             tracing::warn!(notes = seen.stale, "written down but never placed");
         }
         Ok(())
+    }
+
+    /// Serves the agent API, or waits forever when there is none to serve.
+    async fn answering(&self) -> Halted {
+        let Some(serving) = &self.api else {
+            return future::pending().await;
+        };
+        let listener = match tokio::net::TcpListener::bind(serving.listen).await {
+            Ok(listener) => listener,
+            Err(error) => return Halted::Unserved(error.to_string()),
+        };
+        tracing::info!(listen = %serving.listen, "serving the agent API");
+        match axum::serve(listener, adapters::router(serving.api.clone())).await {
+            Ok(()) => future::pending().await,
+            Err(error) => Halted::Unserved(error.to_string()),
+        }
     }
 
     async fn syncing(&self) -> Halted {

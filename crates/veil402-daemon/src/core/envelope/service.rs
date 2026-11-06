@@ -1,32 +1,44 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use alloy::primitives::Address;
 use thiserror::Error;
-use tokio::time::sleep;
+use futures_util::{StreamExt, stream::BoxStream};
+use tokio::{
+    sync::{Mutex, RwLock},
+    time::sleep,
+};
 use veil402_sdk::{
     Field, Secret,
-    evm::{Call, PoolClient, Session},
+    evm::{PoolClient, Session},
     session::{Handover, Recipient},
+    wire::Offer,
 };
 
 use super::{
-    Agreement, Broadcaster, ChainError, Enclave, EnclaveError, Envelope, EnvelopeStore, Landed,
-    Metered, Phase, ProveError, Prover,
+    Agreement, Answered, Broadcaster, ChainError, Enclave, EnclaveError, Envelope, EnvelopeStore, Landed,
+    Piece, ProveError, Prover,
 };
 use crate::core::{
     StoreError,
     index::{IndexError, IndexService},
-    wallet::{Held, WalletError, WalletService},
+    wallet::{Held, Recovered, WalletError, WalletService},
 };
 
 /// How long before a deadline an envelope must stop serving and settle.
 ///
 /// Covers proving, inclusion and reorg margin. The pool allows `SETTLE_GRACE`
 /// beyond the deadline, which is the tail rather than the budget.
-const BUFFER: u64 = 90;
+///
+/// Must stay larger than the seller's own buffer, or its sweep fires first
+/// and the buyer never settles its own envelope.
+const BUFFER: u64 = 120;
 
-/// How long a lock may take to land before the attempt is abandoned.
-const PATIENCE: u64 = 120;
+/// How long a submission may take to land, and its change to be placed,
+/// before the attempt is abandoned.
+const PATIENCE: Duration = Duration::from_mins(2);
 
 /// Gap between asking whether something has landed. Waiting is the normal
 /// case, and asking as fast as the loop will go only loads the endpoint that
@@ -82,21 +94,32 @@ pub struct EnvelopeService {
     prover: Arc<dyn Prover>,
     envelopes: Arc<dyn EnvelopeStore>,
     terms: Terms,
+    /// Held while an envelope is being replaced, so it happens once.
+    rolling: Mutex<()>,
+    /// What the seller sells, as of the first call that needed to know.
+    catalogue: RwLock<Option<Vec<Offer>>>,
 }
 
 /// What shapes an envelope, beyond the ports it runs over.
 #[derive(Clone, Copy, Debug)]
 pub struct Terms {
     pub pool: PoolClient,
-    /// Where the remainder of a settlement returns.
-    pub change_owner: Field,
-    /// Size a settlement should leave behind for the next envelope.
-    pub target: u64,
+    /// Who this daemon buys from. The catalogue picks it; re-shopping is a
+    /// different value here, not a different code path.
+    pub seller: Address,
+    /// What a session note wants to be worth.
+    ///
+    /// Two jobs, one number: the size worth reserving for a session, and the
+    /// size a settlement tries to leave behind for the next one. They have
+    /// to agree, so there is no sense in letting them disagree.
+    pub session: u64,
+    /// How long one envelope holds its reservation for.
+    pub window: u64,
 }
 
 impl EnvelopeService {
     #[must_use]
-    pub const fn new(
+    pub fn new(
         wallet: Arc<WalletService>,
         index: Arc<IndexService>,
         enclave: Arc<dyn Enclave>,
@@ -113,7 +136,39 @@ impl EnvelopeService {
             prover,
             envelopes,
             terms,
+            rolling: Mutex::new(()),
+            catalogue: RwLock::new(None),
         }
+    }
+
+    /// What this seller sells.
+    ///
+    /// Read once and kept: it is the same answer for every agent, and a
+    /// model that goes away refuses at the upstream rather than here.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvelopeError`] when the seller cannot be reached.
+    pub async fn offers(&self) -> Result<Vec<Offer>, EnvelopeError> {
+        if let Some(offers) = self.catalogue.read().await.as_ref() {
+            return Ok(offers.clone());
+        }
+        let offers = self.enclave.catalogue().await?;
+        *self.catalogue.write().await = Some(offers.clone());
+        Ok(offers)
+    }
+
+    /// The offer a model names, if this seller sells it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvelopeError`] when the seller cannot be reached.
+    pub async fn offer(&self, model: &str) -> Result<Option<Offer>, EnvelopeError> {
+        Ok(self
+            .offers()
+            .await?
+            .into_iter()
+            .find(|offer| offer.model == model))
     }
 
     /// Reserves a note, locks it against `seller`, and hands the session to
@@ -121,19 +176,19 @@ impl EnvelopeService {
     ///
     /// # Errors
     ///
-    /// Returns [`EnvelopeError`] when no note covers the ceiling, the lock
+    /// Returns [`EnvelopeError`] when the wallet holds nothing, the lock
     /// does not land, or the enclave refuses the delegation.
     pub async fn open(
         &self,
         seller: Address,
-        ceiling: u64,
+        wanted: u64,
         window: u64,
     ) -> Result<Envelope, EnvelopeError> {
         if window == 0 || window > MAX_LOCK {
             return Err(EnvelopeError::Window(window));
         }
         let now = self.broadcast.timestamp().await?;
-        let note = self.provision(ceiling, now).await?;
+        let note = self.provision(wanted, now).await?;
         let envelope = Envelope {
             nullifier: note.nullifier,
             commitment: note.commitment,
@@ -163,7 +218,7 @@ impl EnvelopeService {
                     .lock(&session, agreement.signer, &agreement.lock),
             )
             .await?;
-        if let Err(refused) = self.landed(envelope.nullifier, now).await {
+        if let Err(refused) = self.landed(envelope.nullifier).await {
             // A lock the chain rejected will never hold this note, so the
             // next session can have it now rather than after the hold lapses.
             if !matches!(refused, EnvelopeError::Abandoned) {
@@ -177,14 +232,102 @@ impl EnvelopeService {
         Ok(envelope)
     }
 
-    /// Meters one served call.
+    /// Serves one request, opening or rolling an envelope if it has to.
+    ///
+    /// The envelope is the thing the agent never sees: a request that has
+    /// nowhere to be billed opens one, a request that would overrun its
+    /// ceiling or its deadline settles and opens the next, and either way the
+    /// agent gets an answer rather than an error. Re-shopping is the same
+    /// path — which seller the next envelope names comes from the catalogue,
+    /// so a provider that got expensive or left is simply not chosen.
     ///
     /// # Errors
     ///
-    /// Returns [`EnvelopeError::Enclave`] when the ceiling is reached or the
-    /// enclave no longer holds the session.
-    pub async fn record(&self, nullifier: Field, call: Call) -> Result<Metered, EnvelopeError> {
-        Ok(self.enclave.record(nullifier, call).await?)
+    /// Returns [`EnvelopeError`] when a second attempt fails too, which means
+    /// the trouble was not the envelope.
+    pub async fn dispatch(
+        &self,
+        body: &[u8],
+        attempt: &str,
+    ) -> Result<BoxStream<'static, Result<Piece, EnclaveError>>, EnvelopeError> {
+        let nullifier = match self.live().await? {
+            Some(nullifier) => nullifier,
+            None => self.roll(self.envelopes.newest().await?).await?,
+        };
+        match self.enclave.chat(nullifier, body, attempt).await {
+            Ok(pieces) => Ok(pieces),
+            // The envelope is spent, expiring, or gone. Replace it and ask
+            // once more; a second failure was never about the envelope.
+            Err(refused) if replaceable(&refused) => {
+                let nullifier = self.roll(Some(nullifier)).await?;
+                Ok(self.enclave.chat(nullifier, body, attempt).await?)
+            }
+            Err(refused) => Err(refused.into()),
+        }
+    }
+
+    /// The envelope still serving, if one is.
+    ///
+    /// Derived rather than remembered: the registry says which nullifier was
+    /// opened last, and the chain says whether it is still worth anything.
+    async fn live(&self) -> Result<Option<Field>, EnvelopeError> {
+        let Some(nullifier) = self.envelopes.newest().await? else {
+            return Ok(None);
+        };
+        if self.index.is_spent(nullifier).await? {
+            return Ok(None);
+        }
+        let now = self.broadcast.timestamp().await?;
+        match self.wallet.escrow(nullifier).await? {
+            Some(deadline) if now.saturating_add(BUFFER) < deadline => Ok(Some(nullifier)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Replaces the envelope the caller found wanting.
+    ///
+    /// One at a time. An envelope runs out for everybody at once, and
+    /// without this every request in flight would settle it and open its own
+    /// replacement — a proof, a lock and a note each.
+    ///
+    /// `known` is what the caller was going on, and the check is against the
+    /// registry rather than the chain: `open` writes there before the lock
+    /// is even sent, so it answers while the chain is still catching up. A
+    /// caller that queued behind someone else finds the registry has moved
+    /// on, and takes what they made.
+    async fn roll(&self, known: Option<Field>) -> Result<Field, EnvelopeError> {
+        let _rolling = self.rolling.lock().await;
+        if let Some(newest) = self.envelopes.newest().await?
+            && Some(newest) != known
+        {
+            return Ok(newest);
+        }
+        if let Some(nullifier) = known {
+            // Only an envelope the pool still holds an open reservation for
+            // can be settled. One whose lock never landed, whose deadline
+            // went by while nobody asked for anything, or that the seller
+            // has already closed itself has nothing left to pay out, and the
+            // pool refuses a settlement against any of them. The registry
+            // keeps its change seed regardless, since a lock whose fate is
+            // unknown may yet have landed.
+            let now = self.broadcast.timestamp().await?;
+            let open = !self.index.is_spent(nullifier).await?
+                && self
+                    .wallet
+                    .escrow(nullifier)
+                    .await?
+                    .is_some_and(|deadline| deadline > now);
+            if open {
+                match self.settle(nullifier, false).await {
+                    Ok(()) | Err(EnvelopeError::Enclave(EnclaveError::Unknown)) => {}
+                    Err(refused) => return Err(refused),
+                }
+            }
+        }
+        Ok(self
+            .open(self.terms.seller, self.terms.session, self.terms.window)
+            .await?
+            .nullifier)
     }
 
     /// Settles an envelope and writes down the change it leaves.
@@ -201,48 +344,99 @@ impl EnvelopeService {
         let Some(change_seed) = self.envelopes.change_seed(nullifier).await? else {
             return Err(EnvelopeError::Unknown);
         };
-        let prepared = self.enclave.settle(nullifier, dust).await?;
-        // Keyed by an output rather than the nullifier: the lock already used
-        // that key, and submission is idempotent on it.
-        let key = prepared.proof.public.commitments[0];
-        self.broadcast.submit(key, prepared.calldata).await?;
-
-        let now = self.broadcast.timestamp().await?;
-        self.wallet
-            .recover(nullifier, &change_seed, self.terms.target, now)
+        let settlement = self.enclave.settle(nullifier, dust).await?;
+        self.broadcast
+            .submit(settlement.key, settlement.calldata)
             .await?;
-        Ok(())
+        self.returned(nullifier, &change_seed, settlement.key).await
     }
 
-    /// Where an envelope stands, read from the chain.
+    /// Waits for a settlement's change to come back spendable.
+    ///
+    /// Asking for a settlement is asking for its change: the next envelope
+    /// opens on it, and nothing can be reserved before the index has placed
+    /// it. A caller that returned earlier would only be handing its own
+    /// race to whoever called it.
+    ///
+    /// Polled against the store rather than the endpoint. The sync loop is
+    /// what reads blocks; a second poller beside it would ask the same
+    /// question more often and learn nothing sooner.
+    async fn returned(
+        &self,
+        nullifier: Field,
+        change_seed: &Secret,
+        key: Field,
+    ) -> Result<(), EnvelopeError> {
+        let now = self.broadcast.timestamp().await?;
+        let since = Instant::now();
+        let mut change = None;
+        loop {
+            match self.broadcast.landed(key).await? {
+                Some(Landed::Failed(reason)) => return Err(ChainError::Refused(reason).into()),
+                Some(Landed::Dropped) => return Err(EnvelopeError::Abandoned),
+                _ => {}
+            }
+            if change.is_none() {
+                match self.wallet.recover(nullifier, change_seed, now).await? {
+                    Recovered::Pending => {}
+                    Recovered::Nothing => return Ok(()),
+                    Recovered::Change(commitment) => change = Some(commitment),
+                }
+            }
+            if let Some(commitment) = change {
+                self.wallet.reconcile(now).await?;
+                if self.wallet.by_commitment(commitment).await?.is_some() {
+                    return Ok(());
+                }
+            }
+            if since.elapsed() > PATIENCE {
+                return Err(EnvelopeError::Abandoned);
+            }
+            sleep(POLL).await;
+        }
+    }
+
+    /// Writes down the change of a settlement we did not make.
+    ///
+    /// The seller closes a session itself when its deadline nears, so an
+    /// envelope can be spent without this daemon having asked. The change
+    /// is ours either way, and nothing else goes looking for it.
     ///
     /// # Errors
     ///
-    /// Returns [`EnvelopeError`] when the index cannot be read.
-    pub async fn phase(&self, envelope: &Envelope, now: u64) -> Result<Phase, EnvelopeError> {
-        if self.index.is_spent(envelope.nullifier).await? {
-            return Ok(Phase::Settled);
+    /// Returns [`EnvelopeError`] when the chain or the store cannot be read.
+    pub async fn recovered(&self) -> Result<(), EnvelopeError> {
+        let Some(nullifier) = self.envelopes.newest().await? else {
+            return Ok(());
+        };
+        if !self.index.is_spent(nullifier).await? {
+            return Ok(());
         }
-        match self.wallet.escrow(envelope.nullifier).await? {
-            None => Ok(Phase::Locking),
-            Some(deadline) if now.saturating_add(BUFFER) >= deadline => Ok(Phase::Expiring),
-            Some(_) => Ok(Phase::Open),
-        }
+        let Some(change_seed) = self.envelopes.change_seed(nullifier).await? else {
+            return Ok(());
+        };
+        let now = self.broadcast.timestamp().await?;
+        self.wallet.recover(nullifier, &change_seed, now).await?;
+        Ok(())
     }
 
     /// A note this envelope may delegate.
     ///
     /// A shielded note belongs to the wallet's own key, and handing that over
-    /// would hand over every note it holds, so a cold note is split into one
-    /// a session owns before it can be locked. Settlements mint the next one
-    /// already seeded, so this happens once per model rather than per
-    /// envelope.
-    async fn provision(&self, ceiling: u64, now: u64) -> Result<Held, EnvelopeError> {
+    /// would hand over every note it holds — so one that has no identity of
+    /// its own is reseeded before it can be locked. A settlement mints its
+    /// successor already seeded, so that cost falls on the first envelope
+    /// rather than on each one.
+    async fn provision(&self, wanted: u64, now: u64) -> Result<Held, EnvelopeError> {
         let note = self
             .wallet
-            .reserve(self.terms.pool.asset(), ceiling, now)
+            .reserve(self.terms.pool.asset(), wanted, now)
             .await?;
-        if note.seed.is_some() {
+        // A nullifier the pool has escrowed once can never be escrowed
+        // again, whatever became of that envelope. So a note whose session
+        // ended without settling has to become a different note before it
+        // can open another, seed or no seed.
+        if note.seed.is_some() && self.wallet.escrow(note.nullifier).await?.is_none() {
             return Ok(note);
         }
         let witness = self.index.witness(&[note.leaf]).await?;
@@ -251,27 +445,31 @@ impl EnvelopeService {
             .into_iter()
             .next()
             .ok_or(EnvelopeError::Unknown)?;
-        let split = self.wallet.split(&note, path, ceiling, now).await?;
-        let prepared = self.prover.transfer(split.transaction).await?;
+        let reseeded = self.wallet.reseed(&note, path, now).await?;
+        let prepared = self.prover.transfer(reseeded.transaction).await?;
+        tracing::debug!(root = ?prepared.proof.public.root, "reseed proved");
         self.broadcast
-            .submit(split.session, prepared.calldata)
+            .submit(reseeded.session, prepared.calldata)
             .await?;
-        self.landed(split.session, now).await?;
-        self.placed(split.session, now).await
+        self.landed(reseeded.session).await?;
+        self.placed(reseeded.session).await
     }
 
     /// Waits for the index to place a note the chain has already accepted.
     ///
     /// Landing and being indexed are different moments: the sync loop reads a
     /// block after it is mined, and no path can be built before it has.
-    async fn placed(&self, commitment: Field, since: u64) -> Result<Held, EnvelopeError> {
+    async fn placed(&self, commitment: Field) -> Result<Held, EnvelopeError> {
+        // One reading, held for the wait: a timeout is a stopwatch, and the
+        // chain's clock is only load-bearing where a deadline is.
+        let now = self.broadcast.timestamp().await?;
+        let since = Instant::now();
         loop {
-            let now = self.broadcast.timestamp().await?;
             self.wallet.reconcile(now).await?;
             if let Some(note) = self.wallet.by_commitment(commitment).await? {
                 return Ok(note);
             }
-            if now > since.saturating_add(PATIENCE) {
+            if since.elapsed() > PATIENCE {
                 return Err(EnvelopeError::Abandoned);
             }
             sleep(POLL).await;
@@ -283,7 +481,8 @@ impl EnvelopeService {
     /// The lifecycle is advanced by the sync loop, so this only reads; a call
     /// that is replaced or dropped never landed, and whatever assumed it did
     /// has to be abandoned rather than retried onto a different note.
-    async fn landed(&self, key: Field, since: u64) -> Result<(), EnvelopeError> {
+    async fn landed(&self, key: Field) -> Result<(), EnvelopeError> {
+        let since = Instant::now();
         loop {
             match self.broadcast.landed(key).await? {
                 Some(Landed::Confirmed { .. }) => return Ok(()),
@@ -291,9 +490,7 @@ impl EnvelopeService {
                     return Err(ChainError::Refused(reason).into());
                 }
                 Some(Landed::Dropped) => return Err(EnvelopeError::Abandoned),
-                None if self.broadcast.timestamp().await? > since.saturating_add(PATIENCE) => {
-                    return Err(EnvelopeError::Abandoned);
-                }
+                None if since.elapsed() > PATIENCE => return Err(EnvelopeError::Abandoned),
                 None => sleep(POLL).await,
             }
         }
@@ -321,10 +518,8 @@ impl EnvelopeService {
             leaf: note.leaf,
             siblings: path.siblings,
             root: witness.root,
-            change_owner: self.terms.change_owner,
             change_seed: Secret::from_bytes(change_seed.to_bytes())
                 .map_err(|_| WalletError::Owner)?,
-            target: self.terms.target,
             seller: envelope.seller,
             deadline: envelope.deadline,
             pool: self.terms.pool.address(),
@@ -354,6 +549,41 @@ fn seed_of(note: &Held) -> Result<Secret, EnvelopeError> {
         .transpose()
         .map_err(|_| WalletError::Owner)?
         .ok_or(EnvelopeError::Unknown)
+}
+
+/// Whether a refusal is one a fresh envelope would fix.
+const fn replaceable(refused: &EnclaveError) -> bool {
+    matches!(
+        refused,
+        EnclaveError::CeilingReached | EnclaveError::Unknown
+    )
+}
+
+/// Reads a whole answer out of the pieces it arrives in.
+///
+/// For callers that wanted one rather than a stream: a request that asked
+/// for no streaming, and anything measuring what a session cost.
+///
+/// # Errors
+///
+/// Returns [`EnclaveError`] when a piece refuses, or the stream ends without
+/// saying what the call cost.
+pub async fn collected(
+    mut pieces: BoxStream<'static, Result<Piece, EnclaveError>>,
+) -> Result<Answered, EnclaveError> {
+    let mut completion = Vec::new();
+    let mut metered = None;
+    while let Some(piece) = pieces.next().await {
+        match piece? {
+            Piece::Body(bytes) => completion.extend_from_slice(&bytes),
+            Piece::Billed(bill) => metered = Some(bill),
+        }
+    }
+    Ok(Answered {
+        completion,
+        metered: metered
+            .ok_or_else(|| EnclaveError::Refused("an answer with no bill".into()))?,
+    })
 }
 
 /// Mirrors `Pool.MAX_LOCK`: the pool refuses a longer reservation, and a

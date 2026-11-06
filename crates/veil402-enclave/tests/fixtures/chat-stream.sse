@@ -1,0 +1,10 @@
+data: {"choices":[{"delta":{"content":"","reasoning_content":null,"role":"assistant"},"finish_reason":null,"index":0,"logprobs":null,"matched_stop":null}],"created":1793356291,"id":"chatcmpl-9349baef-e069-4f24-9d31-fc951cf26a61","model":"0gm-1.0-35b-a3b","object":"chat.completion.chunk"}
+
+data: {"choices":[{"delta":{"reasoning_content":"Here"},"finish_reason":null,"index":0,"logprobs":null,"matched_stop":null}],"created":1793356291,"id":"chatcmpl-9349baef-e069-4f24-9d31-fc951cf26a61","model":"0gm-1.0-35b-a3b","object":"chat.completion.chunk"}
+
+data: {"choices":[],"created":1793356292,"id":"chatcmpl-9349baef-e069-4f24-9d31-fc951cf26a61","model":"0gm-1.0-35b-a3b","object":"chat.completion.chunk","usage":{"completion_tokens":200,"prompt_tokens":42,"prompt_tokens_details":null,"reasoning_tokens":202,"total_tokens":242}}
+
+data: {"choices":[],"x_0g_trace":{"billing":{"currency":"usd","input_cost":"4","output_cost":"96","total_cost":"100","total_cost_usd_micro":"100"},"provider":"0x4870CbC4D07d6Ac2EE5aA865588e5985FE77a4E9","request_id":"0c1f943f-706a-4c3e-84c2-98d5595143c7"}}
+
+data: [DONE]
+

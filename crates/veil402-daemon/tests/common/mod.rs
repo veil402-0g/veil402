@@ -1,11 +1,12 @@
-//! Fakes shared by the index and sync suites: a pool that can misbehave in
-//! each of the ways the daemon has to tell apart, and a store that mirrors
-//! what the real one does with nodes.
+//! Fakes the suites share: a pool that can misbehave in each of the ways
+//! the daemon has to tell apart, a store that mirrors what the real one does
+//! with nodes, and a daemon wired over both with one note to spend.
 
 #![allow(dead_code)]
 
 use std::{
     collections::{BTreeMap, HashSet},
+    sync::Arc,
     sync::{
         Mutex, MutexGuard,
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -13,11 +14,13 @@ use std::{
 };
 
 use async_trait::async_trait;
+pub use veil402_daemon::core::envelope::Landed;
 use veil402_daemon::core::{
     StoreError,
-    envelope::{Broadcaster, ChainError as SendError, Landed},
+    envelope::{Broadcaster, ChainError as SendError},
     index::{Batch, ChainError, Commitment, CommitmentSource, IndexStore, Nullified},
 };
+use futures_util::StreamExt;
 use veil402_sdk::{Field, StoredNode, Tree};
 
 pub type Fallible = Result<(), Box<dyn std::error::Error>>;
@@ -273,11 +276,313 @@ impl Broadcaster for Silent {
         Ok(None)
     }
 
-    async fn tick(&self) -> Result<(), SendError> {
-        Ok(())
-    }
 
     async fn timestamp(&self) -> Result<u64, SendError> {
         Ok(0)
     }
+}
+
+// --- a daemon wired over fakes, shared by the suites that need one --------
+
+use alloy::{
+    primitives::Address,
+    signers::{SignerSync, local::PrivateKeySigner},
+};
+use veil402_daemon::{
+    adapters::{Api, SqliteStore},
+    core::{
+        agent::AgentService,
+        envelope::{
+            Agreement, Enclave, EnclaveError, EnvelopeService, Metered, Piece, ProveError, Prover,
+            Settlement, Terms,
+        },
+        index::IndexService,
+        wallet::{Minted, WalletService},
+    },
+};
+use veil402_sdk::{
+    Owner, Prepared, Secret, SessionKeys, Transaction,
+    evm::{PoolClient, Session, Voucher},
+    session::{Keyring, RootSeed, Sealed},
+    wire::Offer,
+};
+
+pub const CEILING: u64 = 1_000;
+pub const WINDOW: u64 = 600;
+pub const MODEL: &str = "stub";
+/// What the fake enclave says every call cost.
+pub const COST: u64 = 7;
+/// Output assumed when a request names no limit of its own.
+pub const CAP: u32 = 1_024;
+
+/// # Errors
+pub fn pool() -> Result<PoolClient, veil402_sdk::Error> {
+    PoolClient::new(
+        Address::repeat_byte(0x4A),
+        Address::repeat_byte(0x7B),
+        Address::repeat_byte(0x9C),
+        296,
+    )
+}
+
+#[must_use]
+pub fn seller() -> Address {
+    Address::repeat_byte(0x5E)
+}
+
+/// An agent's request, as the bytes it arrives as.
+#[must_use]
+pub fn asking() -> Vec<u8> {
+    format!(r#"{{"model":"{MODEL}","messages":[]}}"#).into_bytes()
+}
+
+/// An enclave that derives real keys and signs real announcements, so the
+/// daemon's `Recipient::accept` has something genuine to refuse or allow.
+pub struct Vouching {
+    pool: PoolClient,
+    keyring: Keyring,
+    signer: PrivateKeySigner,
+    held: Mutex<Vec<Field>>,
+    frames: usize,
+    refusal: Mutex<Option<EnclaveError>>,
+}
+
+impl Vouching {
+    /// # Errors
+    pub fn new(pool: PoolClient, frames: usize) -> Result<Self, Box<dyn std::error::Error>> {
+        let keyring = Keyring::new(RootSeed::from_bytes([9; 32]));
+        let signer = keyring.signer()?;
+        Ok(Self {
+            pool,
+            keyring,
+            signer,
+            held: Mutex::new(Vec::new()),
+            frames,
+            refusal: Mutex::new(None),
+        })
+    }
+
+    /// Makes every call from here on refuse the way an upstream would.
+    pub fn refusing(&self, refusal: EnclaveError) {
+        *self.refusal.lock().expect("refusal") = Some(refusal);
+    }
+
+    #[must_use]
+    pub fn accepted(&self) -> Vec<Field> {
+        self.held.lock().expect("held").clone()
+    }
+}
+
+#[async_trait]
+impl Enclave for Vouching {
+    async fn catalogue(&self) -> Result<Vec<Offer>, EnclaveError> {
+        Ok(vec![Offer {
+            model: MODEL.to_owned(),
+            prompt: 500_000,
+            completion: 2_000_000,
+            max_output: 4_096,
+        }])
+    }
+
+    async fn agree(&self, session: &Session) -> Result<Agreement, EnclaveError> {
+        let key = self.keyring.handover(session.nullifier);
+        let announcement = self
+            .signer
+            .sign_hash_sync(&key.announcement(&self.pool))
+            .map_err(|error| EnclaveError::Refused(error.to_string()))?;
+        Ok(Agreement {
+            signer: self.signer.address(),
+            handover_key: key.public(),
+            announcement: announcement.as_bytes().to_vec(),
+            lock: vec![0; 65],
+        })
+    }
+
+    async fn accept(&self, sealed: Sealed, session: Session) -> Result<(), EnclaveError> {
+        // Opening it is the check: a delegation sealed to another envelope's
+        // key, or altered in flight, does not come back.
+        self.keyring
+            .handover(session.nullifier)
+            .open(&sealed)
+            .map_err(|error| EnclaveError::Refused(error.to_string()))?;
+        self.held.lock().expect("held").push(session.nullifier);
+        Ok(())
+    }
+
+    async fn chat(
+        &self,
+        _: Field,
+        _: &[u8],
+        _: &str,
+    ) -> Result<futures_util::stream::BoxStream<'static, Result<Piece, EnclaveError>>, EnclaveError>
+    {
+        if let Some(refusal) = self.refusal.lock().expect("refusal").clone() {
+            return Err(refusal);
+        }
+        let mut pieces: Vec<Result<Piece, EnclaveError>> = (0..self.frames)
+            .map(|frame| {
+                Ok(Piece::Body(
+                    format!(
+                        r#"{{"id":"stub","object":"chat.completion.chunk","choices":[{{"index":0,"delta":{{"content":"{frame}"}}}}]}}"#
+                    )
+                    .into_bytes(),
+                ))
+            })
+            .collect();
+        pieces.push(Ok(Piece::Billed(Metered {
+            cost: COST,
+            total: COST,
+            remaining: CEILING - COST,
+            attestation: alloy::primitives::B256::repeat_byte(0xA7),
+        })));
+        Ok(futures_util::stream::iter(pieces).boxed())
+    }
+
+    async fn settle(&self, _: Field, _: bool) -> Result<Settlement, EnclaveError> {
+        Err(EnclaveError::Unknown)
+    }
+}
+
+/// Records what was submitted, and answers with whatever the test wants the
+/// chain to have decided.
+pub struct Sending {
+    verdict: Landed,
+    pub sent: Mutex<Vec<Field>>,
+}
+
+impl Sending {
+    #[must_use]
+    pub fn new(verdict: Landed) -> Self {
+        Self {
+            verdict,
+            sent: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl Broadcaster for Sending {
+    async fn submit(&self, key: Field, _: Vec<u8>) -> Result<(), SendError> {
+        self.sent.lock().expect("sent").push(key);
+        Ok(())
+    }
+
+    async fn landed(&self, _: Field) -> Result<Option<Landed>, SendError> {
+        Ok(Some(self.verdict.clone()))
+    }
+
+    async fn timestamp(&self) -> Result<u64, SendError> {
+        Ok(1_000)
+    }
+}
+
+/// Never called: a seeded note needs no split, and settling needs a worker.
+pub struct Unused;
+
+#[async_trait]
+impl Prover for Unused {
+    async fn transfer(&self, _: Transaction) -> Result<Prepared, ProveError> {
+        Err(ProveError::Failed)
+    }
+
+    async fn settle(&self, _: Transaction, _: Voucher) -> Result<Prepared, ProveError> {
+        Err(ProveError::Failed)
+    }
+}
+
+pub struct Fixture {
+    pub store: Arc<SqliteStore>,
+    pub service: Arc<EnvelopeService>,
+    pub agents: Arc<AgentService>,
+    pub index: Arc<IndexService>,
+    pub enclave: Arc<Vouching>,
+    pub chain: Arc<Sending>,
+    pub nullifier: Field,
+}
+
+impl Fixture {
+    #[must_use]
+    pub fn api(&self) -> Api {
+        Api {
+            agents: self.agents.clone(),
+            envelopes: self.service.clone(),
+            index: self.index.clone(),
+            cap: CAP,
+            started: 0,
+        }
+    }
+}
+
+/// A daemon holding one session note, placed at leaf 0 and ready to lock.
+///
+/// # Errors
+pub async fn fixture(
+    verdict: Landed,
+    frames: usize,
+) -> Result<Fixture, Box<dyn std::error::Error>> {
+    let client = pool()?;
+    let store = Arc::new(SqliteStore::open("sqlite::memory:").await?);
+
+    // The leaf the fake pool emits. Its value is not the note's real
+    // commitment, which costs nothing here: the enclave checks that against
+    // the root, and what is under test is the daemon's orchestration.
+    let commitment = field(1);
+    let index = Arc::new(IndexService::load(Arc::new(Chain::new(1)), store.clone()).await?);
+    index.sync().await?;
+
+    let seed = Secret::random()?;
+    let keys = SessionKeys::from_seed(&seed)?;
+    let wallet = Arc::new(WalletService::new(
+        store.clone(),
+        store.clone(),
+        Owner::random()?,
+    ));
+    wallet
+        .remember(
+            &[Minted {
+                commitment,
+                value: CEILING,
+                asset: client.asset(),
+                random: Secret::from_bytes(keys.random.to_bytes())?,
+                seed: Some(Secret::from_bytes(seed.to_bytes())?),
+            }],
+            0,
+        )
+        .await?;
+    wallet.reconcile(0).await?;
+
+    let index = Arc::new(IndexService::load(Arc::new(Chain::new(0)), store.clone()).await?);
+    let enclave = Arc::new(Vouching::new(client, frames)?);
+    let chain = Arc::new(Sending::new(verdict));
+    let service = Arc::new(EnvelopeService::new(
+        wallet,
+        index,
+        enclave.clone(),
+        chain.clone(),
+        Arc::new(Unused),
+        store.clone(),
+        Terms {
+            pool: client,
+            seller: seller(),
+            session: CEILING,
+            window: WINDOW,
+        },
+    ));
+    Ok(Fixture {
+        agents: Arc::new(AgentService::new(store.clone())),
+        index: Arc::new(IndexService::load(Arc::new(Chain::new(0)), store.clone()).await?),
+        store,
+        service,
+        enclave,
+        chain,
+        nullifier: keys.owner.nullifier(0)?,
+    })
+}
+
+/// A daemon whose chain accepts everything, which is what every test of the
+/// agent API is about.
+///
+/// # Errors
+pub async fn serving(frames: usize) -> Result<Fixture, Box<dyn std::error::Error>> {
+    fixture(Landed::Confirmed { block: 2 }, frames).await
 }

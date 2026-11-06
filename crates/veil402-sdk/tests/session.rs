@@ -1,6 +1,6 @@
 use std::error::Error as StdError;
 
-use veil402_sdk::{Field, Note, Owner, Secret, SessionKeys, split};
+use veil402_sdk::{Field, Note, Owner, Secret, SessionKeys};
 
 /// The property delegation rests on: thirty-two bytes rebuild the note and the
 /// nullifier it will reveal, and nothing else the wallet holds.
@@ -53,15 +53,3 @@ fn a_session_owner_is_not_the_wallet_owner() -> Result<(), Box<dyn StdError>> {
     Ok(())
 }
 
-/// A settlement emits two commitments either way, so the second note costs
-/// nothing — splitting is what lets the next session run while this one's note
-/// is still locked.
-#[test]
-fn split_fills_the_output_slot_a_settlement_would_waste() {
-    assert!(split(0, 10).is_empty(), "a zero note cannot be sent");
-    assert_eq!(split(5, 10), vec![5], "too small to leave a session behind");
-    assert_eq!(split(19, 10), vec![19]);
-    assert_eq!(split(20, 10), vec![10, 10]);
-    assert_eq!(split(75, 10), vec![10, 65]);
-    assert_eq!(split(75, 0), vec![75], "zero target never splits");
-}

@@ -118,6 +118,13 @@ impl IndexService {
         match self.store.append(batch, &nodes).await {
             Ok(()) => {
                 tree.commit();
+                tracing::debug!(
+                    leaves = tree.len(),
+                    added = batch.commitments.len(),
+                    through = batch.through,
+                    root = ?tree.root().ok(),
+                    "tree advanced"
+                );
                 Ok(())
             }
             Err(error) => {
@@ -141,7 +148,14 @@ impl IndexService {
         if let Some(leaf) = leaves.iter().find(|leaf| **leaf >= tree.len()) {
             return Err(IndexError::Unknown(*leaf));
         }
-        tree.witness(leaves).map_err(|_| IndexError::Tree)
+        let witness = tree.witness(leaves).map_err(|_| IndexError::Tree)?;
+        tracing::debug!(
+            ?leaves,
+            at = tree.len(),
+            root = ?witness.root,
+            "witness taken"
+        );
+        Ok(witness)
     }
 
     /// Returns the root the local tree derives.

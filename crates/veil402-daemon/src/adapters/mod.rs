@@ -2,12 +2,14 @@
 
 mod broadcast;
 mod chain;
-mod enclave;
+pub mod http;
 mod prove;
+mod remote;
 mod store;
 
-pub use broadcast::{PoolBroadcaster, open as broadcaster};
+pub use broadcast::{Depositor, PoolBroadcaster, depositor, open as broadcaster};
 pub use chain::{ChainSource, Window};
-pub use enclave::LocalEnclave;
+pub use http::{Api, router};
 pub use prove::LocalProver;
+pub use remote::RemoteEnclave;
 pub use store::SqliteStore;

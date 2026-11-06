@@ -8,8 +8,22 @@ description = "Metering and settlement signing for a Veil enclave"
 
 [dependencies]
 alloy = { version = "1", features = ["signer-local", "sol-types"] }
+async-trait = "0.1"
+borsh = { version = "1", features = ["derive"] }
+eventsource-stream = "0.2"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
+tokio = { version = "1", features = ["sync"] }
 veil402-sdk = { path = "../veil402-sdk" }
+
+[dev-dependencies]
+axum = "0.8"
+futures-util = "0.3"
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
 
 [lints]
 workspace = true

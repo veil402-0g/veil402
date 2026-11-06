@@ -24,9 +24,7 @@ struct Wire {
     leaf: u32,
     siblings: [[u8; 32]; TREE_DEPTH],
     root: [u8; 32],
-    change_owner: [u8; 32],
     change_seed: [u8; 32],
-    target: u64,
     seller: [u8; 20],
     deadline: u64,
     pool: [u8; 20],
@@ -52,14 +50,13 @@ pub struct Handover {
     pub siblings: [Field; TREE_DEPTH],
     /// What those siblings must reproduce.
     pub root: Field,
-    /// Owner of the note the remainder returns to.
-    pub change_owner: Field,
-    /// Derives the next session note's owner and blinding, and the remainder's
-    /// blinding. One seed, so the buyer reconstructs both outputs of a
-    /// settlement it was not present for.
+    /// Derives the owner and blinding of the note a settlement returns the
+    /// change to. One seed, so the buyer reconstructs that note without
+    /// having been present for the settlement that made it.
+    ///
+    /// Fresh per envelope, and it is the only identity in here: nothing a
+    /// delegate is handed outlives the session it was handed for.
     pub change_seed: Secret,
-    /// Size a settlement should leave behind as a second note.
-    pub target: u64,
     pub seller: Address,
     pub deadline: u64,
     pub pool: Address,
@@ -86,9 +83,7 @@ impl Handover {
             leaf: self.leaf,
             siblings: self.siblings.map(Field::to_bytes),
             root: self.root.to_bytes(),
-            change_owner: self.change_owner.to_bytes(),
             change_seed: self.change_seed.to_bytes(),
-            target: self.target,
             seller: self.seller.into(),
             deadline: self.deadline,
             pool: self.pool.into(),
@@ -122,9 +117,7 @@ impl Handover {
             leaf: wire.leaf,
             siblings,
             root: Field::from_bytes(wire.root)?,
-            change_owner: Field::from_bytes(wire.change_owner)?,
             change_seed: Secret::from_bytes(wire.change_seed)?,
-            target: wire.target,
             seller: Address::from(wire.seller),
             deadline: wire.deadline,
             pool: Address::from(wire.pool),
