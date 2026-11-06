@@ -555,6 +555,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                                 <span
                                   className={s.s100}
                                   style={{ '--d0': r.cTx } as CSSVars}
+                                  title={r.name}
                                 >
                                   {r.name}
                                 </span>

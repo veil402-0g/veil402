@@ -869,7 +869,9 @@
   line-height: 1.2;
   letter-spacing: .02em;
   color: var(--d0);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: color .2s ease .12s;
 }
 
