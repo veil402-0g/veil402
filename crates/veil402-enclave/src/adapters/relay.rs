@@ -18,6 +18,32 @@ use tokio::{
 pub enum RelayError {
     #[error("{0} could not be listened on")]
     Bind(String),
+    #[error("loopback would not come up: {0}")]
+    Loopback(String),
+}
+
+/// Raises `lo`, which the enclave's init leaves down.
+///
+/// A down interface still accepts a bind, so the listener looks healthy and
+/// only a connection fails, as ENETUNREACH. Through sysfs rather than an
+/// ioctl: the flags are a file, and this workspace forbids unsafe.
+///
+/// # Errors
+///
+/// Returns [`RelayError::Loopback`] when the interface cannot be raised.
+#[cfg(target_os = "linux")]
+pub fn loopback() -> Result<(), RelayError> {
+    const FLAGS: &str = "/sys/class/net/lo/flags";
+    const UP: u32 = 0x1;
+
+    let fail = |error: std::io::Error| RelayError::Loopback(error.to_string());
+    let read = std::fs::read_to_string(FLAGS).map_err(fail)?;
+    let held = u32::from_str_radix(read.trim().trim_start_matches("0x"), 16)
+        .map_err(|_| RelayError::Loopback(format!("{FLAGS} does not read as flags")))?;
+    if held & UP != 0 {
+        return Ok(());
+    }
+    std::fs::write(FLAGS, format!("0x{:x}", held | UP)).map_err(fail)
 }
 
 /// Inside the enclave: loopback in, vsock out.

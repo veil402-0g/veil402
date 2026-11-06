@@ -45,6 +45,14 @@ async fn main() -> std::process::ExitCode {
         return std::process::ExitCode::FAILURE;
     }
 
+    // Before anything binds or dials it: the interface is down until this
+    // runs, and a bind on a down interface still succeeds, so the omission
+    // would surface much later as an upstream that cannot be reached.
+    if let Err(error) = relay::loopback() {
+        tracing::error!(%error, "refusing to start");
+        return std::process::ExitCode::FAILURE;
+    }
+
     // The hop the upstream client resolves through. Started first so a
     // bootstrap that needs it does not race it.
     tokio::spawn(async move {
@@ -126,8 +134,10 @@ mod enclaved {
     };
 
     /// Where the upstream client is pointed. Loopback, because the enclave
-    /// has one and nothing else.
-    pub const UPSTREAM_HOP: &str = "127.0.0.1:8443";
+    /// has one and nothing else, and on the port the upstream URL names:
+    /// the client is aimed here by resolution, and resolution carries no
+    /// port, so the one in the URL is what it dials.
+    pub const UPSTREAM_HOP: &str = "127.0.0.1:443";
     /// Where the parent relays that traffic onward.
     pub const UPSTREAM_PORT: u32 = 8443;
     /// Where the parent relays KMS traffic.
