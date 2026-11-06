@@ -64,7 +64,9 @@ pub trait IndexStore: Send + Sync {
     /// Commitments from `from`, for scanning ciphertexts to find owned notes.
     async fn notes(&self, from: u32, limit: u32) -> Result<Vec<Commitment>, StoreError>;
 
-    /// The escrows the pool opened most recently. Ours by construction:
-    /// only a note's owner can name its nullifier.
+    /// The escrows this daemon opened most recently.
+    ///
+    /// The mirror holds every lock the pool emitted, whoever opened it; the
+    /// ones we opened are those we also wrote an envelope for.
     async fn escrows(&self, limit: u32) -> Result<Vec<Locked>, StoreError>;
 }

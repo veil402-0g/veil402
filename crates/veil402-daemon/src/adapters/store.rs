@@ -355,8 +355,9 @@ impl IndexStore for SqliteStore {
 
     async fn escrows(&self, limit: u32) -> Result<Vec<Locked>, StoreError> {
         sqlx::query(
-            "SELECT nullifier, seller, enclave, deadline, block FROM escrows
-             ORDER BY block DESC, deadline DESC LIMIT ?",
+            "SELECT e.nullifier, e.seller, e.enclave, e.deadline, e.block
+             FROM escrows e JOIN envelopes v ON v.nullifier = e.nullifier
+             ORDER BY e.block DESC, e.deadline DESC LIMIT ?",
         )
         .bind(i64::from(limit))
         .fetch_all(&self.pool)
