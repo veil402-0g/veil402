@@ -5,6 +5,7 @@ use thiserror::Error;
 pub mod agent;
 pub mod envelope;
 pub mod index;
+pub mod treasury;
 pub mod wallet;
 
 /// Why a store could not answer. Shared: both slices sit on one database.

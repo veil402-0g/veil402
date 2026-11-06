@@ -41,7 +41,8 @@ fn gateway() -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
     let state = tempfile::tempdir()?;
     Ok(assemble(
         &Config {
-            vouched: std::collections::HashMap::new(),
+            serving_rpc: String::new(),
+            serving: alloy::primitives::Address::ZERO,
             fee_cap: 20_000_000_000_000,
             state: state.keep().join("sessions.redb"),
             rpc: "http://127.0.0.1:0".to_owned(),

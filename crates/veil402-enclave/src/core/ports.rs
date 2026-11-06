@@ -88,6 +88,27 @@ pub struct Attestor {
     pub signer: Address,
 }
 
+/// Where a provider's attested signing key is looked up.
+///
+/// A port because the answer belongs on chain — the serving contract holds
+/// the endpoint and the key a quote bound to hardware — and reading it is
+/// not something this crate should do for itself.
+#[async_trait]
+pub trait Registry: Send + Sync {
+    async fn attestor(&self, provider: Address) -> Option<Attestor>;
+}
+
+/// Pinned by hand rather than looked up. Kept for tests, and for an
+/// operator who has verified a provider the registry does not list.
+#[async_trait]
+impl<S: std::hash::BuildHasher + Send + Sync> Registry
+    for std::collections::HashMap<Address, Attestor, S>
+{
+    async fn attestor(&self, provider: Address) -> Option<Attestor> {
+        self.get(&provider).cloned()
+    }
+}
+
 /// Whether anything vouches for the answer.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Attested {

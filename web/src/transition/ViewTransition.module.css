@@ -1,0 +1,200 @@
+/* A puff wells up from the origin, drifts outward and thickens. */
+@keyframes smokeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) translate(calc(var(--dx) * 0.15), calc(var(--dy) * 0.15))
+      scale(0.12);
+  }
+  55% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) translate(var(--dx), var(--dy)) scale(var(--s));
+  }
+}
+
+/* It keeps expanding as it thins out, so the page surfaces through it. */
+@keyframes smokeOut {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) translate(var(--dx), var(--dy)) scale(var(--s));
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) translate(calc(var(--dx) * 1.7), calc(var(--dy) * 1.7))
+      scale(calc(var(--s) * 1.55));
+  }
+}
+
+/* Grain rides the smoke's own density. Holding it at full strength while the
+   smoke disperses leaves animated noise sitting over the revealed page. */
+@keyframes grainIn {
+  from { opacity: 0; }
+  to { opacity: 0.45; }
+}
+@keyframes grainOut {
+  from { opacity: 0.45; }
+  to { opacity: 0; }
+}
+
+/* The flat ground closes the last gaps between puffs while the page swaps. */
+@keyframes groundIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes groundOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* A slow churn, so the mass is never quite still while it sits over the page. */
+@keyframes smokeChurn {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  50% { transform: scale(1.08) rotate(3deg); }
+}
+
+.veil {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  overflow: hidden;
+  isolation: isolate;
+  pointer-events: none;
+}
+
+.veil[data-phase='1'] {
+  pointer-events: auto;
+}
+
+.ground {
+  position: absolute;
+  inset: 0;
+  background: var(--mesh);
+  background-size: 180% 180%;
+  opacity: 0;
+}
+
+.puffs {
+  position: absolute;
+  inset: 0;
+}
+
+.puff {
+  position: absolute;
+  left: var(--ox, 50%);
+  top: var(--oy, 50%);
+  width: 56vmax;
+  height: 56vmax;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--c), transparent 72%);
+  filter: blur(36px);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.12);
+}
+
+/* --- rolling in ------------------------------------------------------- */
+
+.veil[data-phase='1'] .puff {
+  animation: smokeIn 680ms cubic-bezier(0.32, 0.72, 0.2, 1) forwards;
+  animation-delay: calc(var(--i) * 38ms);
+}
+
+.veil[data-phase='1'] .ground {
+  animation: groundIn 520ms ease-out 160ms forwards;
+}
+
+.veil[data-phase='1'] .puffs {
+  animation: smokeChurn 5s ease-in-out infinite;
+}
+
+/* --- dispersing -------------------------------------------------------- */
+
+.veil[data-phase='2'] .puff {
+  animation: smokeOut 760ms cubic-bezier(0.22, 0.61, 0.26, 1) forwards;
+  /* Reversed stagger, so it clears from the far side back toward the origin. */
+  animation-delay: calc((4 - var(--i)) * 34ms);
+}
+
+.veil[data-phase='2'] .ground {
+  animation: groundOut 520ms ease-in 140ms forwards;
+}
+
+.grain {
+  position: absolute;
+  inset: -60px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23t)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  mix-blend-mode: overlay;
+  opacity: 0;
+}
+
+.veil[data-phase='1'] .grain {
+  animation: grainIn 420ms ease-out 120ms forwards;
+}
+
+/* Clears well before the phase ends, so the page is never under bare noise. */
+.veil[data-phase='2'] .grain {
+  animation: grainOut 360ms ease-in forwards;
+}
+
+.mark {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  opacity: var(--opacity);
+  transform: var(--transform);
+  transition:
+    opacity 0.3s ease,
+    transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.dot {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 12px 30px -12px rgba(13, 30, 120, 0.5);
+}
+
+.dotCore {
+  width: 30%;
+  height: 30%;
+  background: var(--blue);
+  display: block;
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: #fff;
+}
+
+/* Smoke is decoration; a plain cross-fade carries the same meaning. */
+@media (prefers-reduced-motion: reduce) {
+  .veil[data-phase='1'] .puff,
+  .veil[data-phase='2'] .puff,
+  .veil[data-phase='1'] .puffs,
+  .veil[data-phase='1'] .grain,
+  .veil[data-phase='2'] .grain {
+    animation: none;
+    opacity: 0;
+  }
+
+  .veil[data-phase='1'] .ground {
+    animation: groundIn 240ms linear forwards;
+  }
+
+  .veil[data-phase='2'] .ground {
+    animation: groundOut 240ms linear forwards;
+  }
+}

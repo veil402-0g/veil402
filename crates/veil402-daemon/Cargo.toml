@@ -18,6 +18,7 @@ eventsource-stream = "0.2"
 futures-util = "0.3"
 getrandom = "0.3"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
+hex = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -25,6 +26,8 @@ subtle = "2"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
 tokio-stream = "0.1"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "timeout", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 veil402-sdk = { path = "../veil402-sdk" }

@@ -56,6 +56,7 @@ fn delegated(keyring: &Keyring) -> Result<Delegation, Box<dyn std::error::Error>
         siblings: witness.paths[0].siblings,
         root: witness.root,
         change_seed: Secret::random()?,
+        view: [0; 32],
         seller: session.seller,
         deadline: DEADLINE,
         pool: client.address(),

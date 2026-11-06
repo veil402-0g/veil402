@@ -52,3 +52,17 @@ prover/veil402-gnark/veil402-gnark
 
 # aider leaves these beside the repo it edits
 .aider*
+
+# Worktrees live inside the repo; never commit one into it
+.claude/worktrees/
+
+# Built by vite; the sources are tracked, the output is not
+web/dist/
+
+# Langflow's own state when the playground runs. Holds a secret key and a
+# telemetry id, neither of which belongs in a repository.
+playground/.langflow/
+
+# A virtualenv writes its own ignore file, which is a file inside the thing
+# being ignored. Said here too, because it is 1.6 GB.
+playground/.venv/

@@ -337,6 +337,8 @@ impl MeteringService {
                             attestation: replayed.attestation,
                             // The stream is not replayed, only the bill.
                             delivered: None,
+                            witness: None,
+                            sequence: 0,
                         },
                     },
                 )

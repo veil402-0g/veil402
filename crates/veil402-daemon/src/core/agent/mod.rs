@@ -4,6 +4,6 @@ mod model;
 mod ports;
 mod service;
 
-pub use model::{Agent, Issued, Registered};
+pub use model::{Agent, Audit, Charge, Filed, Issued, Mark, Registered};
 pub use ports::AgentStore;
 pub use service::{AgentError, AgentService, Hold};

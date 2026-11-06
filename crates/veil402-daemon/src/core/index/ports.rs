@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use thiserror::Error;
 use veil402_sdk::{Field, StoredNode};
 
-use super::{Batch, Commitment};
+use super::{Batch, Commitment, Locked};
 use crate::core::StoreError;
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
@@ -31,6 +31,15 @@ pub trait CommitmentSource: Send + Sync {
     async fn root(&self) -> Result<Field, ChainError>;
 }
 
+/// What the key that pays for deposits still holds in the clear.
+///
+/// The shielded balance says what can be spent privately; this says what is
+/// left to shield.
+#[async_trait]
+pub trait Funding: Send + Sync {
+    async fn depositable(&self) -> Result<u64, ChainError>;
+}
+
 /// Holds the index across restarts. The chain only answers a fixed window, so
 /// losing this cannot be recovered by resyncing.
 #[async_trait]
@@ -54,4 +63,10 @@ pub trait IndexStore: Send + Sync {
 
     /// Commitments from `from`, for scanning ciphertexts to find owned notes.
     async fn notes(&self, from: u32, limit: u32) -> Result<Vec<Commitment>, StoreError>;
+
+    /// The escrows this daemon opened most recently.
+    ///
+    /// The mirror holds every lock the pool emitted, whoever opened it; the
+    /// ones we opened are those we also wrote an envelope for.
+    async fn escrows(&self, limit: u32) -> Result<Vec<Locked>, StoreError>;
 }

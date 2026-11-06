@@ -1,5 +1,5 @@
 use alloy::primitives::{Address, B256};
-use veil402_sdk::Field;
+use veil402_sdk::{Field, wire::Witness};
 
 /// A note reserved against one seller, for one ceiling, until one deadline.
 ///
@@ -18,6 +18,22 @@ pub struct Envelope {
     pub deadline: u64,
     /// The note's value, which is the most this envelope can cost.
     pub ceiling: u64,
+}
+
+/// The envelope serving calls right now.
+///
+/// One at a time, and shared: a ceiling belongs to the note it reserved, not
+/// to whoever happens to be spending against it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Open {
+    pub nullifier: Field,
+    pub seller: Address,
+    pub ceiling: u64,
+    pub deadline: u64,
+    /// When the lock was taken, derived from the window it was taken for.
+    /// The pool records a deadline; the block that carried it is gone from
+    /// the chain's answerable window long before a console asks.
+    pub opened: u64,
 }
 
 /// What an enclave returns when it agrees to meter a session.
@@ -51,7 +67,7 @@ pub struct Answered {
 }
 
 /// What one metered call cost, and what proves it.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Metered {
     /// What this one call cost, for the agent it gets filed against.
     pub cost: u64,
@@ -62,6 +78,14 @@ pub struct Metered {
     /// Digest binding this call, for the daemon to file against the agent
     /// that made it. The enclave meters one total and never learns who asked.
     pub attestation: B256,
+    /// What the attestation was computed over, kept so the digest can be
+    /// recomputed by whoever is shown it rather than taken on trust.
+    pub delivered: Option<B256>,
+    pub witness: Option<Witness>,
+    /// This call's index in the list the settlement roots.
+    pub sequence: u64,
+    /// The envelope it was served under.
+    pub nullifier: Field,
 }
 
 /// A settlement, as much of it as the sender needs.

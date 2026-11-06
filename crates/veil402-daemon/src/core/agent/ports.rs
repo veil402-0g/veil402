@@ -1,7 +1,7 @@
 use alloy::primitives::B256;
 use async_trait::async_trait;
 
-use super::{Agent, Registered};
+use super::{Agent, Audit, Charge, Filed, Registered};
 use crate::core::StoreError;
 
 /// Who may spend, and what they have spent.
@@ -19,16 +19,17 @@ pub trait AgentStore: Send + Sync {
     /// Stops a key authenticating. What it spent stays on the books.
     async fn revoke(&self, id: &str) -> Result<bool, StoreError>;
 
+    /// Holds or releases a key, and says whether this call changed it. A
+    /// revoked key stays revoked: pausing is not a way back from that.
+    async fn pause(&self, id: &str, paused: bool) -> Result<bool, StoreError>;
+
     /// Files one call's cost against the agent that made it.
     ///
     /// Idempotent on `attestation`, which is the enclave's own digest for
     /// the call: a retry, a restart, or a drain that outlived its reader
     /// files the same call again and is billed for it once.
-    async fn charge(
-        &self,
-        attestation: B256,
-        agent: &str,
-        cost: u64,
-        now: u64,
-    ) -> Result<(), StoreError>;
+    async fn charge(&self, charge: &Charge, agent: &str) -> Result<(), StoreError>;
+
+    /// The calls an audit covers, newest first.
+    async fn audit(&self, audit: &Audit) -> Result<Vec<Filed>, StoreError>;
 }

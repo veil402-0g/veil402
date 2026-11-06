@@ -1,3 +1,5 @@
+//! The agent API: `OpenAI`'s shape over a shielded note.
+
 use std::{convert::Infallible, sync::Arc};
 
 use axum::{
@@ -25,7 +27,7 @@ use super::primitives::Refusal;
 use crate::{
     app::now,
     core::{
-        agent::{Agent, AgentService, Hold},
+        agent::{Agent, AgentService, Charge, Hold},
         envelope::{EnclaveError, EnvelopeError, EnvelopeService, Metered, Piece, collected},
         index::IndexService,
     },
@@ -105,13 +107,15 @@ async fn completions(
         .await?
         .ok_or_else(|| Refusal::unlisted(&asked.model))?;
 
-    let hold = api.agents.reserve(&agent, offer.rates().most(&body, api.cap))?;
+    let hold = api
+        .agents
+        .reserve(&agent, &asked.model, offer.rates().most(&body, api.cap))?;
     let pieces = api.envelopes.dispatch(&body, &attempt(&headers)).await?;
 
     if asked.stream {
-        Ok(streaming(api, agent.id, hold, pieces))
+        Ok(streaming(api, agent.id, hold, pieces, asked.model))
     } else {
-        whole(api, agent.id, hold, pieces).await
+        whole(api, agent.id, hold, pieces, asked.model).await
     }
 }
 
@@ -121,9 +125,10 @@ fn streaming(
     agent: String,
     hold: Hold,
     pieces: BoxStream<'static, Result<Piece, EnclaveError>>,
+    model: String,
 ) -> Response {
     let (sender, receiver) = mpsc::channel(FRAMES);
-    tokio::spawn(relaying(api, agent, hold, pieces, sender));
+    tokio::spawn(relaying(api, agent, hold, pieces, sender, model));
     Sse::new(ReceiverStream::new(receiver))
         // A model that thinks before it speaks says nothing for a while, and
         // a client with nothing arriving eventually stops waiting.
@@ -141,6 +146,7 @@ async fn relaying(
     hold: Hold,
     mut pieces: BoxStream<'static, Result<Piece, EnclaveError>>,
     sender: mpsc::Sender<Result<Event, Infallible>>,
+    model: String,
 ) {
     let mut hold = Some(hold);
     let mut listening = true;
@@ -151,7 +157,7 @@ async fn relaying(
             // sees. What the agent is told about tokens came from the
             // upstream and has already gone past in a chunk of its own.
             Ok(Piece::Billed(metered)) => {
-                bill(&api, &agent, &mut hold, metered).await;
+                bill(&api, &agent, &mut hold, &metered, &model).await;
                 continue;
             }
             // One frame carrying the failure, then the end: a stream that
@@ -174,12 +180,13 @@ async fn whole(
     agent: String,
     hold: Hold,
     pieces: BoxStream<'static, Result<Piece, EnclaveError>>,
+    asked: String,
 ) -> Result<Response, Refusal> {
     let (tell, told) = oneshot::channel();
     tokio::spawn(async move {
         let answered = collected(pieces).await;
         if let Ok(answered) = &answered {
-            bill(&api, &agent, &mut Some(hold), answered.metered).await;
+            bill(&api, &agent, &mut Some(hold), &answered.metered, &asked).await;
         }
         let _ = tell.send(answered);
     });
@@ -194,13 +201,19 @@ async fn whole(
         .into_response())
 }
 
-async fn bill(api: &Api, agent: &str, hold: &mut Option<Hold>, metered: Metered) {
+async fn bill(api: &Api, agent: &str, hold: &mut Option<Hold>, metered: &Metered, model: &str) {
     let Some(hold) = hold.take() else { return };
-    if let Err(error) = api
-        .agents
-        .charge(hold, metered.attestation, metered.cost, now())
-        .await
-    {
+    let charge = Charge {
+        attestation: metered.attestation,
+        cost: metered.cost,
+        at: now(),
+        nullifier: Some(metered.nullifier),
+        delivered: metered.delivered,
+        witness: metered.witness.clone(),
+        sequence: metered.sequence,
+        model: model.to_owned(),
+    };
+    if let Err(error) = api.agents.charge(hold, &charge).await {
         // The envelope paid for this either way. What is lost is knowing
         // whose it was.
         tracing::error!(%error, agent, cost = metered.cost, "a served call was not filed");

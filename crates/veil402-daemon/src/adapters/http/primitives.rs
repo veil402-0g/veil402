@@ -166,6 +166,15 @@ impl From<AgentError> for Refusal {
                 Some("budget_exhausted"),
                 format!("this key has committed {committed} of its {budget}"),
             ),
+            // The model exists and the seller sells it; this mandate just
+            // does not cover it. `OpenAI` has no code for that, and the
+            // nearest one would send an agent looking for a typo.
+            AgentError::Unlisted { model } => Self::at(
+                StatusCode::FORBIDDEN,
+                INVALID,
+                Some("model_not_permitted"),
+                format!("this key's mandate does not cover `{model}`"),
+            ),
             AgentError::Random | AgentError::Store(_) => {
                 tracing::error!(%error, "the ledger would not answer");
                 Self::internal("the ledger is unavailable")

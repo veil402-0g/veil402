@@ -19,7 +19,7 @@ use veil402_sdk::{
 
 use super::{
     Agreement, Answered, Broadcaster, ChainError, Enclave, EnclaveError, Envelope, EnvelopeStore, Landed,
-    Piece, ProveError, Prover,
+    Open, Piece, ProveError, Prover,
 };
 use crate::core::{
     StoreError,
@@ -35,6 +35,11 @@ use crate::core::{
 /// Must stay larger than the seller's own buffer, or its sweep fires first
 /// and the buyer never settles its own envelope.
 const BUFFER: u64 = 120;
+
+/// Mirrors `Pool.SETTLE_GRACE`. An escrow stops reserving its note once the
+/// deadline and this have both gone by, so up to here it is still open and
+/// a settlement landing late still counts.
+const GRACE: u64 = 60;
 
 /// How long a submission may take to land, and its change to be placed,
 /// before the attempt is abandoned.
@@ -232,6 +237,40 @@ impl EnvelopeService {
         Ok(envelope)
     }
 
+    /// The envelope serving calls now, if one is open.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvelopeError`] when the store or the chain mirror cannot
+    /// be read.
+    pub async fn current(&self) -> Result<Option<Open>, EnvelopeError> {
+        let Some(nullifier) = self.envelopes.newest().await? else {
+            return Ok(None);
+        };
+        // Both from the chain's own record: an escrow the index has not
+        // seen yet is one nothing here can date.
+        let (Some(note), Some(deadline)) = (
+            self.wallet.note(nullifier).await?,
+            self.wallet.escrow(nullifier).await?,
+        ) else {
+            return Ok(None);
+        };
+        // An escrow the chain no longer treats as reserving its note is not
+        // open, whatever the registry still remembers. `serve` has always
+        // read it this way; without the same check here a dead envelope is
+        // reported as the one taking calls.
+        if self.broadcast.timestamp().await? > deadline.saturating_add(GRACE) {
+            return Ok(None);
+        }
+        Ok(Some(Open {
+            nullifier,
+            seller: self.terms.seller,
+            ceiling: note.value,
+            deadline,
+            opened: deadline.saturating_sub(self.terms.window),
+        }))
+    }
+
     /// Serves one request, opening or rolling an envelope if it has to.
     ///
     /// The envelope is the thing the agent never sees: a request that has
@@ -317,11 +356,14 @@ impl EnvelopeService {
                     .escrow(nullifier)
                     .await?
                     .is_some_and(|deadline| deadline > now);
-            if open {
-                match self.settle(nullifier, false).await {
-                    Ok(()) | Err(EnvelopeError::Enclave(EnclaveError::Unknown)) => {}
-                    Err(refused) => return Err(refused),
-                }
+            // The guard narrows the race rather than closing it: the index
+            // lags the chain, and the seller may sweep between the check and
+            // the settlement. Losing it costs the meter and not the money —
+            // the change is sealed on chain for the scan to find — so a
+            // rollover says so and carries on rather than failing the call
+            // that asked for it.
+            if open && let Err(refused) = self.settle(nullifier, false).await {
+                tracing::warn!(%refused, "an envelope was replaced without settling");
             }
         }
         Ok(self
@@ -520,6 +562,7 @@ impl EnvelopeService {
             root: witness.root,
             change_seed: Secret::from_bytes(change_seed.to_bytes())
                 .map_err(|_| WalletError::Owner)?,
+            view: self.wallet.view(),
             seller: envelope.seller,
             deadline: envelope.deadline,
             pool: self.terms.pool.address(),

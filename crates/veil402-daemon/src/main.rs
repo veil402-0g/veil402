@@ -96,7 +96,7 @@ async fn key(what: Keys) -> Result<(), Box<dyn Error>> {
         // The key alone on stdout, so it can be piped; everything else on
         // stderr, so piping it does not carry the commentary along.
         Keys::New { label, budget } => {
-            let issued = agents.issue(&label, budget, app::now()).await?;
+            let issued = agents.issue(&label, budget, None, app::now()).await?;
             println!("{}", issued.key);
             eprintln!(
                 "issued {} for {}; it is not stored and cannot be shown again",

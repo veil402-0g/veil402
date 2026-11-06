@@ -395,6 +395,7 @@ async fn daemon(
         fee_cap: 20_000_000_000_000,
         listen: "127.0.0.1:0".parse()?,
         cap: 1_024,
+        console_origins: Vec::new(),
         rpc: var("RPC_URL")?,
         logs: var("RPC_URL")?,
         pool: pool.address(),
@@ -407,6 +408,7 @@ async fn daemon(
         session: CEILING,
         lock_for: 600,
         wallet_state: state.join("wallet.redb"),
+        relay: None,
             worker: worker()?,
             artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
         owner,
@@ -440,7 +442,8 @@ async fn serve(
     let escrows = Arc::new(veil402_gateway::adapters::connect(&var("RPC_URL")?, pool.address()).await?);
     let service = veil402_gateway::app::assemble(
         &veil402_gateway::app::Config {
-            vouched: std::collections::HashMap::new(),
+            serving_rpc: String::new(),
+            serving: alloy::primitives::Address::ZERO,
             fee_cap: 20_000_000_000_000,
             pool: *pool,
             root,

@@ -60,6 +60,7 @@ fn metered(value: u64) -> Result<Meter, Box<dyn std::error::Error>> {
         siblings: witness.paths[0].siblings,
         root: witness.root,
         change_seed: Secret::from_bytes(CHANGE_SEED)?,
+        view: [0; 32],
         seller: seller(),
         deadline: DEADLINE,
         pool: client.address(),

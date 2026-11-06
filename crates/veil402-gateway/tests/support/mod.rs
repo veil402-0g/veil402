@@ -215,6 +215,7 @@ pub async fn delegate(service: &MeteringService) -> Result<Delegated, Box<dyn st
         siblings: witness.paths[0].siblings,
         root: witness.root,
         change_seed: Secret::random()?,
+        view: [0; 32],
         seller: session.seller,
         deadline: session.deadline,
         pool: client.address(),

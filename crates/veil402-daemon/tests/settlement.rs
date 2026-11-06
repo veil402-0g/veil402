@@ -46,8 +46,13 @@ const CAP: u32 = 256;
 /// minutes of its deadline — does not fire the moment a session opens.
 const WINDOW: u64 = 180;
 
-/// Blocks per log query. Only has to be under whatever the endpoint serves.
-const CHUNK: u64 = 1_000;
+/// Blocks per log query.
+///
+/// Wide on purpose. A cold index walks from the pool's first block to the
+/// head one query at a time, so the chunk decides how long that takes — and
+/// the gap grows with the chain. At a thousand it outran the patience below
+/// and the test blamed the daemon for the endpoint's round trips.
+const CHUNK: u64 = 20_000;
 
 /// Turns the services' own logging on, once, so a failure here is readable.
 fn watching() {
@@ -110,7 +115,8 @@ fn model() -> String {
 /// Starts a seller on `bind`, with its own sweep running.
 fn seller(bind: &str, state: &Path) -> Result<(), Box<dyn StdError>> {
     let config = veil402_gateway::app::Config {
-        vouched: std::collections::HashMap::new(),
+        serving_rpc: String::new(),
+        serving: alloy::primitives::Address::ZERO,
         fee_cap: 20_000_000_000_000,
         pool: pool()?,
         root: alloy::hex::decode(var("VEIL_ROOT_SEED")?)?
@@ -150,6 +156,7 @@ fn buying(
         fee_cap: 20_000_000_000_000,
         listen: listen.parse()?,
         cap: CAP,
+        console_origins: Vec::new(),
         rpc: var("RPC_URL")?,
         logs: env::var("LOGS_URL").unwrap_or(var("RPC_URL")?),
         pool: var("POOL")?.parse()?,
@@ -162,6 +169,7 @@ fn buying(
         session,
         lock_for: WINDOW,
         wallet_state: state.join("wallet.redb"),
+        relay: None,
         worker: worker()?,
         artifacts: artifacts()?,
         // Fixed, not random. These keys are the balance: a second handle on
@@ -372,7 +380,7 @@ async fn the_buyer_settles_what_it_spent() -> Fallible {
     let daemon = Arc::new(Daemon::start(config).await?);
     let running = started(&daemon);
     placed(&daemon, &running, note).await?;
-    let key = ledger(&daemon)?.issue("test", None, now()).await?.key;
+    let key = ledger(&daemon)?.issue("test", None, None, now()).await?.key;
 
     ask("http://127.0.0.1:18402", &key).await?;
     let store = SqliteStore::open(&database).await?;
@@ -452,7 +460,7 @@ async fn the_seller_closes_what_the_buyer_abandoned() -> Fallible {
     let daemon = Arc::new(Daemon::start(config).await?);
     let running = started(&daemon);
     placed(&daemon, &running, note).await?;
-    let key = ledger(&daemon)?.issue("test", None, now()).await?.key;
+    let key = ledger(&daemon)?.issue("test", None, None, now()).await?.key;
     ask("http://127.0.0.1:18412", &key).await?;
 
     let store = SqliteStore::open(&database).await?;
@@ -485,7 +493,7 @@ async fn the_seller_closes_what_the_buyer_abandoned() -> Fallible {
     let running = started(&daemon);
     spendable(&store, &running, asset).await?;
 
-    let key = ledger(&daemon)?.issue("back", None, now()).await?.key;
+    let key = ledger(&daemon)?.issue("back", None, None, now()).await?.key;
     ask("http://127.0.0.1:18413", &key).await?;
     assert_ne!(
         store.newest().await?.ok_or("no envelope")?,

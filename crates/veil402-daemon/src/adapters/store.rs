@@ -1,14 +1,16 @@
-use alloy::primitives::B256;
+use alloy::primitives::{Address, B256};
 use async_trait::async_trait;
 use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions, sqlite::SqliteRow};
 use veil402_sdk::{Field, Secret, StoredNode};
 
+use crate::core::agent::{Audit, Charge, Filed};
+use crate::core::wallet::Unopened;
 use crate::core::{
     agent::{Agent, AgentStore, Registered},
     envelope::{EnvelopeStore, SubmissionStore},
     StoreError,
-    index::{Batch, Commitment, IndexStore},
-    wallet::{ChainFacts, Held, Minted, NoteStore, Unplaced},
+    index::{Batch, Commitment, IndexStore, Locked},
+    wallet::{ChainFacts, Deposit, Held, Minted, NoteStore, Unplaced},
 };
 
 /// The daemon's store: the chain mirror and the notes we own, in one file.
@@ -74,8 +76,9 @@ impl SqliteStore {
                  PRIMARY KEY (level, idx)
              );
              CREATE TABLE IF NOT EXISTS cursor (
-                 id    INTEGER PRIMARY KEY CHECK (id = 1),
-                 block INTEGER NOT NULL
+                 id      INTEGER PRIMARY KEY CHECK (id = 1),
+                 block   INTEGER NOT NULL,
+                 scanned INTEGER NOT NULL DEFAULT 0
              );
              INSERT OR IGNORE INTO cursor (id, block) VALUES (1, 0);
              CREATE TABLE IF NOT EXISTS owned (
@@ -100,20 +103,51 @@ impl SqliteStore {
                  calls   INTEGER NOT NULL DEFAULT 0,
                  created INTEGER NOT NULL,
                  used    INTEGER,
-                 revoked INTEGER NOT NULL DEFAULT 0
+                 revoked INTEGER NOT NULL DEFAULT 0,
+                 paused  INTEGER NOT NULL DEFAULT 0,
+                 models  TEXT
+             );
+             CREATE TABLE IF NOT EXISTS deposits (
+                 commitment BLOB    PRIMARY KEY,
+                 amount     INTEGER NOT NULL,
+                 at         INTEGER NOT NULL
              );
              CREATE TABLE IF NOT EXISTS charges (
                  attestation BLOB    PRIMARY KEY,
                  agent       TEXT    NOT NULL,
                  cost        INTEGER NOT NULL,
-                 at          INTEGER NOT NULL
+                 at          INTEGER NOT NULL,
+                 nullifier   BLOB,
+                 delivered   BLOB,
+                 witness     TEXT,
+                 sequence    INTEGER NOT NULL DEFAULT 0,
+                 model       TEXT
              );",
         )
         .execute(&pool)
         .await
         .map_err(|_| StoreError::Unavailable)?;
 
+        Self::migrate(&pool).await;
         Ok(Self { pool })
+    }
+
+    /// `CREATE TABLE IF NOT EXISTS` leaves an older database on its old
+    /// columns, so added ones are applied separately. Adding a column that is
+    /// already there is the ordinary case, not a fault.
+    async fn migrate(pool: &SqlitePool) {
+        for addition in [
+            "ALTER TABLE cursor  ADD COLUMN scanned   INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE charges ADD COLUMN nullifier BLOB",
+            "ALTER TABLE charges ADD COLUMN delivered BLOB",
+            "ALTER TABLE charges ADD COLUMN witness   TEXT",
+            "ALTER TABLE charges ADD COLUMN sequence  INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE charges ADD COLUMN model     TEXT",
+            "ALTER TABLE agents  ADD COLUMN paused    INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE agents  ADD COLUMN models    TEXT",
+        ] {
+            let _ = sqlx::query(addition).execute(pool).await;
+        }
     }
 
     /// Shared by `IndexStore` and `ChainFacts`, which ask the same question
@@ -318,6 +352,36 @@ impl IndexStore for SqliteStore {
 
         rows.iter().map(commitment).collect()
     }
+
+    async fn escrows(&self, limit: u32) -> Result<Vec<Locked>, StoreError> {
+        sqlx::query(
+            "SELECT e.nullifier, e.seller, e.enclave, e.deadline, e.block
+             FROM escrows e JOIN envelopes v ON v.nullifier = e.nullifier
+             ORDER BY e.block DESC, e.deadline DESC LIMIT ?",
+        )
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| StoreError::Unavailable)?
+        .iter()
+        .map(locked)
+        .collect()
+    }
+}
+
+fn locked(row: &SqliteRow) -> Result<Locked, StoreError> {
+    Ok(Locked {
+        nullifier: field(row.get("nullifier"))?,
+        seller: address(row, "seller")?,
+        enclave: address(row, "enclave")?,
+        deadline: count(row, "deadline")?,
+        block: count(row, "block")?,
+    })
+}
+
+fn address(row: &SqliteRow, column: &str) -> Result<Address, StoreError> {
+    let bytes: Vec<u8> = row.get(column);
+    Address::try_from(bytes.as_slice()).map_err(|_| StoreError::Corrupt)
 }
 
 #[async_trait]
@@ -328,6 +392,53 @@ impl ChainFacts for SqliteStore {
 
     async fn is_spent(&self, nullifier: Field) -> Result<bool, StoreError> {
         self.nullified(nullifier).await
+    }
+
+    async fn unopened(&self, after: u32, limit: u32) -> Result<Vec<Unopened>, StoreError> {
+        sqlx::query(
+            "SELECT leaf_index, commitment, note FROM commitments
+             WHERE leaf_index >= ? AND length(note) > 0
+               AND commitment NOT IN (SELECT commitment FROM owned)
+             ORDER BY leaf_index LIMIT ?",
+        )
+        .bind(i64::from(after))
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| StoreError::Unavailable)?
+        .iter()
+        .map(|row| {
+            Ok(Unopened {
+                leaf_index: leaf(row, "leaf_index")?,
+                commitment: Field::from_bytes(
+                    digest(row, "commitment")?
+                        .try_into()
+                        .map_err(|_| StoreError::Corrupt)?,
+                )
+                .map_err(|_| StoreError::Corrupt)?,
+                note: row.get("note"),
+            })
+        })
+        .collect()
+    }
+
+    async fn scanned(&self, leaf: u32) -> Result<(), StoreError> {
+        sqlx::query("UPDATE cursor SET scanned = MAX(scanned, ?) WHERE id = 1")
+            .bind(i64::from(leaf))
+            .execute(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        Ok(())
+    }
+
+    async fn scan_mark(&self) -> Result<u32, StoreError> {
+        let row = sqlx::query("SELECT scanned FROM cursor WHERE id = 1")
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        row.map_or(Ok(0), |row| {
+            u32::try_from(row.get::<i64, _>("scanned")).map_err(|_| StoreError::Corrupt)
+        })
     }
 
     async fn escrow(&self, nullifier: Field) -> Result<Option<u64>, StoreError> {
@@ -567,6 +678,32 @@ impl NoteStore for SqliteStore {
         Ok(result.rows_affected() == 1)
     }
 
+    async fn deposited(&self, deposit: &Deposit) -> Result<(), StoreError> {
+        sqlx::query("INSERT OR IGNORE INTO deposits (commitment, amount, at) VALUES (?, ?, ?)")
+            .bind(deposit.commitment.to_bytes().to_vec())
+            .bind(integer(deposit.amount)?)
+            .bind(integer(deposit.at)?)
+            .execute(&self.pool)
+            .await
+            .map(|_| ())
+            .map_err(|_| StoreError::Unavailable)
+    }
+
+    async fn last_deposit(&self) -> Result<Option<Deposit>, StoreError> {
+        sqlx::query("SELECT commitment, amount, at FROM deposits ORDER BY at DESC LIMIT 1")
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| StoreError::Unavailable)?
+            .map(|row| {
+                Ok(Deposit {
+                    commitment: field(row.get("commitment"))?,
+                    amount: count(&row, "amount")?,
+                    at: count(&row, "at")?,
+                })
+            })
+            .transpose()
+    }
+
     async fn free(&self, commitment: Field) -> Result<(), StoreError> {
         sqlx::query("UPDATE owned SET held = 0 WHERE commitment = ?")
             .bind(commitment.to_bytes().to_vec())
@@ -578,20 +715,26 @@ impl NoteStore for SqliteStore {
 }
 
 /// Everything an agent is, short of the digest that authenticates it.
-const AGENT: &str = "id, label, budget, spent, calls, created, used, revoked";
+const AGENT: &str = "id, label, budget, spent, calls, created, used, revoked, paused, models";
 
 #[async_trait]
 impl AgentStore for SqliteStore {
     async fn issue(&self, agent: &Agent, digest: B256) -> Result<(), StoreError> {
         sqlx::query(
-            "INSERT INTO agents (id, digest, label, budget, created)
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO agents (id, digest, label, budget, created, models)
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&agent.id)
         .bind(digest.to_vec())
         .bind(&agent.label)
         .bind(agent.budget.map(integer).transpose()?)
         .bind(integer(agent.created)?)
+        .bind(
+            agent
+                .models
+                .as_ref()
+                .and_then(|listed| serde_json::to_string(listed).ok()),
+        )
         .execute(&self.pool)
         .await
         .map(|_| ())
@@ -633,21 +776,73 @@ impl AgentStore for SqliteStore {
         Ok(result.rows_affected() == 1)
     }
 
-    async fn charge(
-        &self,
-        attestation: B256,
-        agent: &str,
-        cost: u64,
-        now: u64,
-    ) -> Result<(), StoreError> {
+    /// Revoked stays revoked: pausing is not a way back out of the one-way
+    /// door, so the guard is on the row rather than on the caller.
+    async fn pause(&self, id: &str, paused: bool) -> Result<bool, StoreError> {
+        let result = sqlx::query(
+            "UPDATE agents SET paused = ?1 WHERE id = ?2 AND revoked = 0 AND paused != ?1",
+        )
+        .bind(i64::from(paused))
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|_| StoreError::Unavailable)?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    /// Narrowed in SQL rather than in memory: an audit of one payment
+    /// should not read the whole ledger to find it.
+    async fn audit(&self, audit: &Audit) -> Result<Vec<Filed>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT c.attestation, c.agent, c.cost, c.at, c.nullifier, c.delivered,
+                    c.witness, c.sequence, c.model, a.label
+             FROM charges c JOIN agents a ON a.id = c.agent
+             WHERE (?1 IS NULL OR c.agent = ?1)
+               AND (?2 IS NULL OR c.at >= ?2)
+               AND (?3 IS NULL OR c.at <= ?3)
+               AND (?4 IS NULL OR c.attestation = ?4)
+               AND (?5 IS NULL OR c.nullifier = ?5)
+               AND (?6 IS NULL OR c.at < ?6 OR (c.at = ?6 AND c.sequence < ?7))
+             ORDER BY c.at DESC, c.sequence DESC
+             LIMIT ?8",
+        )
+        .bind(audit.agent.as_deref())
+        .bind(audit.from.map(i64::try_from).transpose().map_err(|_| StoreError::Corrupt)?)
+        .bind(audit.to.map(i64::try_from).transpose().map_err(|_| StoreError::Corrupt)?)
+        .bind(audit.attestation.map(|digest| digest.to_vec()))
+        .bind(audit.nullifier.map(|key| key.to_bytes().to_vec()))
+        .bind(audit.after.map(|mark| integer(mark.at)).transpose()?)
+        .bind(audit.after.map(|mark| integer(mark.sequence)).transpose()?)
+        .bind(audit.limit.map_or(-1, i64::from))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| StoreError::Unavailable)?;
+        rows.iter().map(filed).collect()
+    }
+
+    async fn charge(&self, charge: &Charge, agent: &str) -> Result<(), StoreError> {
+        let cost = charge.cost;
+        let now = charge.at;
         let mut transaction = self.pool.begin().await.map_err(|_| StoreError::Unavailable)?;
         let filed = sqlx::query(
-            "INSERT OR IGNORE INTO charges (attestation, agent, cost, at) VALUES (?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO charges
+             (attestation, agent, cost, at, nullifier, delivered, witness, sequence, model)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
-        .bind(attestation.to_vec())
+        .bind(charge.attestation.to_vec())
         .bind(agent)
         .bind(integer(cost)?)
         .bind(integer(now)?)
+        .bind(charge.nullifier.map(|key| key.to_bytes().to_vec()))
+        .bind(charge.delivered.map(|digest| digest.to_vec()))
+        .bind(
+            charge
+                .witness
+                .as_ref()
+                .and_then(|witness| serde_json::to_string(witness).ok()),
+        )
+        .bind(integer(charge.sequence)?)
+        .bind(charge.model.as_str())
         .execute(&mut *transaction)
         .await
         .map_err(|_| StoreError::Unavailable)?;
@@ -681,7 +876,48 @@ fn agent(row: &SqliteRow) -> Result<Agent, StoreError> {
         created: count(row, "created")?,
         used: optional(row, "used")?,
         revoked: row.get::<i64, _>("revoked") != 0,
+        paused: row.get::<i64, _>("paused") != 0,
+        models: row
+            .get::<Option<String>, _>("models")
+            .and_then(|json| serde_json::from_str(&json).ok()),
     })
+}
+
+fn filed(row: &SqliteRow) -> Result<Filed, StoreError> {
+    Ok(Filed {
+        agent: row.get("agent"),
+        label: row.get("label"),
+        charge: Charge {
+            attestation: B256::from_slice(&digest(row, "attestation")?),
+            cost: count(row, "cost")?,
+            at: count(row, "at")?,
+            nullifier: row
+                .get::<Option<Vec<u8>>, _>("nullifier")
+                .filter(|bytes| bytes.len() == 32)
+                .map(|bytes| {
+                    <[u8; 32]>::try_from(bytes)
+                        .map_err(|_| StoreError::Corrupt)
+                        .and_then(|raw| Field::from_bytes(raw).map_err(|_| StoreError::Corrupt))
+                })
+                .transpose()?,
+            delivered: row
+                .get::<Option<Vec<u8>>, _>("delivered")
+                .filter(|bytes| bytes.len() == 32)
+                .map(|bytes| B256::from_slice(&bytes)),
+            // A record written by an older build has none, which is a row
+            // that cannot be proved rather than one that is wrong.
+            witness: row
+                .get::<Option<String>, _>("witness")
+                .and_then(|json| serde_json::from_str(&json).ok()),
+            sequence: count(row, "sequence")?,
+            model: row.get::<Option<String>, _>("model").unwrap_or_default(),
+        },
+    })
+}
+
+fn digest(row: &SqliteRow, column: &str) -> Result<Vec<u8>, StoreError> {
+    let bytes: Vec<u8> = row.get(column);
+    (bytes.len() == 32).then_some(bytes).ok_or(StoreError::Corrupt)
 }
 
 fn optional(row: &SqliteRow, column: &str) -> Result<Option<u64>, StoreError> {

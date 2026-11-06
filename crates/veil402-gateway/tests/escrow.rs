@@ -48,7 +48,8 @@ fn gateway(
 ) -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
     Ok(assemble(
         &Config {
-            vouched: std::collections::HashMap::new(),
+            serving_rpc: String::new(),
+            serving: alloy::primitives::Address::ZERO,
             fee_cap: 20_000_000_000_000,
             pool: pool()?,
             root: ROOT,
@@ -109,6 +110,7 @@ fn delegate(service: &MeteringService) -> Result<Delegation, Box<dyn std::error:
         siblings: witness.paths[0].siblings,
         root: witness.root,
         change_seed: Secret::random()?,
+        view: [0; 32],
         seller: session.seller,
         deadline: session.deadline,
         pool: client.address(),

@@ -10,9 +10,9 @@ use alloy::{
     signers::{SignerSync, local::PrivateKeySigner},
 };
 use veil402_sdk::{
-    MerklePath, Note, Prepared, Send, SessionKeys, Spend, Transaction, Veil,
+    MerklePath, Note, Opening, Prepared, Send, SessionKeys, Spend, Transaction, Veil,
     evm::{PoolClient, Session, Voucher, calls_root},
-    session::{EnclaveKey, Handover, Sealed},
+    session::{EnclaveKey, Handover, Sealed, seal_note},
 };
 
 mod error;
@@ -281,11 +281,33 @@ impl Meter {
             return Ok(Vec::new());
         }
         let keys = SessionKeys::from_seed(&self.handover.change_seed)?;
+        // Sealed to the buyer's viewing key, so it finds its change on chain
+        // rather than from a record it has to have kept.
+        let opening = Opening {
+            value: change,
+            asset: self.handover.asset.to_bytes(),
+            secret: self.handover.change_seed.to_bytes(),
+            session: true,
+        };
+        // A buyer that named an unusable viewing key gets a change note it
+        // cannot find by scanning, which is its own affair. It must not stop
+        // the seller settling: the note is still theirs, and still spendable
+        // by anyone holding the seed.
+        let note = borsh::to_vec(&opening)
+            .ok()
+            .and_then(|plain| seal_note(self.handover.view, &plain).ok())
+            .map(|sealed| {
+                let mut note = Vec::with_capacity(32 + sealed.ciphertext.len());
+                note.extend_from_slice(&sealed.encapsulated);
+                note.extend_from_slice(&sealed.ciphertext);
+                note
+            })
+            .unwrap_or_default();
         Ok(vec![Send::new(
             keys.owner.public()?,
             change,
             keys.random,
-            Vec::new(),
+            note,
         )?])
     }
 }
