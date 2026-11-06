@@ -3,7 +3,7 @@
 use alloy::{primitives::B256, signers::local::PrivateKeySigner};
 use veil402_enclave::{Call, Error, Meter, record, replay};
 use veil402_sdk::{
-    Field, Note, Secret, SessionKeys, Tree,
+    Note, Secret, SessionKeys, Tree,
     evm::{PoolClient, Session},
     session::{EnclaveKey, Handover, Keyring, Recipient, RootSeed, Sealed},
 };
@@ -55,9 +55,7 @@ fn delegated(keyring: &Keyring) -> Result<Delegation, Box<dyn std::error::Error>
         leaf,
         siblings: witness.paths[0].siblings,
         root: witness.root,
-        change_owner: Field::from(42_u64),
         change_seed: Secret::random()?,
-        target: 100,
         seller: session.seller,
         deadline: DEADLINE,
         pool: client.address(),

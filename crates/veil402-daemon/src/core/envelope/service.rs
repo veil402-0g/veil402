@@ -92,13 +92,14 @@ pub struct Terms {
     /// Who this daemon buys from. The catalogue picks it; re-shopping is a
     /// different value here, not a different code path.
     pub seller: Address,
-    /// What one envelope reserves, and how long it holds it for.
-    pub ceiling: u64,
+    /// What a session note wants to be worth.
+    ///
+    /// Two jobs, one number: the size worth reserving for a session, and the
+    /// size a settlement tries to leave behind for the next one. They have
+    /// to agree, so there is no sense in letting them disagree.
+    pub session: u64,
+    /// How long one envelope holds its reservation for.
     pub window: u64,
-    /// Where the remainder of a settlement returns.
-    pub change_owner: Field,
-    /// Size a settlement should leave behind for the next envelope.
-    pub target: u64,
 }
 
 impl EnvelopeService {
@@ -128,19 +129,19 @@ impl EnvelopeService {
     ///
     /// # Errors
     ///
-    /// Returns [`EnvelopeError`] when no note covers the ceiling, the lock
+    /// Returns [`EnvelopeError`] when the wallet holds nothing, the lock
     /// does not land, or the enclave refuses the delegation.
     pub async fn open(
         &self,
         seller: Address,
-        ceiling: u64,
+        wanted: u64,
         window: u64,
     ) -> Result<Envelope, EnvelopeError> {
         if window == 0 || window > MAX_LOCK {
             return Err(EnvelopeError::Window(window));
         }
         let now = self.broadcast.timestamp().await?;
-        let note = self.provision(ceiling, now).await?;
+        let note = self.provision(wanted, now).await?;
         let envelope = Envelope {
             nullifier: note.nullifier,
             commitment: note.commitment,
@@ -244,7 +245,7 @@ impl EnvelopeService {
             self.settle(nullifier, false).await?;
         }
         Ok(self
-            .open(self.terms.seller, self.terms.ceiling, self.terms.window)
+            .open(self.terms.seller, self.terms.session, self.terms.window)
             .await?
             .nullifier)
     }
@@ -270,7 +271,7 @@ impl EnvelopeService {
 
         let now = self.broadcast.timestamp().await?;
         self.wallet
-            .recover(nullifier, &change_seed, self.terms.target, now)
+            .recover(nullifier, &change_seed, now)
             .await?;
         Ok(())
     }
@@ -278,14 +279,14 @@ impl EnvelopeService {
     /// A note this envelope may delegate.
     ///
     /// A shielded note belongs to the wallet's own key, and handing that over
-    /// would hand over every note it holds, so a cold note is split into one
-    /// a session owns before it can be locked. Settlements mint the next one
-    /// already seeded, so this happens once per model rather than per
-    /// envelope.
-    async fn provision(&self, ceiling: u64, now: u64) -> Result<Held, EnvelopeError> {
+    /// would hand over every note it holds — so one that has no identity of
+    /// its own is reseeded before it can be locked. A settlement mints its
+    /// successor already seeded, so that cost falls on the first envelope
+    /// rather than on each one.
+    async fn provision(&self, wanted: u64, now: u64) -> Result<Held, EnvelopeError> {
         let note = self
             .wallet
-            .reserve(self.terms.pool.asset(), ceiling, now)
+            .reserve(self.terms.pool.asset(), wanted, now)
             .await?;
         if note.seed.is_some() {
             return Ok(note);
@@ -296,13 +297,13 @@ impl EnvelopeService {
             .into_iter()
             .next()
             .ok_or(EnvelopeError::Unknown)?;
-        let split = self.wallet.split(&note, path, ceiling, now).await?;
-        let prepared = self.prover.transfer(split.transaction).await?;
+        let reseeded = self.wallet.reseed(&note, path, now).await?;
+        let prepared = self.prover.transfer(reseeded.transaction).await?;
         self.broadcast
-            .submit(split.session, prepared.calldata)
+            .submit(reseeded.session, prepared.calldata)
             .await?;
-        self.landed(split.session, now).await?;
-        self.placed(split.session, now).await
+        self.landed(reseeded.session, now).await?;
+        self.placed(reseeded.session, now).await
     }
 
     /// Waits for the index to place a note the chain has already accepted.
@@ -366,10 +367,8 @@ impl EnvelopeService {
             leaf: note.leaf,
             siblings: path.siblings,
             root: witness.root,
-            change_owner: self.terms.change_owner,
             change_seed: Secret::from_bytes(change_seed.to_bytes())
                 .map_err(|_| WalletError::Owner)?,
-            target: self.terms.target,
             seller: envelope.seller,
             deadline: envelope.deadline,
             pool: self.terms.pool.address(),

@@ -14,7 +14,6 @@ pub(crate) const ASSET_DOMAIN: Field = Field::from_raw_u64(7);
 pub(crate) const SESSION_SPEND_DOMAIN: Field = Field::from_raw_u64(8);
 pub(crate) const SESSION_VIEW_DOMAIN: Field = Field::from_raw_u64(9);
 pub(crate) const SESSION_RANDOM_DOMAIN: Field = Field::from_raw_u64(10);
-pub(crate) const CHANGE_RANDOM_DOMAIN: Field = Field::from_raw_u64(11);
 
 pub(crate) fn poseidon(inputs: &[&Field]) -> Result<Field, Error> {
     let bytes: Vec<&[u8]> = inputs
@@ -108,18 +107,6 @@ impl SessionKeys {
     }
 }
 
-/// The blinding of the note a settlement returns the remainder to.
-///
-/// From the same seed as the session note beside it, so a buyer reconstructs
-/// both of a settlement's outputs without being told anything: it knows the
-/// value it locked, reads the amount from the chain, and the split follows.
-///
-/// # Errors
-///
-/// Returns [`Error::Poseidon`] if the configured hash rejects its inputs.
-pub fn change_random(seed: &Secret) -> Result<Secret, Error> {
-    derive(&CHANGE_RANDOM_DOMAIN, seed)
-}
 
 /// Poseidon lands in the field by construction, so the parse cannot fail.
 fn derive(domain: &Field, seed: &Secret) -> Result<Secret, Error> {

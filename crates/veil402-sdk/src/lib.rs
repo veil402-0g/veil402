@@ -10,5 +10,5 @@ mod proving;
 pub use client::{Config, Error, Prepared, Proof, Veil};
 pub use protocol::{
     Field, MAX_NOTE_BYTES, MerklePath, Note, Owner, PublicInputs, Secret, Send, SessionKeys, Spend,
-    StoredNode, TREE_DEPTH, Transaction, Tree, Witness, change_random, split,
+    StoredNode, TREE_DEPTH, Transaction, Tree, Witness,
 };

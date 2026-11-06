@@ -34,10 +34,10 @@ const DATABASE: &str = "sqlite://veil402.db?mode=rwc";
 /// index: it is the engine's, and it rebroadcasts from it on its own.
 const WALLET_STATE: &str = "veil402-wallet.redb";
 
-/// What one envelope reserves when nothing says otherwise. Around a dollar
-/// of inference at a scale of one unit per micro-USD: a few thousand calls
-/// between settlements rather than a few dozen.
-const CEILING: u64 = 1_000_000;
+/// What a session note wants to be worth when nothing says otherwise.
+/// Around a dollar of inference at one pool unit per micro-USD: a few
+/// thousand calls between settlements rather than a few dozen.
+const SESSION: u64 = 1_000_000;
 
 /// Blocks per log query. Relays cap the span; a thousand is under every cap
 /// we have met.
@@ -84,21 +84,18 @@ pub struct Config {
     pub gateway: String,
     /// Who this daemon buys from.
     pub seller: Address,
-    /// What one envelope reserves, in pool units.
+    /// What a session note wants to be worth, in pool units.
     ///
-    /// This is how much work a single note buys before the envelope has to
-    /// be settled and another opened, and a rollover costs a proof and two
-    /// transactions — so it wants to be worth thousands of calls, not tens.
-    /// At a scale of one pool unit per micro-USD, a real call runs 60 to 250
-    /// units, which puts a useful envelope in the hundreds of thousands.
-    pub ceiling: u64,
+    /// How much work one note buys before its envelope has to be settled and
+    /// another opened, and the size a settlement tries to leave behind for
+    /// the next one. A rollover costs a proof and two transactions, so it
+    /// wants to be worth thousands of calls rather than tens: at one pool
+    /// unit per micro-USD a real call runs sixty to two hundred and fifty.
+    pub session: u64,
     /// How long one envelope holds its reservation for.
     pub lock_for: u64,
     /// Keys the notes belong to. Losing them loses the balance.
     pub owner: Owner,
-    /// Size a settlement should leave behind as a second note. Zero returns
-    /// change as one note and lets the wallet fragment.
-    pub target: u64,
     /// How far one pass reads.
     pub window: Window,
     /// How failure is handled.
@@ -156,13 +153,12 @@ impl Config {
             artifacts: PathBuf::from(required("VEIL_ARTIFACTS")?),
             gateway: required("VEIL_GATEWAY_URL")?,
             seller: address("VEIL_SELLER")?,
-            ceiling: parsed("VEIL_ENVELOPE_CEILING", CEILING)?,
+            session: parsed("VEIL_SESSION_NOTE", SESSION)?,
             lock_for: parsed("VEIL_ENVELOPE_WINDOW", 600)?,
             owner: Owner {
                 spend: key("VEIL_SPEND_KEY")?,
                 view: key("VEIL_VIEW_KEY")?,
             },
-            target: parsed("VEIL_NOTE_TARGET", 0)?,
             window: Window {
                 chunk: parsed("VEIL_CHUNK", CHUNK)?,
                 confirmations: parsed("VEIL_CONFIRMATIONS", 0)?,
@@ -272,10 +268,6 @@ impl Daemon {
 
         let pool = PoolClient::new(config.pool, config.token, config.verifier, chain_id)
             .map_err(|_| StartError::Pool(config.pool))?;
-        let change_owner = config
-            .owner
-            .public()
-            .map_err(|_| StartError::Pool(config.pool))?;
         let veil = Arc::new(
             Veil::open(Proving::new(config.worker, config.artifacts))
                 .map_err(|_| StartError::Artifacts)?,
@@ -293,10 +285,8 @@ impl Daemon {
             Terms {
                 pool,
                 seller: config.seller,
-                ceiling: config.ceiling,
+                session: config.session,
                 window: config.lock_for,
-                change_owner,
-                target: config.target,
             },
         ));
         Ok(Self::new(index, wallet, broadcast, config.retry).serving(envelopes))

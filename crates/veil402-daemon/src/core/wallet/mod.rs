@@ -4,4 +4,4 @@ mod service;
 
 pub use model::{Held, Minted, Reconciled, Unplaced};
 pub use ports::{ChainFacts, NoteStore};
-pub use service::{WalletError, WalletService, select};
+pub use service::{Reseeded, WalletError, WalletService, choose};

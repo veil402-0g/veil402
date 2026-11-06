@@ -14,7 +14,7 @@ use veil402_gateway::{
     core::{MeterError, MeteringService},
 };
 use veil402_sdk::{
-    Field, Note, Secret, SessionKeys, Tree,
+    Note, Secret, SessionKeys, Tree,
     evm::{PoolClient, Session},
     session::{Handover, Keyring, Recipient, RootSeed, Sealed},
 };
@@ -102,9 +102,7 @@ fn delegate(service: &MeteringService) -> Result<Delegation, Box<dyn std::error:
         leaf,
         siblings: witness.paths[0].siblings,
         root: witness.root,
-        change_owner: Field::from(42_u64),
         change_seed: Secret::random()?,
-        target: 100,
         seller: session.seller,
         deadline: session.deadline,
         pool: client.address(),

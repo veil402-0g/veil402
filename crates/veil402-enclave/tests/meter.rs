@@ -33,7 +33,7 @@ const CHANGE_SEED: [u8; 32] = [3; 32];
 /// A meter over a delegation that is actually true: the note sits in the tree
 /// at the leaf, under the owner the seed derives, so `open` has something real
 /// to check and the ceiling is the note's own value.
-fn metered(value: u64, target: u64) -> Result<Meter, Box<dyn std::error::Error>> {
+fn metered(value: u64) -> Result<Meter, Box<dyn std::error::Error>> {
     let client = pool();
     let seed = Secret::random()?;
     let keys = SessionKeys::from_seed(&seed)?;
@@ -59,9 +59,7 @@ fn metered(value: u64, target: u64) -> Result<Meter, Box<dyn std::error::Error>>
         leaf,
         siblings: witness.paths[0].siblings,
         root: witness.root,
-        change_owner: veil402_sdk::Field::from(42_u64),
         change_seed: Secret::from_bytes(CHANGE_SEED)?,
-        target,
         seller: seller(),
         deadline: DEADLINE,
         pool: client.address(),
@@ -88,7 +86,7 @@ fn call(cost: u64) -> Call {
 
 #[test]
 fn totals_accumulate_and_stop_at_the_ceiling() -> Fallible {
-    let mut meter = metered(100, 0)?;
+    let mut meter = metered(100)?;
     assert_eq!(meter.ceiling(), 100, "the note's value is the ceiling");
     assert_eq!(meter.record(call(30)).expect("first"), 30);
     assert_eq!(meter.record(call(70)).expect("second"), 100);
@@ -104,7 +102,7 @@ fn totals_accumulate_and_stop_at_the_ceiling() -> Fallible {
 #[test]
 fn vouchers_are_cumulative_so_only_the_newest_matters() -> Fallible {
     let signer = PrivateKeySigner::random();
-    let mut meter = metered(1_000, 0)?;
+    let mut meter = metered(1_000)?;
 
     assert!(matches!(meter.voucher(&signer), Err(Error::NothingOwed)));
 
@@ -124,7 +122,7 @@ fn vouchers_are_cumulative_so_only_the_newest_matters() -> Fallible {
 fn signatures_recover_to_the_enclave() -> Fallible {
     let signer = PrivateKeySigner::random();
     let client = pool();
-    let mut meter = metered(1_000, 0)?;
+    let mut meter = metered(1_000)?;
     let session = *meter.session();
 
     let lock = sign_lock(&client, &session, &signer)?;
@@ -144,43 +142,31 @@ fn signatures_recover_to_the_enclave() -> Fallible {
     Ok(())
 }
 
-/// The point of settling inside the enclave: a buyer that was not there still
-/// finds what it is owed. Both notes derive from the seed it supplied and the
-/// amount the chain publishes, so there is nothing to decrypt.
+/// The point of settling inside the enclave: a buyer that was not there
+/// still finds what it is owed. The note derives from the seed it supplied
+/// and the amount the chain publishes, so there is nothing to decrypt — and
+/// it comes back whole, since carving a fixed size off it would only mint a
+/// note nobody asked for and leave the rest somewhere else.
 #[test]
-fn a_settlement_leaves_notes_the_buyer_can_reconstruct() -> Fallible {
-    let mut meter = metered(1_000, 100)?;
+fn a_settlement_leaves_a_note_the_buyer_can_reconstruct() -> Fallible {
+    let mut meter = metered(1_000)?;
     meter.record(call(250))?;
 
     let outputs = meter.outputs()?;
-    assert_eq!(outputs.len(), 2, "the spare output slot is used");
-    assert_eq!(outputs[0].value(), 100, "a session-sized note for the next envelope");
-    assert_eq!(outputs[1].value(), 650, "and the remainder");
+    assert_eq!(outputs.len(), 1, "the change was divided");
+    assert_eq!(outputs[0].value(), 750, "the whole remainder");
 
-    // Exactly what a buyer derives knowing only its seed and the public amount.
+    // Exactly what a buyer derives knowing only its seed and the public
+    // amount, and seeded — so the next envelope opens on it with no reseed.
     let next = SessionKeys::from_seed(&Secret::from_bytes(CHANGE_SEED)?)?;
     assert_eq!(outputs[0].owner(), next.owner.public()?);
-    assert_eq!(outputs[1].owner(), veil402_sdk::Field::from(42_u64));
-    Ok(())
-}
-
-/// Below twice the target there is nothing worth dividing, so one note comes
-/// back and it is still the next session's.
-#[test]
-fn a_small_change_stays_one_note() -> Fallible {
-    let mut meter = metered(1_000, 600)?;
-    meter.record(call(250))?;
-
-    let outputs = meter.outputs()?;
-    assert_eq!(outputs.len(), 1);
-    assert_eq!(outputs[0].value(), 750);
     Ok(())
 }
 
 /// A session that spent its whole note leaves nothing behind.
 #[test]
 fn a_fully_spent_note_leaves_no_change() -> Fallible {
-    let mut meter = metered(100, 10)?;
+    let mut meter = metered(100)?;
     meter.record(call(100))?;
 
     assert!(meter.outputs()?.is_empty());

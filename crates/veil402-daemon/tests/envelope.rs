@@ -186,7 +186,6 @@ async fn fixture(verdict: Landed) -> Result<Fixture, Box<dyn std::error::Error>>
     let seed = Secret::random()?;
     let keys = SessionKeys::from_seed(&seed)?;
     let owner = Owner::random()?;
-    let change_owner = owner.public()?;
     let wallet = Arc::new(WalletService::new(store.clone(), store.clone(), owner));
     wallet
         .remember(
@@ -217,10 +216,8 @@ async fn fixture(verdict: Landed) -> Result<Fixture, Box<dyn std::error::Error>>
         Terms {
             pool: client,
             seller: seller(),
-            ceiling: CEILING,
+            session: CEILING,
             window: WINDOW,
-            change_owner,
-            target: 100,
         },
     );
     Ok(Fixture {

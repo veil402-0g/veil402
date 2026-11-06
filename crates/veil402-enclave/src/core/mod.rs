@@ -10,10 +10,9 @@ use alloy::{
     signers::{SignerSync, local::PrivateKeySigner},
 };
 use veil402_sdk::{
-    MerklePath, Note, Prepared, Send, SessionKeys, Spend, Transaction, Veil, change_random,
+    MerklePath, Note, Prepared, Send, SessionKeys, Spend, Transaction, Veil,
     evm::{PoolClient, Session, Voucher, calls_root},
     session::{EnclaveKey, Handover, Sealed},
-    split,
 };
 
 mod error;
@@ -249,41 +248,33 @@ impl Meter {
         Ok(veil.settle(&self.pool, transaction, voucher).await?)
     }
 
-    /// The notes a settlement leaves behind: a session-sized one for the next
-    /// envelope, then the remainder.
+    /// The note a settlement leaves behind.
     ///
-    /// Both derive from `change_seed`, and the amount is public, so a buyer
-    /// that was away reconstructs them without a ciphertext to decrypt.
+    /// The whole remainder, under a key the change seed derives — so the
+    /// buyer reconstructs it knowing only what it locked and what the chain
+    /// says was paid, and the next envelope has something seeded to open on.
+    /// Carving a fixed size off it would only mint a note nobody asked for
+    /// and leave the rest somewhere else.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Veil`] when a note cannot be derived.
+    /// Returns [`Error::Veil`] when the note cannot be derived.
     pub fn outputs(&self) -> Result<Vec<Send>, Error> {
         self.outputs_at(self.total)
     }
 
     fn outputs_at(&self, amount: u64) -> Result<Vec<Send>, Error> {
         let change = self.handover.value.saturating_sub(amount);
-        let mut amounts = split(change, self.handover.target).into_iter();
-        let mut sends = Vec::new();
-        if let Some(amount) = amounts.next() {
-            let keys = SessionKeys::from_seed(&self.handover.change_seed)?;
-            sends.push(Send::new(
-                keys.owner.public()?,
-                amount,
-                keys.random,
-                Vec::new(),
-            )?);
+        if change == 0 {
+            return Ok(Vec::new());
         }
-        if let Some(amount) = amounts.next() {
-            sends.push(Send::new(
-                self.handover.change_owner,
-                amount,
-                change_random(&self.handover.change_seed)?,
-                Vec::new(),
-            )?);
-        }
-        Ok(sends)
+        let keys = SessionKeys::from_seed(&self.handover.change_seed)?;
+        Ok(vec![Send::new(
+            keys.owner.public()?,
+            change,
+            keys.random,
+            Vec::new(),
+        )?])
     }
 }
 
