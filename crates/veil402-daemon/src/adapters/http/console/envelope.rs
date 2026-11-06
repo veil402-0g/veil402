@@ -12,7 +12,7 @@ use serde::Serialize;
 use veil402_sdk::wire;
 
 use super::{
-    primitives::{ApiResult, Operator, Response},
+    primitives::{ApiResult, Response},
     state::Console,
 };
 use crate::core::agent::{Audit, Filed};
@@ -53,7 +53,6 @@ pub struct Drawn {
 
 pub async fn envelope(
     State(console): State<Console>,
-    _: Operator,
 ) -> ApiResult<Option<Envelope>> {
     let Some(open) = console.envelopes.current().await? else {
         return Ok(Response::ok(None));

@@ -10,7 +10,7 @@ use serde::Serialize;
 use veil402_sdk::wire;
 
 use super::{
-    primitives::{ApiResult, Operator, Response},
+    primitives::{ApiResult, Response},
     state::Console,
 };
 
@@ -35,7 +35,7 @@ pub struct Deposited {
     pub at: u64,
 }
 
-pub async fn pool(State(console): State<Console>, _: Operator) -> ApiResult<Pool> {
+pub async fn pool(State(console): State<Console>) -> ApiResult<Pool> {
     let holdings = console.wallet.holdings().await?;
     // The local tree, not `health`: that one asks the pool whether it ever
     // held this root, and a chain that is away would fail the whole page.

@@ -156,7 +156,6 @@ fn buying(
         fee_cap: 20_000_000_000_000,
         listen: listen.parse()?,
         cap: CAP,
-        console_token: None,
         console_origins: Vec::new(),
         rpc: var("RPC_URL")?,
         logs: env::var("LOGS_URL").unwrap_or(var("RPC_URL")?),

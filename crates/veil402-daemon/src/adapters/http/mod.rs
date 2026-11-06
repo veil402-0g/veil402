@@ -34,8 +34,9 @@ const PATIENCE: Duration = Duration::from_mins(10);
 /// Where the console is served from, when it is not this origin.
 ///
 /// Browsers refuse a cross-origin read without this, and the console is a
-/// separate dev server. An allowlist rather than `permissive`: this surface
-/// issues mandates.
+/// separate dev server. An allowlist rather than `permissive`, because the
+/// console surface is otherwise open: what keeps it to this machine is the
+/// address the daemon binds, which is loopback unless it is told otherwise.
 pub fn router(api: Api, console: Console, origins: &[HeaderValue]) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list(origins.iter().cloned()))

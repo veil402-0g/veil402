@@ -285,9 +285,6 @@ pub struct Config {
     pub listen: SocketAddr,
     /// Output a call is assumed to produce when it names no limit.
     pub cap: u32,
-    /// What an operator presents to the console. Unset leaves that surface
-    /// closed rather than open: this is the key to every agent's ledger.
-    pub console_token: Option<String>,
     /// Origins the console may be served from, for the browser's sake.
     pub console_origins: Vec<String>,
     /// Most this daemon will pay per unit of gas, in wei.
@@ -356,7 +353,6 @@ impl Config {
             lock_for: parsed("VEIL_ENVELOPE_WINDOW", 600)?,
             listen: parsed("VEIL_LISTEN", LISTEN.parse().map_err(|_| ConfigError::Invalid("VEIL_LISTEN"))?)?,
             cap: parsed("VEIL_CALL_CAP", CALL_CAP)?,
-            console_token: env::var("VEIL_CONSOLE_TOKEN").ok().filter(|token| !token.is_empty()),
             console_origins: env::var("VEIL_CONSOLE_ORIGIN")
                 .unwrap_or_else(|_| CONSOLE_ORIGIN.to_owned())
                 .split(',')
@@ -537,7 +533,6 @@ impl Daemon {
                     envelopes: envelopes.clone(),
                     index: index.clone(),
                     wallet: wallet.clone(),
-                    token: config.console_token.map(Arc::from),
                     settings: Arc::new(Settings::new(
                         chain_id,
                         config.pool,

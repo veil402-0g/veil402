@@ -8,7 +8,7 @@ use axum::extract::State;
 use serde::Serialize;
 
 use super::{
-    primitives::{ApiResult, Operator, Response},
+    primitives::{ApiResult, Response},
     state::{Console, Settings},
 };
 
@@ -19,7 +19,7 @@ pub struct Bootstrap {
     pub models: Vec<String>,
 }
 
-pub async fn config(State(console): State<Console>, _: Operator) -> ApiResult<Bootstrap> {
+pub async fn config(State(console): State<Console>) -> ApiResult<Bootstrap> {
     // A seller that is away leaves the console usable: every panel but the
     // mandate form's chips works without knowing the catalogue.
     let models = console.envelopes.offers().await.map_or_else(

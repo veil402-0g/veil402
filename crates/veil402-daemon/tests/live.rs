@@ -395,7 +395,6 @@ async fn daemon(
         fee_cap: 20_000_000_000_000,
         listen: "127.0.0.1:0".parse()?,
         cap: 1_024,
-        console_token: None,
         console_origins: Vec::new(),
         rpc: var("RPC_URL")?,
         logs: var("RPC_URL")?,

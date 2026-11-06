@@ -518,10 +518,6 @@ pub struct Fixture {
     pub nullifier: Field,
 }
 
-/// What the console's tests present. Not an agent key: the two surfaces
-/// authenticate different people.
-pub const OPERATOR: &str = "console-token-for-tests";
-
 impl Fixture {
     #[must_use]
     pub fn console(&self) -> Console {
@@ -530,7 +526,6 @@ impl Fixture {
             envelopes: self.service.clone(),
             index: self.index.clone(),
             wallet: self.wallet.clone(),
-            token: Some(Arc::from(OPERATOR)),
             settings: Arc::new(Settings::new(1, seller(), seller(), seller(), seller(), CEILING, WINDOW)),
         }
     }

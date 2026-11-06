@@ -8,8 +8,6 @@
 /** Dev proxies `/api` to the daemon; a built console is told where it lives. */
 const BASE: string = import.meta.env.VITE_API_BASE ?? '/api/v1'
 
-const TOKEN_KEY = 'veil402.operator'
-
 /** The daemon answered, and said no. */
 export class ApiError extends Error {
   readonly status: number
@@ -20,10 +18,6 @@ export class ApiError extends Error {
     this.status = status
   }
 
-  /** Whether a different token would help — nothing else will. */
-  get unauthorised(): boolean {
-    return this.status === 401 || this.status === 503
-  }
 }
 
 /** Nothing answered: the daemon is not running, or not reachable.  */
@@ -179,14 +173,13 @@ export interface Client {
   pause(id: string, paused: boolean): Promise<void>
 }
 
-export function client(token: string, base: string = BASE): Client {
+export function client(base: string = BASE): Client {
   const send = async <T>(path: string, init?: RequestInit): Promise<T> => {
     let response: Response
     try {
       response = await fetch(`${base}${path}`, {
         ...init,
         headers: {
-          Authorization: `Bearer ${token}`,
           ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
           ...init?.headers,
         },
@@ -225,23 +218,5 @@ export function client(token: string, base: string = BASE): Client {
     revoke: (id) => send<void>(`/agents/${id}`, { method: 'DELETE' }),
     pause: (id, paused) =>
       send<void>(`/agents/${id}/${paused ? 'pause' : 'resume'}`, { method: 'POST' }),
-  }
-}
-
-/** The operator's token, kept where a reload can find it. */
-export function storedToken(): string {
-  try {
-    return window.localStorage.getItem(TOKEN_KEY) ?? ''
-  } catch {
-    return ''
-  }
-}
-
-export function storeToken(token: string): void {
-  try {
-    if (token) window.localStorage.setItem(TOKEN_KEY, token)
-    else window.localStorage.removeItem(TOKEN_KEY)
-  } catch {
-    // A console in a private window still works; it just forgets.
   }
 }

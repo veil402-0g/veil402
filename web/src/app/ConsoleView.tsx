@@ -80,66 +80,6 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
         <main
           className={s.s016}
         >
-          <div
-            className={s.s017}
-          >
-            <div
-              className={s.s018}
-            >
-              <span
-                className={s.s019}
-              >
-                {v.sourceLabel}
-              </span>
-              <div
-                className={s.s020}
-              >
-                <button
-                  className={s.s021}
-                  onClick={v.showDemo}
-                  style={{ '--d0': v.demoBg, '--d1': v.demoFg } as CSSVars}
-                >
-                  Operating
-                </button>
-                <button
-                  className={s.s022}
-                  onClick={v.showFresh}
-                  style={{ '--d0': v.freshBg, '--d1': v.freshFg } as CSSVars}
-                >
-                  Fresh install
-                </button>
-                <button
-                  className={s.s022}
-                  onClick={v.showLive}
-                  style={{ '--d0': v.liveBg, '--d1': v.liveFg } as CSSVars}
-                >
-                  Live
-                </button>
-              </div>
-              {v.needsToken && (
-                <form
-                  className={s.connect}
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    v.connect()
-                  }}
-                >
-                  <input
-                    className={s.connectField}
-                    type="password"
-                    value={v.tokenDraft}
-                    onChange={v.setTokenDraft}
-                    placeholder="VEIL_CONSOLE_TOKEN"
-                    aria-label="Operator token"
-                  />
-                  <button className={s.connectGo} type="submit">
-                    Connect
-                  </button>
-                  {v.offline && <span className={s.connectError}>{v.offline}</span>}
-                </form>
-              )}
-            </div>
-          </div>
           <section
             className={s.s023}
           >
@@ -1335,12 +1275,6 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                         >
                           {se.pctF} · {se.rate} tok/s · refund {se.refundF}
                         </span>
-                        <button
-                          className={s.s205}
-                          onClick={se.settle}
-                        >
-                          CLOSE & SETTLE ↗
-                        </button>
                       </div>
                     </div>
                     </Fragment>

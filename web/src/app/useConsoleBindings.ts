@@ -12,20 +12,15 @@ import { useNavigate } from 'react-router'
 import { clock, compact, money, randomHex, relative, shortHash } from '../ledger/format'
 import {
   AMOUNT_SIGN,
-  ENDPOINTS,
   KIND_LABEL,
-  advance,
   avatar,
-  revoke,
-  seedDemo,
   seedEmpty,
-  settle,
   totals,
   type Ledger,
   type Totals,
 } from '../ledger/model'
 import { useViewTransition } from '../transition/context'
-import { ApiError, client, storeToken, storedToken, type Bootstrap } from '../api/client'
+import { ApiError, client, type Bootstrap } from '../api/client'
 import { CADENCE, fold, snapshot } from '../ledger/live'
 
 /** Treemap grid for the pool-composition dot field. */
@@ -52,9 +47,6 @@ const TOAST_MS = 3400
 
 type Scope = 'tx' | 'agent' | 'range'
 
-/** Where the ledger comes from. Two of these are simulations. */
-type Source = 'demo' | 'fresh' | 'live'
-
 interface Toast {
   title: string
   sub: string
@@ -72,10 +64,9 @@ interface Form {
 
 /** Turns a failure into something an operator can act on. */
 function explain(error: unknown): string {
-  if (error instanceof ApiError) {
-    return error.unauthorised ? 'that token was refused' : error.message
-  }
-  return 'the daemon is not answering on this address'
+  return error instanceof ApiError
+    ? error.message
+    : 'the daemon is not answering on this address'
 }
 
 /** Parses "5,000" and other loosely-typed money input. */
@@ -87,30 +78,17 @@ function amountOf(v: string): number {
 const PLAYGROUND_URL = import.meta.env.VITE_PLAYGROUND_URL ?? 'http://localhost:7860'
 
 export interface ConsoleOptions {
-  /** `false` freezes the simulated feed. */
-  liveFeed?: boolean
   /** `Range` shows the projection chart, `Columns` the stacked budget chart. */
   agentChart?: 'Range' | 'Columns'
-  startState?: 'Operating' | 'Fresh install'
 }
 
-export function useConsoleBindings({
-  liveFeed = true,
-  agentChart = 'Range',
-  startState = 'Operating',
-}: ConsoleOptions = {}) {
+export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}) {
   const navigate = useNavigate()
   const transition = useViewTransition()
 
-  const [ledger, setLedger] = useState<Ledger>(() =>
-    startState === 'Fresh install' ? seedEmpty() : seedDemo(),
-  )
+  // Empty until the daemon answers: everything here is its ledger.
+  const [ledger, setLedger] = useState<Ledger>(seedEmpty)
   const [now, setNow] = useState(() => Date.now())
-  // A ref, not state: the interval must not restart on every tick.
-  const tick = useRef(0)
-  const [mode, setMode] = useState<Source>(startState === 'Fresh install' ? 'fresh' : 'demo')
-  const [token, setToken] = useState(() => storedToken())
-  const [tokenDraft, setTokenDraft] = useState(() => storedToken())
   const [config, setConfig] = useState<Bootstrap | null>(null)
   /** What stopped the daemon answering, in words the operator can act on. */
   const [offline, setOffline] = useState('')
@@ -148,19 +126,14 @@ export function useConsoleBindings({
 
   useEffect(() => () => window.clearTimeout(toastTimer.current), [])
 
-  const live = mode === 'live'
-  const api = useMemo(() => (live && token ? client(token) : null), [live, token])
+  const api = useMemo(() => client(), [])
 
+  // Only to keep relative times moving; the ledger itself advances when the
+  // daemon says it has.
   useEffect(() => {
-    const id = window.setInterval(() => {
-      setNow(Date.now())
-      tick.current += 1
-      // A real ledger advances because the daemon says so, never because a
-      // second passed.
-      if (liveFeed && !live) setLedger((l) => advance(l, tick.current))
-    }, 1000)
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(id)
-  }, [liveFeed, live])
+  }, [])
 
   // The daemon's own addresses, limits and catalogue: read once, because a
   // console built against one deployment and pointed at another should say
@@ -208,23 +181,6 @@ export function useConsoleBindings({
   useEffect(() => {
     const id = window.setTimeout(() => setRangeIn(true), 350)
     return () => window.clearTimeout(id)
-  }, [])
-
-  /** Keeps the token where a reload can find it, and retries with it. */
-  const connect = useCallback(() => {
-    const trimmed = tokenDraft.trim()
-    storeToken(trimmed)
-    setToken(trimmed)
-    setOffline(trimmed ? '' : 'paste the daemon\u2019s console token')
-  }, [tokenDraft])
-
-  const showMode = useCallback((next: Source) => {
-    setMode(next)
-    setToast(null)
-    setOffline('')
-    // A live console starts empty and fills from the daemon; a simulated one
-    // starts from its seed.
-    setLedger(next === 'demo' ? seedDemo() : seedEmpty())
   }, [])
 
   const T: Totals = totals(ledger)
@@ -422,19 +378,12 @@ export function useConsoleBindings({
       canRevoke: !revoked,
       isRevoked: revoked,
       revoke: () => {
-        if (api) {
-          api
-            .revoke(a.id)
-            .then(() => notify(`Mandate ${a.id} revoked · ${a.name}`, 'the key no longer opens', '#ff4d1a'))
-            .catch((error: unknown) => notify('Revoke refused', explain(error), '#ff4d1a'))
-          return
-        }
-        setLedger((l) => revoke(l, a.id))
-        notify(
-          `Mandate ${a.id} revoked · ${a.name}`,
-          'revocation nullifier posted · open escrow refunded · 0.6s',
-          '#ff4d1a',
-        )
+        api
+          .revoke(a.id)
+          .then(() =>
+            notify(`Mandate ${a.id} revoked · ${a.name}`, 'the key no longer opens', '#ff4d1a'),
+          )
+          .catch((error: unknown) => notify('Revoke refused', explain(error), '#ff4d1a'))
       },
       ticks: Array.from({ length: TICKS }, (_, i) => {
         const major = i % 10 === 0
@@ -471,13 +420,6 @@ export function useConsoleBindings({
     // The refund figure fades out as the escrow is consumed.
     refundOp: x.metered / x.escrow > 0.78 ? 0 : 1,
     rate: compact(Math.round(x.tokens / Math.max(5, (now - x.started) / 1000))),
-    settle: () => {
-      setLedger((l) => settle(l, x.id))
-      notify(
-        `Session ${x.id} settled`,
-        `enclave meter signed · ${money(x.metered)} USDC · refund ${money(x.escrow - x.metered)}`,
-      )
-    },
     ...avatar(nameOf(x.agentId), isRevoked(nameOf(x.agentId))),
   }))
 
@@ -821,7 +763,7 @@ export function useConsoleBindings({
       }))
       return
     }
-    if (api && config) {
+    if (config) {
       // Pool units, not whole tokens: the daemon counts in the token's own
       // smallest unit and the form collects dollars.
       api
@@ -938,7 +880,7 @@ export function useConsoleBindings({
     hasFeed: ledger.feed.length > 0,
     noFeed: ledger.feed.length === 0,
     feedRows,
-    liveLabel: liveFeed ? 'LIVE' : 'PAUSED',
+    liveLabel: offline ? 'OFFLINE' : 'LIVE',
     livePulse: createElement('span', {
       style: {
         width: 7,
@@ -946,7 +888,7 @@ export function useConsoleBindings({
         borderRadius: '50%',
         background: '#1230d6',
         display: 'inline-block',
-        animation: liveFeed ? 'vpulse 1.6s infinite' : 'none',
+        animation: offline ? 'none' : 'vpulse 1.6s infinite',
       },
     }),
     cursor: createElement(
@@ -1041,7 +983,7 @@ export function useConsoleBindings({
       setForm((f) => ({ ...f, mBudget: e.target.value })),
     mError: form.mError,
     freeF: `${money(T.free)} USDC`,
-    endpointChips: ENDPOINTS.map((ep) => {
+    endpointChips: (config?.models ?? []).map((ep) => {
       const on = form.mEndpoints.includes(ep)
       return {
         label: ep,
@@ -1057,24 +999,7 @@ export function useConsoleBindings({
     }),
     confirmMandate,
 
-    demoBg: mode === 'demo' ? '100% 100%' : '0% 100%',
-    demoFg: mode === 'demo' ? '#fff' : '#6b6e78',
-    freshBg: mode === 'fresh' ? '100% 100%' : '0% 100%',
-    freshFg: mode === 'fresh' ? '#fff' : '#6b6e78',
-    liveBg: live ? '100% 100%' : '0% 100%',
-    liveFg: live ? '#fff' : '#6b6e78',
-    showDemo: () => showMode('demo'),
-    showFresh: () => showMode('fresh'),
-    showLive: () => showMode('live'),
-
-    live,
-    /** The token field only appears once live is asked for. */
-    needsToken: live && (!token || !!offline),
-    tokenDraft,
-    setTokenDraft: (e: ChangeEvent<HTMLInputElement>) => setTokenDraft(e.target.value),
-    connect,
     offline,
-    sourceLabel: live ? (offline ? 'OFFLINE' : 'LIVE') : 'PREVIEW',
 
     toast,
   }

@@ -10,7 +10,7 @@ use axum::{
     body::Body,
     http::{Request, StatusCode, header},
 };
-use common::{COST, Fallible, MODEL, OPERATOR, OTHER, serving};
+use common::{COST, Fallible, MODEL, OTHER, serving};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
@@ -41,6 +41,11 @@ fn listing(key: &str, path: &str) -> Request<Body> {
         .header(header::AUTHORIZATION, format!("Bearer {key}"))
         .body(Body::empty())
         .expect("request")
+}
+
+/// The console surface takes no credential.
+fn reading(path: &str) -> Request<Body> {
+    Request::builder().uri(path).body(Body::empty()).expect("request")
 }
 
 async fn text(body: Body) -> Result<String, Box<dyn std::error::Error>> {
@@ -312,7 +317,7 @@ async fn a_refusal_about_the_seller_is_not_told_in_the_seller_s_voice() -> Falli
 /// the whole claim — an auditor handed one agent's history must not learn
 /// that another agent exists, let alone what it spent.
 #[tokio::test]
-async fn an_audit_shows_one_agent_and_leaves_the_rest_sealed() -> Fallible {
+async fn an_audit_narrows_to_one_agent_and_leaves_the_rest_out() -> Fallible {
     let fixture = serving(2).await?;
     let mine = fixture.agents.issue("mine", None, None, NOW).await?;
     let theirs = fixture.agents.issue("theirs", None, None, NOW).await?;
@@ -342,23 +347,11 @@ async fn an_audit_shows_one_agent_and_leaves_the_rest_sealed() -> Fallible {
         )
         .await?;
 
-    // An agent key authenticates as one agent; the ledger spans all of them.
-    // Presenting one here must not read the other's history.
-    let refused = fixture
-        .served()
-        .oneshot(listing(&mine.key, "/api/v1/audit"))
-        .await?;
-    assert_eq!(
-        refused.status(),
-        StatusCode::UNAUTHORIZED,
-        "an agent key opened the operator's ledger"
-    );
-
     let everything: Value = serde_json::from_str(
         &text(
             fixture
                 .served()
-                .oneshot(listing(OPERATOR, "/api/v1/audit"))
+                .oneshot(reading("/api/v1/audit"))
                 .await?
                 .into_body(),
         )
@@ -374,10 +367,7 @@ async fn an_audit_shows_one_agent_and_leaves_the_rest_sealed() -> Fallible {
         &text(
             fixture
                 .served()
-                .oneshot(listing(
-                    OPERATOR,
-                    &format!("/api/v1/audit?agent={}", theirs.agent.id),
-                ))
+                .oneshot(reading(&format!("/api/v1/audit?agent={}", theirs.agent.id)))
                 .await?
                 .into_body(),
         )

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     dto::List,
-    primitives::{ApiResult, Operator, Response},
+    primitives::{ApiResult, Response},
     state::Console,
 };
 use crate::{app::now, core::agent::Agent};
@@ -48,7 +48,7 @@ impl From<Agent> for Mandate {
     }
 }
 
-pub async fn agents(State(console): State<Console>, _: Operator) -> ApiResult<List<Mandate>> {
+pub async fn agents(State(console): State<Console>) -> ApiResult<List<Mandate>> {
     let listed = console.agents.listed().await?;
     Ok(Response::ok(List::all(
         listed.into_iter().map(Mandate::from).collect(),
@@ -74,7 +74,6 @@ pub struct Granted {
 
 pub async fn issue(
     State(console): State<Console>,
-    _: Operator,
     Json(asked): Json<Issue>,
 ) -> ApiResult<Granted> {
     let label = asked.label.trim();
@@ -100,7 +99,6 @@ pub struct Changed {
 
 pub async fn revoke(
     State(console): State<Console>,
-    _: Operator,
     Path(id): Path<String>,
 ) -> ApiResult<Changed> {
     let changed = console.agents.revoke(&id).await?;
@@ -109,7 +107,6 @@ pub async fn revoke(
 
 pub async fn pause(
     State(console): State<Console>,
-    _: Operator,
     Path(id): Path<String>,
 ) -> ApiResult<Changed> {
     held(&console, &id, true).await
@@ -117,7 +114,6 @@ pub async fn pause(
 
 pub async fn resume(
     State(console): State<Console>,
-    _: Operator,
     Path(id): Path<String>,
 ) -> ApiResult<Changed> {
     held(&console, &id, false).await

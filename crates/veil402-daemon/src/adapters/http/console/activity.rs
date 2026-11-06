@@ -11,7 +11,7 @@ use veil402_sdk::wire;
 
 use super::{
     dto::{List, Page},
-    primitives::{ApiResult, Operator, Response},
+    primitives::{ApiResult, Response},
     state::Console,
 };
 use crate::core::agent::Audit;
@@ -45,7 +45,6 @@ pub struct Event {
 
 pub async fn activity(
     State(console): State<Console>,
-    _: Operator,
     Query(page): Query<Page>,
 ) -> ApiResult<List<Event>> {
     let limit = page.limit();

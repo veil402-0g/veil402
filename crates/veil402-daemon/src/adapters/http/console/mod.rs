@@ -2,9 +2,11 @@
 //!
 //! Kept apart from the agent API because the two answer to different people.
 //! `/v1` is `OpenAI`'s namespace, authenticated by an agent's own key and
-//! shaped so any `OpenAI` client parses it. This one is authenticated by the
-//! operator's token, reads across every agent, and wears an envelope of its
-//! own.
+//! shaped so any `OpenAI` client parses it. This one reads across every
+//! agent and wears an envelope of its own.
+//!
+//! It is open. The daemon binds to loopback, and that is the whole of what
+//! keeps this surface to the machine it runs on.
 
 mod activity;
 mod agents;

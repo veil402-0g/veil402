@@ -12,7 +12,7 @@ use veil402_sdk::{wire, wire::Witness};
 
 use super::{
     dto::{List, Page, cursor},
-    primitives::{ApiResult, Operator, Response},
+    primitives::{ApiResult, Response},
     state::Console,
 };
 use crate::core::agent::{Audit, Filed};
@@ -58,7 +58,6 @@ pub struct Proof {
 
 pub async fn audit(
     State(console): State<Console>,
-    _: Operator,
     Query(scope): Query<Scope>,
     Query(page): Query<Page>,
 ) -> ApiResult<List<Call>> {

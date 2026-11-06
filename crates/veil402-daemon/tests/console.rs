@@ -10,7 +10,7 @@ use axum::{
     body::Body,
     http::{Request, StatusCode, header},
 };
-use common::{COST, Fallible, MODEL, OPERATOR, OTHER, serving};
+use common::{COST, Fallible, MODEL, OTHER, serving};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
@@ -22,19 +22,17 @@ use veil402_daemon::core::{
 
 const NOW: u64 = 1_900_000_000;
 
-fn get(token: &str, path: &str) -> Request<Body> {
+fn get(path: &str) -> Request<Body> {
     Request::builder()
         .uri(path)
-        .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::empty())
         .expect("request")
 }
 
-fn post(token: &str, path: &str, body: &str) -> Request<Body> {
+fn post(path: &str, body: &str) -> Request<Body> {
     Request::builder()
         .method("POST")
         .uri(path)
-        .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_owned()))
         .expect("request")
@@ -56,36 +54,6 @@ async fn json(body: Body) -> Result<Value, Box<dyn std::error::Error>> {
     Ok(serde_json::from_slice(&body.collect().await?.to_bytes())?)
 }
 
-/// The console is the operator's, not an agent's. A wrong token, a missing
-/// one, and an agent's own key are all the same answer.
-#[tokio::test]
-async fn the_console_opens_only_to_the_operator_s_token() -> Fallible {
-    let fixture = serving(2).await?;
-    let agent = fixture.agents.issue("aider", None, None, NOW).await?;
-
-    for presented in [&agent.key, &"not-the-token".to_owned()] {
-        let response = fixture.served().oneshot(get(presented, "/api/v1/pool")).await?;
-        assert_eq!(
-            response.status(),
-            StatusCode::UNAUTHORIZED,
-            "the console answered a key that is not the operator's"
-        );
-    }
-
-    let bare = Request::builder()
-        .uri("/api/v1/pool")
-        .body(Body::empty())
-        .expect("request");
-    assert_eq!(
-        fixture.served().oneshot(bare).await?.status(),
-        StatusCode::UNAUTHORIZED
-    );
-
-    let allowed = fixture.served().oneshot(get(OPERATOR, "/api/v1/pool")).await?;
-    assert_eq!(allowed.status(), StatusCode::OK);
-    Ok(())
-}
-
 /// A mandate that names its models refuses everything else, and refuses it
 /// before the call costs anything.
 #[tokio::test]
@@ -94,9 +62,7 @@ async fn a_mandate_buys_only_the_models_it_names() -> Fallible {
     let granted: Value = json(
         fixture
             .served()
-            .oneshot(post(
-                OPERATOR,
-                "/api/v1/agents",
+            .oneshot(post("/api/v1/agents",
                 &format!(r#"{{"label":"scoped","budget":100000,"models":["{MODEL}"]}}"#),
             ))
             .await?
@@ -117,7 +83,7 @@ async fn a_mandate_buys_only_the_models_it_names() -> Fallible {
     let spent: Value = json(
         fixture
             .served()
-            .oneshot(get(OPERATOR, "/api/v1/agents"))
+            .oneshot(get("/api/v1/agents"))
             .await?
             .into_body(),
     )
@@ -143,7 +109,7 @@ async fn a_paused_mandate_stops_and_starts_again_but_a_revoked_one_does_not() ->
 
     let paused = fixture
         .served()
-        .oneshot(post(OPERATOR, &format!("/api/v1/agents/{id}/pause"), ""))
+        .oneshot(post(&format!("/api/v1/agents/{id}/pause"), ""))
         .await?;
     assert_eq!(paused.status(), StatusCode::OK);
     assert_eq!(
@@ -154,7 +120,7 @@ async fn a_paused_mandate_stops_and_starts_again_but_a_revoked_one_does_not() ->
 
     fixture
         .served()
-        .oneshot(post(OPERATOR, &format!("/api/v1/agents/{id}/resume"), ""))
+        .oneshot(post(&format!("/api/v1/agents/{id}/resume"), ""))
         .await?;
     assert_eq!(
         fixture.served().oneshot(asking(&agent.key, MODEL)).await?.status(),
@@ -166,7 +132,7 @@ async fn a_paused_mandate_stops_and_starts_again_but_a_revoked_one_does_not() ->
     let resumed: Value = json(
         fixture
             .served()
-            .oneshot(post(OPERATOR, &format!("/api/v1/agents/{id}/resume"), ""))
+            .oneshot(post(&format!("/api/v1/agents/{id}/resume"), ""))
             .await?
             .into_body(),
     )
@@ -240,7 +206,7 @@ async fn the_shared_envelope_splits_into_shares_that_add_up_to_its_ceiling() -> 
     let envelope: Value = json(
         fixture
             .served()
-            .oneshot(get(OPERATOR, "/api/v1/envelope"))
+            .oneshot(get("/api/v1/envelope"))
             .await?
             .into_body(),
     )

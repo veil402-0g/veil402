@@ -80,7 +80,5 @@ pub struct Console {
     pub envelopes: Arc<EnvelopeService>,
     pub index: Arc<IndexService>,
     pub wallet: Arc<WalletService>,
-    /// What an operator presents. `None` leaves the surface closed.
-    pub token: Option<Arc<str>>,
     pub settings: Arc<Settings>,
 }
