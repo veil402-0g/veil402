@@ -49,3 +49,6 @@ docs
 
 # Built prover worker
 prover/veil402-gnark/veil402-gnark
+
+# aider leaves these beside the repo it edits
+.aider*

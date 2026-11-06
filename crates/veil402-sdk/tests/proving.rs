@@ -1,4 +1,4 @@
-use std::{error::Error as StdError, fs, path::Path, process::Command};
+use std::{env, error::Error as StdError, fs, path::Path, process::Command};
 
 use tempfile::tempdir;
 use veil402_sdk::{
@@ -126,9 +126,11 @@ fn rejects_corrupt_artifacts() -> Result<(), Box<dyn StdError>> {
     Ok(())
 }
 
-/// Proves the shape the EVM escrow uses — one input note spent, one change note
-/// created, the difference leaving the pool as a negative public amount — and
-/// writes the proof and its public inputs for the Solidity verifier test.
+/// Proves the shape the EVM escrow uses: one input note spent, one change note
+/// created, the difference leaving the pool as a negative public amount.
+///
+/// Refreshing the Solidity fixture is opt-in. Proving draws fresh randomness,
+/// so writing it on every run left a tracked file dirty after each test.
 #[tokio::test]
 async fn proves_and_writes_evm_fixture() -> Result<(), Box<dyn StdError>> {
     let repository = root()?;
@@ -177,8 +179,10 @@ async fn proves_and_writes_evm_fixture() -> Result<(), Box<dyn StdError>> {
         hex::encode(&proof.bytes),
         inputs.join("\",\n    \"")
     );
-    let out = repository.join("contracts/test/fixtures");
-    fs::create_dir_all(&out)?;
-    fs::write(out.join("transfer.json"), fixture)?;
+    if env::var_os("VEIL_WRITE_FIXTURE").is_some() {
+        let out = repository.join("contracts/test/fixtures");
+        fs::create_dir_all(&out)?;
+        fs::write(out.join("transfer.json"), fixture)?;
+    }
     Ok(())
 }
