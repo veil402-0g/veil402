@@ -333,7 +333,7 @@ async fn an_audit_shows_one_agent_and_leaves_the_rest_sealed() -> Fallible {
                 attestation: alloy::primitives::B256::repeat_byte(0xBB),
                 cost: COST,
                 at: NOW,
-                nullifier: veil402_sdk::Field::from(5_u64),
+                nullifier: Some(veil402_sdk::Field::from(5_u64)),
                 delivered: None,
                 witness: None,
                 sequence: 0,

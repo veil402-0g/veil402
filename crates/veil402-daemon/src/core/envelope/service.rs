@@ -242,22 +242,20 @@ impl EnvelopeService {
         let Some(nullifier) = self.envelopes.newest().await? else {
             return Ok(None);
         };
-        let Some(note) = self.wallet.note(nullifier).await? else {
+        // Both from the chain's own record: an escrow the index has not
+        // seen yet is one nothing here can date.
+        let (Some(note), Some(deadline)) = (
+            self.wallet.note(nullifier).await?,
+            self.wallet.escrow(nullifier).await?,
+        ) else {
             return Ok(None);
         };
-        let opened = self.envelopes.opened(nullifier).await?.unwrap_or_default();
         Ok(Some(Open {
             nullifier,
             seller: self.terms.seller,
             ceiling: note.value,
-            // The pool's own record once the index has seen the lock, and
-            // the window it was opened for until then.
-            deadline: self
-                .wallet
-                .escrow(nullifier)
-                .await?
-                .unwrap_or_else(|| opened.saturating_add(self.terms.window)),
-            opened,
+            deadline,
+            opened: deadline.saturating_sub(self.terms.window),
         }))
     }
 

@@ -19,7 +19,7 @@ fn filed(attestation: B256, cost: u64, at: u64) -> Charge {
         attestation,
         cost,
         at,
-        nullifier: veil402_sdk::Field::from(0_u64),
+        nullifier: Some(veil402_sdk::Field::from(0_u64)),
         delivered: None,
         witness: None,
         sequence: 0,

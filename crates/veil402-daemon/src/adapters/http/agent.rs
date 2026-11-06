@@ -207,7 +207,7 @@ async fn bill(api: &Api, agent: &str, hold: &mut Option<Hold>, metered: &Metered
         attestation: metered.attestation,
         cost: metered.cost,
         at: now(),
-        nullifier: metered.nullifier,
+        nullifier: Some(metered.nullifier),
         delivered: metered.delivered,
         witness: metered.witness.clone(),
         sequence: metered.sequence,

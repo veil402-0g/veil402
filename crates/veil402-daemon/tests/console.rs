@@ -14,7 +14,11 @@ use common::{COST, Fallible, MODEL, OPERATOR, OTHER, serving};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
-use veil402_daemon::core::agent::Charge;
+use veil402_daemon::core::{
+    agent::Charge,
+    envelope::EnvelopeStore,
+    index::{Batch, IndexStore, Locked},
+};
 
 const NOW: u64 = 1_900_000_000;
 
@@ -193,6 +197,25 @@ async fn the_shared_envelope_splits_into_shares_that_add_up_to_its_ceiling() -> 
         }
         tokio::task::yield_now().await;
     }
+    // The lock has landed; the index seeing it is what dates the envelope,
+    // and the fake chain emits no events of its own.
+    let nullifier = fixture.store.newest().await?.expect("an envelope was opened");
+    fixture
+        .store
+        .append(
+            &Batch {
+                locks: vec![Locked {
+                    nullifier,
+                    seller: common::seller(),
+                    enclave: common::seller(),
+                    deadline: NOW + 600,
+                    block: 1,
+                }],
+                ..Batch::default()
+            },
+            &[],
+        )
+        .await?;
     let open = fixture.service.current().await?.expect("an open envelope");
 
     let other = fixture.agents.authenticate(&second.key).await?;
@@ -205,7 +228,7 @@ async fn the_shared_envelope_splits_into_shares_that_add_up_to_its_ceiling() -> 
                 attestation: alloy::primitives::B256::repeat_byte(0xCC),
                 cost: COST,
                 at: NOW,
-                nullifier: open.nullifier,
+                nullifier: Some(open.nullifier),
                 delivered: None,
                 witness: None,
                 sequence: 1,

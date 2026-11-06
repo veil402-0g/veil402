@@ -72,7 +72,7 @@ pub async fn activity(
                 witness.prompt.saturating_add(witness.completion)
             }),
             commitment: Some(wire::encode(charge.attestation.as_slice())),
-            nullifier: Some(wire::encode(&charge.nullifier.to_bytes())),
+            nullifier: charge.nullifier.map(|key| wire::encode(&key.to_bytes())),
         });
     }
 

@@ -46,7 +46,9 @@ pub struct Call {
 #[derive(Debug, Serialize)]
 pub struct Proof {
     /// The envelope it was served under, which ties it to a settlement.
-    pub nullifier: String,
+    /// Absent on a call filed before one was kept, which is a row that
+    /// cannot be proved rather than one that is wrong.
+    pub nullifier: Option<String>,
     pub attestation: String,
     pub delivered: Option<String>,
     /// Its index in the list that settlement roots.
@@ -100,7 +102,7 @@ fn call(filed: &Filed) -> Call {
             .as_ref()
             .map(|witness| witness.prompt.saturating_add(witness.completion)),
         proof: Proof {
-            nullifier: wire::encode(&charge.nullifier.to_bytes()),
+            nullifier: charge.nullifier.map(|key| wire::encode(&key.to_bytes())),
             attestation: hexed(&charge.attestation),
             delivered: charge.delivered.as_ref().map(hexed),
             sequence: charge.sequence,

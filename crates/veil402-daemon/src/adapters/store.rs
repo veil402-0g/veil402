@@ -491,15 +491,6 @@ impl EnvelopeStore for SqliteStore {
             .transpose()
     }
 
-    async fn opened(&self, nullifier: Field) -> Result<Option<u64>, StoreError> {
-        let row = sqlx::query("SELECT opened FROM envelopes WHERE nullifier = ?")
-            .bind(nullifier.to_bytes().to_vec())
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|_| StoreError::Unavailable)?;
-        row.map(|row| count(&row, "opened")).transpose()
-    }
-
     async fn change_seed(&self, nullifier: Field) -> Result<Option<Secret>, StoreError> {
         let row = sqlx::query("SELECT change_seed FROM envelopes WHERE nullifier = ?")
             .bind(nullifier.to_bytes().to_vec())
@@ -841,7 +832,7 @@ impl AgentStore for SqliteStore {
         .bind(agent)
         .bind(integer(cost)?)
         .bind(integer(now)?)
-        .bind(charge.nullifier.to_bytes().to_vec())
+        .bind(charge.nullifier.map(|key| key.to_bytes().to_vec()))
         .bind(charge.delivered.map(|digest| digest.to_vec()))
         .bind(
             charge
@@ -899,12 +890,15 @@ fn filed(row: &SqliteRow) -> Result<Filed, StoreError> {
             attestation: B256::from_slice(&digest(row, "attestation")?),
             cost: count(row, "cost")?,
             at: count(row, "at")?,
-            nullifier: Field::from_bytes(
-                digest(row, "nullifier")?
-                    .try_into()
-                    .map_err(|_| StoreError::Corrupt)?,
-            )
-            .map_err(|_| StoreError::Corrupt)?,
+            nullifier: row
+                .get::<Option<Vec<u8>>, _>("nullifier")
+                .filter(|bytes| bytes.len() == 32)
+                .map(|bytes| {
+                    <[u8; 32]>::try_from(bytes)
+                        .map_err(|_| StoreError::Corrupt)
+                        .and_then(|raw| Field::from_bytes(raw).map_err(|_| StoreError::Corrupt))
+                })
+                .transpose()?,
             delivered: row
                 .get::<Option<Vec<u8>>, _>("delivered")
                 .filter(|bytes| bytes.len() == 32)

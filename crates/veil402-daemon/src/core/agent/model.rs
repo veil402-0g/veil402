@@ -65,8 +65,8 @@ pub struct Charge {
     pub cost: u64,
     pub at: u64,
     /// The envelope it was served under, which is what ties it to a
-    /// settlement on chain.
-    pub nullifier: Field,
+    /// settlement on chain. Absent on a row written before one was kept.
+    pub nullifier: Option<Field>,
     pub delivered: Option<B256>,
     pub witness: Option<Witness>,
     /// Its index in the list that settlement roots.
