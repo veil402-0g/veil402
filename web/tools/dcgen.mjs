@@ -32,15 +32,20 @@ const TARGETS = [
     markers: [
       ['<div style="height:100vh;min-height:700px', 'data-dc-split="Hero" '],
     ],
-    // The design linked screens by hash and by file; the app uses routes.
-    hrefs: { '#console': '/console' },
+    // The design linked screens by hash and by file; the app uses routes. The
+    // Hermes tile was the one local asset in a row that otherwise loads from
+    // the vendors themselves.
+    urls: {
+      '#console': '/console',
+      'assets/hermes.png': 'https://github.com/NousResearch.png?size=128',
+    },
   },
   {
     src: 'design/Console.dc.html',
     out: 'src/generated/console',
     name: 'Console',
     markers: [],
-    hrefs: { 'Veil%20402%20Landing.dc.html': '/' },
+    urls: { 'Veil%20402%20Landing.dc.html': '/' },
   },
 ]
 
@@ -213,9 +218,9 @@ function groupBlocks(nodes) {
 // ------------------------------------------------------------------ the pass
 
 class Generator {
-  constructor(name, hrefs = {}) {
+  constructor(name, urls = {}) {
     this.name = name
-    this.hrefs = hrefs
+    this.urls = urls
     /** @type {Map<string, {cls: string, body: string[], hover: string[], vars: string[]}>} */
     this.classes = new Map()
     this.bindings = new Set()
@@ -393,8 +398,8 @@ class Generator {
       if (name === 'style' || name.startsWith('style-') || name === 'class') continue
       if (name.startsWith('hint-') || name === 'data-dc-split') continue
       const prop = reactAttrName(name)
-      if (name === 'href' && this.hrefs[value]) {
-        props.push(`href=${JSON.stringify(this.hrefs[value])}`)
+      if ((name === 'href' || name === 'src') && this.urls[value]) {
+        props.push(`${prop}=${JSON.stringify(this.urls[value])}`)
         continue
       }
       if (HAS_BINDING.test(value)) {
@@ -451,7 +456,7 @@ for (const t of TARGETS) {
   const close = src.lastIndexOf('</x-dc>')
   const template = src.slice(open.index + open[0].length, close)
 
-  const g = new Generator(t.name, t.hrefs ?? {})
+  const g = new Generator(t.name, t.urls ?? {})
   const rootJsx = g.run(template)
 
   const helmetCss = g.helmet?.childNodes.find((n) => n.tagName === 'style')?.childNodes[0].value ?? ''

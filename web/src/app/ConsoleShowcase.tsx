@@ -1432,7 +1432,7 @@ export function ConsoleShowcase({ v }: { v: LandingBindings }) {
                           >
                             <img
                               className={s.s263}
-                              src="assets/hermes.png"
+                              src="https://github.com/NousResearch.png?size=128"
                               alt="Hermes"
                               title="Hermes"
                             />

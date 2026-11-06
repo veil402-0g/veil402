@@ -45,6 +45,10 @@ Claude Design sources in `design/` by `tools/dcgen.mjs`:
 npm run gen        # dcgen + postgen
 ```
 
+`tools/make-icons.mjs` generates the favicons from the same brand mark — a disc
+with a square at its centre — so the PNGs are reproducible rather than
+hand-placed binaries.
+
 The design files are ~2 500 inline-styled elements. `dcgen` hoists every `style`
 attribute into a deduped CSS Module class, keeps only the interpolated declarations
 dynamic (as CSS custom properties set from `style={{ '--d0': … }}`), and rewrites the
