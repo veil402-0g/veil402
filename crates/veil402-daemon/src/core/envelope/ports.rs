@@ -40,10 +40,6 @@ pub trait Broadcaster: Send + Sync {
     /// Where a submitted call has reached, or `None` while it is in flight.
     async fn landed(&self, key: Field) -> Result<Option<Landed>, ChainError>;
 
-    /// Advances everything in flight: rebroadcasts, bumps fees, notices
-    /// reorgs. Nothing reaches a terminal state without it.
-    async fn tick(&self) -> Result<(), ChainError>;
-
     /// The latest block's timestamp.
     ///
     /// A lock's deadline is checked against this, never the host clock,

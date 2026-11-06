@@ -35,6 +35,9 @@ pub struct Meter {
     handover: Handover,
     total: u64,
     calls: Vec<B256>,
+    /// Set once a settlement is being built. What it pays is fixed at that
+    /// moment, so a call counted afterwards is one it cannot cover.
+    closing: bool,
 }
 
 impl Meter {
@@ -66,6 +69,7 @@ impl Meter {
             handover,
             total: 0,
             calls: Vec::new(),
+            closing: false,
         })
     }
 
@@ -125,6 +129,9 @@ impl Meter {
     /// past what the note can pay, so the enclave stops rather than serving
     /// work nobody can settle.
     pub fn record(&mut self, call: Call) -> Result<u64, Error> {
+        if self.closing {
+            return Err(Error::Closing);
+        }
         let total = self
             .total
             .checked_add(call.cost)
@@ -135,6 +142,11 @@ impl Meter {
         self.total = total;
         self.calls.push(call.attestation);
         Ok(total)
+    }
+
+    /// Stops metering, because a settlement is about to fix what is owed.
+    pub const fn closing(&mut self) {
+        self.closing = true;
     }
 
     /// Returns the running total owed.

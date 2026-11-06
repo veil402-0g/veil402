@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use alloy::{
     eips::BlockId,
@@ -8,7 +8,7 @@ use alloy::{
 use async_trait::async_trait;
 use veil402_sdk::Field;
 use walletkit::{
-    Wallet,
+    Runner, Wallet,
     adapters::{
         LocalSigner, RedbStateStore, SystemClock, Transport,
         policy::{DefaultPolicyEngine, TargetAllowlist},
@@ -18,10 +18,20 @@ use walletkit::{
 
 use crate::core::envelope::{Broadcaster, ChainError, Landed, SubmissionStore};
 
+/// How often the sending engine is turned over: rebroadcast, confirm, bump.
+/// On its own clock, because a transaction in flight needs attention
+/// whether or not the index has anything to do.
+const TICK: Duration = Duration::from_secs(5);
+
 /// Sends pool calls through `walletkit`, which owns nonces, fee bumps and the
 /// reorg-aware lifecycle this daemon would otherwise have to keep itself.
 pub struct PoolBroadcaster<P> {
-    wallet: Wallet,
+    wallet: Arc<Wallet>,
+    /// Kept for the life of the broadcaster. Dropping it stops the loop
+    /// that rebroadcasts, confirms and bumps — none of which can be left to
+    /// the sync loop, which backs off exactly when an endpoint is away and
+    /// a stuck transaction most needs attention.
+    _ticking: Runner,
     provider: P,
     submissions: Arc<dyn SubmissionStore>,
     pool: Address,
@@ -59,11 +69,13 @@ pub async fn open(
     let transport = Transport::url(endpoint).map_err(|_| ChainError::Unavailable)?;
     // The same depth the index holds back by. Twelve is an Ethereum default
     // and would never arrive on a chain that reaches finality without reorgs.
-    let wallet = Wallet::builder(Arc::new(transport), Arc::new(signer), Arc::new(policy))
-        .store(Arc::new(store))
-        .confirmations(confirmations)
-        .build()
-        .map_err(|_| ChainError::Unavailable)?;
+    let wallet = Arc::new(
+        Wallet::builder(Arc::new(transport), Arc::new(signer), Arc::new(policy))
+            .store(Arc::new(store))
+            .confirmations(confirmations)
+            .build()
+            .map_err(|_| ChainError::Unavailable)?,
+    );
     let provider = ProviderBuilder::new()
         .connect(rpc)
         .await
@@ -73,6 +85,7 @@ pub async fn open(
         .await
         .map_err(|_| ChainError::Unavailable)?;
     Ok(PoolBroadcaster {
+        _ticking: wallet.clone().run(TICK),
         wallet,
         provider,
         submissions,
@@ -123,13 +136,6 @@ impl<P: Provider + Send + Sync> Broadcaster for PoolBroadcaster<P> {
             Some(TxStatus::Replaced | TxStatus::Dropped) => Some(Landed::Dropped),
             _ => None,
         })
-    }
-
-    async fn tick(&self) -> Result<(), ChainError> {
-        self.wallet
-            .tick()
-            .await
-            .map_err(|_| ChainError::Unavailable)
     }
 
     async fn timestamp(&self) -> Result<u64, ChainError> {

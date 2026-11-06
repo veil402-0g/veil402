@@ -74,4 +74,13 @@ impl<P: Provider + Send + Sync> Escrows for OnChain<P> {
             .await
             .map_err(unreachable)
     }
+
+    async fn now(&self) -> Result<u64, MeterError> {
+        self.provider
+            .get_block(alloy::eips::BlockId::latest())
+            .await
+            .map_err(|error| MeterError::Refused(error.to_string()))?
+            .map(|block| block.header.timestamp)
+            .ok_or_else(|| MeterError::Refused("the chain has no latest block".into()))
+    }
 }

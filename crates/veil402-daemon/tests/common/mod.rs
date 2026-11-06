@@ -273,9 +273,6 @@ impl Broadcaster for Silent {
         Ok(None)
     }
 
-    async fn tick(&self) -> Result<(), SendError> {
-        Ok(())
-    }
 
     async fn timestamp(&self) -> Result<u64, SendError> {
         Ok(0)

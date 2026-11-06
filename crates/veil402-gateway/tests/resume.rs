@@ -40,6 +40,10 @@ fn gateway(
             scale: 1,
             margin_bps: 0,
             ceiling: 1_024,
+            signer: "0x0101010101010101010101010101010101010101010101010101010101010101".to_owned(),
+            multicall: alloy::primitives::Address::repeat_byte(0xCA),
+            wallet_state: std::path::PathBuf::from("/nonexistent/wallet.redb"),
+            confirmations: 0,
         },
         pool_state,
         Arc::new(support::Upstream { frames: 2, breaks: false }),
@@ -177,4 +181,80 @@ async fn a_call_the_host_never_recorded_is_counted_on_retry() -> Fallible {
         "the retried call was counted"
     );
     Ok(())
+}
+
+/// What the sweep has to find: sessions close enough to their deadline that
+/// waiting for the buyer is no longer safe, and nothing else.
+#[tokio::test]
+async fn only_sessions_near_their_deadline_are_due() -> Fallible {
+    use veil402_gateway::{adapters::Sessions, core::Resumes};
+
+    let state = tempfile::tempdir()?;
+    let sessions = Sessions::open(&state.path().join("sessions.redb"))?;
+    let sealed = veil402_sdk::session::Sealed {
+        encapsulated: [0; 32],
+        ciphertext: Vec::new(),
+    };
+    for (nullifier, deadline) in [(1_u64, 1_000_u64), (2, 5_000), (3, 1_500)] {
+        sessions
+            .opened(
+                Field::from(nullifier),
+                &sealed,
+                veil402_sdk::evm::Session {
+                    nullifier: Field::from(nullifier),
+                    seller: Address::repeat_byte(0x5E),
+                    deadline,
+                },
+            )
+            .await?;
+    }
+
+    let mut due: Vec<u64> = sessions
+        .expiring(1_500)
+        .await?
+        .iter()
+        .map(|nullifier| u64::from_be_bytes(nullifier.to_bytes()[24..].try_into().expect("tail")))
+        .collect();
+    due.sort_unstable();
+    assert_eq!(due, vec![1, 3], "the wrong sessions came due");
+
+    // A settled session is nobody's business, so it stops being found.
+    sessions.forget(Field::from(1_u64)).await?;
+    assert_eq!(sessions.expiring(1_500).await?.len(), 1);
+    Ok(())
+}
+
+/// A batch is only worth the hop when there is more than one, and a buyer
+/// that settled its own session a moment ago must not take the rest down
+/// with it.
+#[test]
+fn a_lone_settlement_skips_the_batcher_and_a_batch_tolerates_a_loser() {
+    use veil402_gateway::{adapters::batched, core::Settlement};
+
+    let pool = Address::repeat_byte(0x4A);
+    let multicall = Address::repeat_byte(0xCA);
+    let settling = |calldata: Vec<u8>| Settlement {
+        nullifier: Field::from(1_u64),
+        calldata,
+    };
+
+    assert!(batched(pool, multicall, &[]).is_none(), "an empty pass sent something");
+
+    let one = settling(vec![1, 2, 3]);
+    let (to, calldata) = batched(pool, multicall, &[&one]).expect("one");
+    assert_eq!(to, pool, "a single settlement went the long way round");
+    assert_eq!(calldata.as_ref(), &[1, 2, 3]);
+
+    let two = settling(vec![4, 5, 6]);
+    let (to, calldata) = batched(pool, multicall, &[&one, &two]).expect("many");
+    assert_eq!(to, multicall);
+    // allowFailure, twice: the encoding carries a true for every call.
+    assert_eq!(
+        calldata
+            .windows(32)
+            .filter(|word| word[..31].iter().all(|byte| *byte == 0) && word[31] == 1)
+            .count(),
+        2,
+        "a failing settlement would take the batch with it"
+    );
 }

@@ -1,9 +1,10 @@
 //! Composition root: builds the gateway from its configuration and serves it.
 
-use std::{env, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc};
+use std::{env, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 
 use alloy::{hex, primitives::Address};
 use thiserror::Error;
+use tokio::time::sleep;
 use tower_http::trace::TraceLayer;
 use veil402_enclave::{Upstream, adapters::Router};
 use veil402_sdk::{
@@ -14,7 +15,7 @@ use veil402_sdk::{
 
 use crate::{
     adapters::{self, Enclave, Replays, Sessions, http::router},
-    core::{Escrows, MeterError, MeteringService, Pricing},
+    core::{Escrows, MeterError, MeteringService, Pricing, Settles},
 };
 
 /// Where the gateway listens when nothing says otherwise.
@@ -25,6 +26,15 @@ const STATE: &str = "veil402-sessions.redb";
 
 /// Only providers that seal the request and keep nothing after it.
 const TRUST: &str = "private";
+
+/// Multicall3, at the address it holds on every chain that has it.
+const MULTICALL: &str = "0xcA11bde05977b3631167028862bE2a173976CA11";
+
+/// Where the sending engine keeps what it is still tracking.
+const WALLET_STATE: &str = "veil402-gateway-wallet.redb";
+
+/// How often to look for sessions the buyer has stopped settling.
+const SWEEP: Duration = Duration::from_secs(30);
 
 /// Micro-USD a single call may spend when it names no limit of its own.
 /// Reasoning models will take everything they are given, so this is a real
@@ -74,6 +84,15 @@ pub struct Config {
     pub margin_bps: u64,
     /// What one call may spend when the request names no limit of its own.
     pub ceiling: u32,
+    /// Pays the gas on a settlement the buyer never asked for. Gas only: a
+    /// settlement is authorised by the enclave's signature and the proof,
+    /// and the pool does not look at who sent it.
+    pub signer: String,
+    pub multicall: Address,
+    pub wallet_state: PathBuf,
+    /// Blocks a settlement waits for. Hedera reaches finality without
+    /// reorgs, so zero is correct there.
+    pub confirmations: u64,
 }
 
 fn required(name: &'static str) -> Result<String, ConfigError> {
@@ -129,6 +148,15 @@ impl Config {
             scale: parsed("VEIL_TOKEN_SCALE", 1)?,
             margin_bps: parsed("VEIL_MARGIN_BPS", 0)?,
             ceiling: parsed("VEIL_CALL_CEILING", CEILING)?,
+            signer: required("VEIL_GATEWAY_SIGNER")?,
+            multicall: parsed(
+                "VEIL_MULTICALL",
+                MULTICALL
+                    .parse()
+                    .map_err(|_| ConfigError::Invalid("VEIL_MULTICALL"))?,
+            )?,
+            wallet_state: parsed("VEIL_GATEWAY_WALLET_STATE", PathBuf::from(WALLET_STATE))?,
+            confirmations: parsed("VEIL_CONFIRMATIONS", 0)?,
         })
     }
 }
@@ -197,18 +225,66 @@ pub async fn serve(config: Config) -> Result<(), StartError> {
         config.ceiling,
     )?);
     let service = assemble(&config, escrows, upstream)?;
+    let settler = Arc::new(
+        adapters::settler(
+            &config.rpc,
+            &config.signer,
+            config.pool.address(),
+            config.multicall,
+            &config.wallet_state,
+            config.pool.chain_id(),
+            config.confirmations,
+        )
+        .await?,
+    );
     let listener = tokio::net::TcpListener::bind(config.bind)
         .await
         .map_err(|_| StartError::Bind(config.bind))?;
     tracing::info!(bind = %config.bind, "serving");
-    axum::serve(
+
+    let serving = axum::serve(
         listener,
-        router(service).layer(TraceLayer::new_for_http()),
+        router(service.clone()).layer(TraceLayer::new_for_http()),
     )
     // A deploy should drain sessions rather than drop them.
     .with_graceful_shutdown(async {
         let _ = tokio::signal::ctrl_c().await;
-    })
-    .await
-    .map_err(|_| StartError::Bind(config.bind))
+    });
+
+    tokio::select! {
+        served = serving => served.map_err(|_| StartError::Bind(config.bind)),
+        () = sweeping(service, settler) => Ok(()),
+    }
+}
+
+/// Settles what the buyer has stopped settling.
+///
+/// The buyer closes a session when it wants its note back; one that has
+/// stopped caring never does, and the work was delivered either way. So the
+/// seller closes it instead, and a pass that finds nothing due still turns
+/// the sending engine over.
+async fn sweeping(service: Arc<MeteringService>, settler: Arc<dyn Settles>) {
+    loop {
+        sleep(SWEEP).await;
+        let due = match service.closing().await {
+            Ok(due) => due,
+            Err(error) => {
+                tracing::warn!(%error, "could not read what is due");
+                continue;
+            }
+        };
+        // Only what actually went is finished with. Anything held back is
+        // still ours to carry, and comes round on the next pass.
+        match settler.send(&due).await {
+            Ok(sent) => {
+                if !sent.is_empty() {
+                    tracing::info!(settlements = sent.len(), "closed sessions the buyer left open");
+                }
+                if let Err(error) = service.settled(&sent).await {
+                    tracing::warn!(%error, "settled sessions could not be let go of");
+                }
+            }
+            Err(error) => tracing::warn!(%error, "settlements could not be sent"),
+        }
+    }
 }

@@ -216,6 +216,15 @@ impl Meters for Enclave {
     /// Returns [`MeterError::Unknown`] for a session this enclave does not hold,
     /// or [`Error::Refused`] when the proof cannot be built.
     async fn settle(&self, nullifier: Field, dust: bool) -> Result<SettlementBody, MeterError> {
+        // What a settlement pays is fixed the moment it is built, so the
+        // session stops metering first: a call counted after this is one the
+        // settlement cannot cover.
+        self.meters
+            .write()
+            .await
+            .get_mut(&nullifier)
+            .ok_or(MeterError::Unknown)?
+            .closing();
         let meters = self.meters.read().await;
         let meter = meters.get(&nullifier).ok_or(MeterError::Unknown)?;
         let prepared = if dust {

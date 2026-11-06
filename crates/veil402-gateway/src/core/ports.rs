@@ -46,6 +46,45 @@ pub trait Escrows: Send + Sync {
     ///
     /// Returns [`MeterError`] when the chain cannot be read.
     async fn is_known_root(&self, root: Field) -> Result<bool, MeterError>;
+
+    /// The latest block's timestamp.
+    ///
+    /// A deadline is the chain's to judge, and the pool refuses a settlement
+    /// a second past it — so the host's own clock is not good enough to
+    /// decide when one has to go.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MeterError`] when the chain cannot be read.
+    async fn now(&self) -> Result<u64, MeterError>;
+}
+
+/// A settlement, and the session it closes.
+pub struct Settlement {
+    pub nullifier: Field,
+    pub calldata: Vec<u8>,
+}
+
+/// Sends settlements nobody asked for.
+///
+/// The buyer settles when it wants its note back. A buyer that has stopped
+/// caring never does, and the work was still delivered — so the seller has
+/// to be able to close a session itself.
+#[async_trait]
+pub trait Settles: Send + Sync {
+    /// Submits the ones that would land, and says which those were.
+    ///
+    /// Only what it reports is finished with: anything it dropped is still
+    /// the caller's to carry, and will come round again.
+    ///
+    /// Keeping what is already in flight moving is not this call's business.
+    /// A transaction needs rebroadcasting and bumping whether or not a pass
+    /// found anything new, so that runs on its own clock.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MeterError`] when the batch cannot be sent.
+    async fn send(&self, settlements: &[Settlement]) -> Result<Vec<Field>, MeterError>;
 }
 
 /// A call the enclave had already answered before it restarted.
@@ -247,6 +286,9 @@ pub trait Resumes: Send + Sync {
 
     /// Everything kept for a session, if anything is.
     async fn recall(&self, nullifier: Field) -> Result<Option<Kept>, MeterError>;
+
+    /// Sessions whose deadline is near enough that settling has to start.
+    async fn expiring(&self, before: u64) -> Result<Vec<Field>, MeterError>;
 
     /// Drops a settled session. The window a stolen store covers is sessions
     /// still open, not every session there has ever been.

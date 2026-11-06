@@ -10,7 +10,14 @@ use veil402_sdk::{
 
 use alloy::primitives::{Address, B256, keccak256};
 
-use super::{Escrows, Metering, Meters, Opened, Replay, Resumes, Served};
+use super::{Escrows, Metering, Meters, Opened, Replay, Resumes, Served, Settlement};
+
+/// How long before a deadline a settlement has to be under way.
+///
+/// Covers proving and inclusion. The pool allows no grace on this side: a
+/// settlement a second late is refused outright, and the buyer keeps work
+/// it did not pay for.
+const BUFFER: u64 = 120;
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum MeterError {
@@ -221,6 +228,66 @@ impl MeteringService {
         // record of who bought what.
         self.sessions.forget(nullifier).await?;
         Ok(settlement)
+    }
+
+    /// Proves a settlement for every session near enough to its deadline
+    /// that waiting for the buyer is no longer safe.
+    ///
+    /// The buyer settles when it wants its note back; one that has stopped
+    /// caring never does, and the work was delivered either way. The pool
+    /// refuses a settlement a second past the deadline, so the margin has
+    /// to cover proving and inclusion both.
+    ///
+    /// Nothing is forgotten here. What was proved may still not reach the
+    /// chain, and a session dropped on the way would never be tried again —
+    /// so forgetting waits until something has actually been sent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MeterError`] when the chain or the store cannot be read.
+    pub async fn closing(&self) -> Result<Vec<Settlement>, MeterError> {
+        let now = self.escrows.now().await?;
+        let mut due = Vec::new();
+        for nullifier in self
+            .sessions
+            .expiring(now.saturating_add(BUFFER))
+            .await?
+        {
+            // Nothing here can be settled, and trying again next pass would
+            // only prove it again: the escrow is gone, somebody else closed
+            // it, or the deadline went by while we were not looking.
+            match self.escrows.escrow(nullifier).await? {
+                Some(escrow) if !escrow.settled && escrow.deadline >= now => {}
+                _ => {
+                    self.sessions.forget(nullifier).await?;
+                    continue;
+                }
+            }
+            match self.meters.settle(nullifier, false).await {
+                Ok(settlement) => due.push(Settlement {
+                    nullifier,
+                    calldata: veil402_sdk::wire::bytes(&settlement.calldata)
+                        .map_err(|_| MeterError::Refused("a settlement that is not hex".into()))?,
+                }),
+                // Owed nothing, most likely. Its lock lapses on its own and
+                // the note goes back; spending gas to hand it over sooner
+                // buys the seller nothing.
+                Err(error) => tracing::info!(%error, "a session was left to lapse"),
+            }
+        }
+        Ok(due)
+    }
+
+    /// Lets go of sessions whose settlements are on their way.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MeterError`] when the store cannot be written.
+    pub async fn settled(&self, nullifiers: &[Field]) -> Result<(), MeterError> {
+        for nullifier in nullifiers {
+            self.sessions.forget(*nullifier).await?;
+        }
+        Ok(())
     }
 
     /// Whether the meter holds this session, picking it back up if a restart

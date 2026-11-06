@@ -424,6 +424,10 @@ async fn serve(
             scale: 1,
             margin_bps: 0,
             ceiling: 1_024,
+            signer: "0x0101010101010101010101010101010101010101010101010101010101010101".to_owned(),
+            multicall: alloy::primitives::Address::repeat_byte(0xCA),
+            wallet_state: std::path::PathBuf::from("/nonexistent/wallet.redb"),
+            confirmations: 0,
         },
         escrows,
         // M1 proves the chain half: a lock, three metered calls, a
@@ -449,7 +453,7 @@ async fn metered(
 ) -> Result<u64, Box<dyn StdError>> {
     let mut owed = 0;
     for sequence in 0..3 {
-        owed = envelopes
+        let answered = envelopes
             .dispatch(
                 &Prompt {
                     body: format!(
@@ -461,6 +465,8 @@ async fn metered(
                 },
                 &format!("call-{sequence}"),
             )
+            .await?;
+        owed = veil402_daemon::core::envelope::collected(answered)
             .await?
             .metered
             .total;

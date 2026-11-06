@@ -12,6 +12,10 @@ pub enum Error {
     #[error("nothing owed yet")]
     NothingOwed,
 
+    /// The session is being settled. What it pays is already fixed.
+    #[error("session closing")]
+    Closing,
+
     /// The signing key rejected the digest.
     #[error("signing failed")]
     Signature(#[from] alloy::signers::Error),

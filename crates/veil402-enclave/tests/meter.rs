@@ -172,3 +172,17 @@ fn a_fully_spent_note_leaves_no_change() -> Fallible {
     assert!(meter.outputs()?.is_empty());
     Ok(())
 }
+
+/// What a settlement pays is fixed the moment it is built, so a call that
+/// arrives after it has nothing to be paid out of. Serving it anyway would
+/// hand a buyer work the seller can no longer charge for.
+#[test]
+fn a_closing_session_refuses_one_more_call() -> Fallible {
+    let mut meter = metered(1_000)?;
+    meter.record(call(250))?;
+    meter.closing();
+
+    assert!(matches!(meter.record(call(10)), Err(Error::Closing)));
+    assert_eq!(meter.total(), 250, "a refused call still changed the total");
+    Ok(())
+}

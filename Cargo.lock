@@ -7343,12 +7343,14 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-stream",
  "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",
  "veil402-enclave",
  "veil402-sdk",
+ "walletkit-rs",
 ]
 
 [[package]]

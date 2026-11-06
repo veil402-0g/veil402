@@ -21,6 +21,8 @@ use veil402_sdk::{
 pub struct Pool {
     escrow: Mutex<Option<Escrow>>,
     known: Mutex<bool>,
+    /// What the chain says the time is. A deadline is judged against this.
+    now: Mutex<u64>,
 }
 
 impl Pool {
@@ -35,6 +37,7 @@ impl Pool {
                 settled: false,
             })),
             known: Mutex::new(true),
+            now: Mutex::new(0),
         }
     }
 
@@ -45,7 +48,15 @@ impl Pool {
         Self {
             escrow: Mutex::new(None),
             known: Mutex::new(true),
+            now: Mutex::new(0),
         }
+    }
+
+    /// Moves the chain's clock, so a deadline can be made to approach.
+    #[must_use]
+    pub fn at(self, now: u64) -> Self {
+        *self.now.lock().expect("now") = now;
+        self
     }
 
     /// Reserved, but not against any tree the pool reached.
@@ -71,6 +82,9 @@ impl Escrows for Pool {
 
     async fn is_known_root(&self, _: Field) -> Result<bool, MeterError> {
         Ok(*self.known.lock().expect("known"))
+    }
+    async fn now(&self) -> Result<u64, MeterError> {
+        Ok(*self.now.lock().expect("now"))
     }
 }
 

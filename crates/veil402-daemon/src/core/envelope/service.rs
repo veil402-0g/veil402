@@ -294,6 +294,30 @@ impl EnvelopeService {
         Ok(())
     }
 
+    /// Writes down the change of a settlement we did not make.
+    ///
+    /// The seller closes a session itself when its deadline nears, so an
+    /// envelope can be spent without this daemon having asked. The change
+    /// is ours either way, and nothing else goes looking for it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvelopeError`] when the chain or the store cannot be read.
+    pub async fn recovered(&self) -> Result<(), EnvelopeError> {
+        let Some(nullifier) = self.envelopes.newest().await? else {
+            return Ok(());
+        };
+        if !self.index.is_spent(nullifier).await? {
+            return Ok(());
+        }
+        let Some(change_seed) = self.envelopes.change_seed(nullifier).await? else {
+            return Ok(());
+        };
+        let now = self.broadcast.timestamp().await?;
+        self.wallet.recover(nullifier, &change_seed, now).await?;
+        Ok(())
+    }
+
     /// A note this envelope may delegate.
     ///
     /// A shielded note belongs to the wallet's own key, and handing that over

@@ -15,12 +15,13 @@ use alloy::{
     signers::{SignerSync, local::PrivateKeySigner},
 };
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use veil402_daemon::{
     adapters::SqliteStore,
     core::{
         envelope::{
-            Agreement, Answered, Broadcaster, ChainError, Enclave, EnclaveError, EnvelopeService,
-            EnvelopeStore, Landed, ProveError, Prover, Settlement, Terms,
+            Agreement, Broadcaster, ChainError, Enclave, EnclaveError, EnvelopeService,
+            EnvelopeStore, Landed, Metered, Piece, ProveError, Prover, Settlement, Terms,
         },
         index::IndexService,
         wallet::{Minted, NoteStore, WalletService},
@@ -104,8 +105,24 @@ impl Enclave for Vouching {
         Ok(())
     }
 
-    async fn chat(&self, _: Field, _: &Prompt, _: &str) -> Result<Answered, EnclaveError> {
-        Err(EnclaveError::Unknown)
+    async fn chat(
+        &self,
+        _: Field,
+        _: &Prompt,
+        _: &str,
+    ) -> Result<futures_util::stream::BoxStream<'static, Result<Piece, EnclaveError>>, EnclaveError>
+    {
+        Ok(futures_util::stream::iter(vec![
+            Ok(Piece::Body(b"part one".to_vec())),
+            Ok(Piece::Body(b"part two".to_vec())),
+            Ok(Piece::Billed(Metered {
+                cost: 7,
+                total: 7,
+                remaining: CEILING - 7,
+                attestation: alloy::primitives::B256::ZERO,
+            })),
+        ])
+        .boxed())
     }
 
     async fn settle(&self, _: Field, _: bool) -> Result<Settlement, EnclaveError> {
@@ -140,9 +157,6 @@ impl Broadcaster for Sending {
         Ok(Some(self.verdict.clone()))
     }
 
-    async fn tick(&self) -> Result<(), ChainError> {
-        Ok(())
-    }
 
     async fn timestamp(&self) -> Result<u64, ChainError> {
         Ok(1_000)
@@ -279,5 +293,122 @@ async fn a_window_past_the_pool_limit_never_reaches_the_chain() -> Fallible {
 
     assert!(fixture.service.open(seller(), CEILING, 3_601).await.is_err());
     assert!(fixture.chain.sent.lock().expect("sent").is_empty());
+    Ok(())
+}
+
+/// An envelope that runs out does so for everybody at once. Without one
+/// rollover between them, every request in flight would settle it and open
+/// its own replacement — a proof, a lock and a note each.
+#[tokio::test]
+async fn one_rollover_serves_every_waiting_agent() -> Fallible {
+    let fixture = fixture(Landed::Confirmed { block: 2 }).await?;
+    let service = Arc::new(fixture.service);
+
+    let asking: Vec<_> = (0..4)
+        .map(|call| {
+            let service = service.clone();
+            tokio::spawn(async move {
+                service
+                    .dispatch(&prompt(), &format!("call-{call}"))
+                    .await
+                    .map(|_| ())
+            })
+        })
+        .collect();
+    for asked in asking {
+        asked.await??;
+    }
+
+    assert_eq!(
+        fixture.chain.sent.lock().expect("sent").len(),
+        1,
+        "the envelope was opened more than once"
+    );
+    assert_eq!(fixture.enclave.accepted().len(), 1);
+    Ok(())
+}
+
+/// The answer reaches the caller as it arrives. Collecting it first would
+/// hold every token back until the last one was in.
+#[tokio::test]
+async fn an_answer_arrives_in_pieces() -> Fallible {
+    let fixture = fixture(Landed::Confirmed { block: 2 }).await?;
+
+    let pieces: Vec<Piece> = fixture
+        .service
+        .dispatch(&prompt(), "call")
+        .await?
+        .map(|piece| piece.expect("a piece refused"))
+        .collect()
+        .await;
+
+    assert!(
+        matches!(pieces.as_slice(), [Piece::Body(_), Piece::Body(_), Piece::Billed(_)]),
+        "the pieces did not arrive as pieces, in order"
+    );
+    Ok(())
+}
+
+fn prompt() -> Prompt {
+    Prompt {
+        body: br#"{"model":"stub","messages":[]}"#.to_vec(),
+        reply_to: [0; 32],
+    }
+}
+
+/// The seller closes a session itself when its deadline nears, so an
+/// envelope can be spent without this daemon ever asking. The change is
+/// ours either way, and nothing else goes looking for it.
+#[tokio::test]
+async fn change_from_a_settlement_we_did_not_make_is_recovered() -> Fallible {
+    use veil402_daemon::core::index::{Batch, IndexStore, Locked, Nullified, Settled};
+
+    let fixture = fixture(Landed::Confirmed { block: 2 }).await?;
+    let envelope = fixture.service.open(seller(), CEILING, WINDOW).await?;
+
+    // The seller settled it while we were elsewhere: the nullifier is spent
+    // and the pool published what it paid.
+    fixture
+        .store
+        .append(
+            &Batch {
+                // The lock the chain saw first. A settlement is recorded
+                // against it, so without it there is nothing to settle.
+                locks: vec![Locked {
+                    nullifier: envelope.nullifier,
+                    seller: seller(),
+                    enclave: Address::repeat_byte(0xE1),
+                    deadline: envelope.deadline,
+                    block: 2,
+                }],
+                nullifiers: vec![Nullified {
+                    nullifier: envelope.nullifier,
+                    block: 3,
+                }],
+                settlements: vec![Settled {
+                    nullifier: envelope.nullifier,
+                    amount: 400,
+                    block: 3,
+                }],
+                through: 3,
+                ..Batch::default()
+            },
+            &[],
+        )
+        .await?;
+
+    fixture.service.recovered().await?;
+
+    let change = fixture.store.unplaced().await?;
+    assert_eq!(change.len(), 1, "the change was not written down");
+    assert!(
+        change[0].seed.is_some(),
+        "the change came back with no seed to open it"
+    );
+
+    // Running again finds the same settlement and writes nothing new, so a
+    // sync pass can do this every time without minting phantoms.
+    fixture.service.recovered().await?;
+    assert_eq!(fixture.store.unplaced().await?.len(), 1);
     Ok(())
 }

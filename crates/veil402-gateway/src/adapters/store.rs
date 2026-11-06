@@ -73,6 +73,25 @@ impl Resumes for Sessions {
         write.commit().map_err(unavailable)
     }
 
+    async fn expiring(&self, before: u64) -> Result<Vec<Field>, MeterError> {
+        // A scan rather than an index: only sessions still open are in here,
+        // and a settled one is forgotten the moment it settles.
+        let read = self.database.begin_read().map_err(unavailable)?;
+        let opened = read.open_table(OPENED).map_err(unavailable)?;
+        let mut due = Vec::new();
+        for row in opened.iter().map_err(unavailable)? {
+            let (_, value) = row.map_err(unavailable)?;
+            let opening =
+                Opening::try_from_slice(&value.value()).map_err(|_| unavailable("a bad record"))?;
+            if opening.deadline <= before
+                && let Ok(nullifier) = Field::from_bytes(opening.nullifier)
+            {
+                due.push(nullifier);
+            }
+        }
+        Ok(due)
+    }
+
     async fn append(&self, nullifier: Field, record: &[u8]) -> Result<(), MeterError> {
         let write = self.database.begin_write().map_err(unavailable)?;
         {

@@ -10,13 +10,14 @@ use std::sync::Arc;
 
 use axum::{body::Body, http::Request};
 use http_body_util::BodyExt;
+use futures_util::StreamExt;
 use tower::ServiceExt;
 use veil402_gateway::{
     adapters::http::router,
     app::{Config, assemble},
     core::MeteringService,
 };
-use veil402_sdk::wire::{CallBody, encode};
+use veil402_sdk::wire::{CallBody, MeteredBody, encode};
 
 use support::{DEADLINE, ROOT, asking, backing, delegate, pool};
 
@@ -44,6 +45,10 @@ fn gateway(
             scale: 1,
             margin_bps: 0,
             ceiling: 1_024,
+            signer: "0x0101010101010101010101010101010101010101010101010101010101010101".to_owned(),
+            multicall: alloy::primitives::Address::repeat_byte(0xCA),
+            wallet_state: std::path::PathBuf::from("/nonexistent/wallet.redb"),
+            confirmations: 0,
         },
         backing(DEADLINE)?,
         Arc::new(support::Upstream { frames, breaks }),
@@ -116,6 +121,66 @@ async fn a_relayed_stream_is_billed_once_and_its_key_cannot_be_spent_again() -> 
     .await?;
     assert_eq!(status, 422, "a key was reused for another request");
     Ok(())
+}
+
+/// A client that gives up half way has still been served, and the provider
+/// has still been paid for every token it produced. The relay runs to its
+/// end whether anyone is reading or not, because the bill is at the end.
+#[tokio::test]
+async fn a_client_that_leaves_still_pays_for_what_it_asked_for() -> Fallible {
+    // More frames than the relay may run ahead of a reader, so the send
+    // really does block on one that is no longer there. An answer small
+    // enough to sit in the buffer would be delivered either way and prove
+    // nothing.
+    let service = gateway(64, false)?;
+    let delegated = delegate(&service).await?;
+    let asked = asking(&delegated.sealing, 40)?;
+
+    let response = router(service.clone())
+        .oneshot(
+            Request::post(format!(
+                "/v1/sessions/{}/chat",
+                encode(&delegated.nullifier.to_bytes())
+            ))
+            .header("content-type", "application/json")
+            .header("idempotency-key", "abandoned")
+            .body(Body::from(serde_json::to_vec(&CallBody::new(&asked))?))?,
+        )
+        .await?;
+
+    // Read the key, then walk away mid-answer.
+    let mut body = response.into_body().into_data_stream();
+    body.next().await;
+    drop(body);
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // What the session owes is the only honest witness: a second call would
+    // bill itself, so asking whether *it* was recorded says nothing. The
+    // running total either carries the abandoned call or it does not.
+    let (status, stream) = chat(service, delegated.nullifier, &asked, "stayed").await?;
+    assert_eq!(status, 200);
+    let bill = billed(&stream)?;
+
+    assert_eq!(
+        bill.total,
+        bill.cost * 2,
+        "the call nobody stayed for was never billed"
+    );
+    Ok(())
+}
+
+/// The bill a relayed stream ended on.
+fn billed(stream: &str) -> Result<MeteredBody, Box<dyn std::error::Error>> {
+    let mut lines = stream.lines();
+    while let Some(line) = lines.next() {
+        if line == "event: bill" {
+            let data = lines.next().ok_or("a bill with no data")?;
+            return Ok(serde_json::from_str(
+                data.strip_prefix("data: ").ok_or("a bill that is not data")?,
+            )?);
+        }
+    }
+    Err("the stream carried no bill".into())
 }
 
 /// A stream that fails part-way says so rather than going quiet.

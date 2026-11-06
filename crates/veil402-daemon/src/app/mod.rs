@@ -22,7 +22,7 @@ use crate::{
     adapters::{self, ChainSource, LocalProver, RemoteEnclave, SqliteStore, Window},
     core::{
         StoreError,
-        envelope::{Broadcaster, ChainError, EnclaveError, EnvelopeError, EnvelopeService, Terms},
+        envelope::{ChainError, EnclaveError, EnvelopeError, EnvelopeService, Terms},
         index::{IndexError, IndexService},
         wallet::{WalletError, WalletService},
     },
@@ -232,7 +232,6 @@ pub struct Daemon {
     index: Arc<IndexService>,
     wallet: Arc<WalletService>,
     envelopes: Option<Arc<EnvelopeService>>,
-    broadcast: Arc<dyn Broadcaster>,
     retry: Retry,
 }
 
@@ -289,22 +288,16 @@ impl Daemon {
                 window: config.lock_for,
             },
         ));
-        Ok(Self::new(index, wallet, broadcast, config.retry).serving(envelopes))
+        Ok(Self::new(index, wallet, config.retry).serving(envelopes))
     }
 
     /// Builds a daemon over services that are already wired.
     #[must_use]
-    pub const fn new(
-        index: Arc<IndexService>,
-        wallet: Arc<WalletService>,
-        broadcast: Arc<dyn Broadcaster>,
-        retry: Retry,
-    ) -> Self {
+    pub const fn new(index: Arc<IndexService>, wallet: Arc<WalletService>, retry: Retry) -> Self {
         Self {
             index,
             wallet,
             envelopes: None,
-            broadcast,
             retry,
         }
     }
@@ -352,15 +345,19 @@ impl Daemon {
         }
     }
 
-    /// One pass: advance what is in flight, catch the index up, then catch
-    /// the notes up with it.
+    /// One pass: catch the index up, then catch the notes up with it.
     ///
-    /// Ticking first is deliberate — a lock that confirms in this pass should
-    /// be visible to the index read that follows, not a pass later.
+    /// What is in flight advances on its own clock rather than here: this
+    /// loop backs off when the endpoint is away, which is when a stuck
+    /// transaction most needs rebroadcasting.
     async fn pass(&self) -> Result<(), PassError> {
-        self.broadcast.tick().await?;
         let health = self.index.sync().await?;
         let seen = self.wallet.reconcile(now()).await?;
+        // A seller settles for itself when a deadline nears, so an envelope
+        // can be spent without us asking. Its change is still ours.
+        if let Some(envelopes) = &self.envelopes {
+            envelopes.recovered().await?;
+        }
         tracing::debug!(
             leaves = health.leaves,
             block = health.block,
