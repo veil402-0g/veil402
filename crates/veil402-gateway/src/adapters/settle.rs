@@ -43,9 +43,18 @@ sol! {
 }
 
 /// How often the sending engine is turned over: rebroadcast, confirm, bump.
-/// Independent of the sweep, because a transaction already in flight needs
-/// attention whether or not there is a new one to send.
-const TICK: Duration = Duration::from_secs(5);
+/// Each turn reads the head, the account nonce and the finalized block
+/// whether or not anything is in flight, so on an otherwise idle host this
+/// is the whole of the load on the endpoint. Hence configurable, and slower
+/// than it looks like it should be.
+fn tick() -> Duration {
+    Duration::from_secs(
+        std::env::var("VEIL_TICK")
+            .ok()
+            .and_then(|seconds| seconds.parse().ok())
+            .unwrap_or(15),
+    )
+}
 
 fn refused(error: impl std::fmt::Display) -> MeterError {
     MeterError::Refused(error.to_string())
@@ -112,7 +121,7 @@ pub async fn settler(
             .map_err(refused)?,
     );
     Ok(Settler {
-        _ticking: wallet.clone().run(TICK),
+        _ticking: wallet.clone().run(tick()),
         wallet,
         pool,
         multicall,

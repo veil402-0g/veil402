@@ -26,9 +26,18 @@ use crate::core::{
 };
 
 /// How often the sending engine is turned over: rebroadcast, confirm, bump.
-/// On its own clock, because a transaction in flight needs attention
-/// whether or not the index has anything to do.
-const TICK: Duration = Duration::from_secs(5);
+/// Each turn reads the head, the account nonce and the finalized block
+/// whether or not anything is in flight, so on an otherwise idle host this
+/// is the whole of the load on the endpoint. Hence configurable, and slower
+/// than it looks like it should be.
+fn tick() -> Duration {
+    Duration::from_secs(
+        std::env::var("VEIL_TICK")
+            .ok()
+            .and_then(|seconds| seconds.parse().ok())
+            .unwrap_or(15),
+    )
+}
 
 /// How long a one-off call may take to land, and how often it is asked.
 const PATIENCE: Duration = Duration::from_mins(2);
@@ -104,7 +113,7 @@ pub async fn open(
         .await
         .map_err(|_| ChainError::Unavailable)?;
     Ok(PoolBroadcaster {
-        _ticking: wallet.clone().run(TICK),
+        _ticking: wallet.clone().run(tick()),
         wallet,
         provider,
         submissions,

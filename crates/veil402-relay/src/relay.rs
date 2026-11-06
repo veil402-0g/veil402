@@ -24,7 +24,18 @@ use crate::Settings;
 const HANDLES: TableDefinition<&[u8], &[u8]> = TableDefinition::new("handles");
 
 /// How often the sending engine is turned over: rebroadcast, confirm, bump.
-const TICK: std::time::Duration = std::time::Duration::from_secs(5);
+/// Each turn reads the head, the account nonce and the finalized block
+/// whether or not anything is in flight, so on an otherwise idle host this
+/// is the whole of the load on the endpoint. Hence configurable, and slower
+/// than it looks like it should be.
+fn tick() -> std::time::Duration {
+    std::time::Duration::from_secs(
+        std::env::var("VEIL_TICK")
+            .ok()
+            .and_then(|seconds| seconds.parse().ok())
+            .unwrap_or(15),
+    )
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum RelayError {
@@ -115,7 +126,7 @@ impl Relay {
             .map_err(refused)?,
         );
         Ok(Self {
-            _ticking: wallet.clone().run(TICK),
+            _ticking: wallet.clone().run(tick()),
             wallet,
             handles: Database::create(handles).map_err(refused)?,
             pool: settings.pool,
