@@ -60,6 +60,74 @@ go run ./cmd/solidity-calldata \
 cd ../../contracts && forge test -vv
 ```
 
+## Running the stack
+
+Two binaries, one `.env`. The daemon is the buyer: it holds the notes and
+serves an OpenAI-shaped API to the agent. The gateway is the seller: it
+meters each call, relays it to the upstream, and settles against the pool.
+
+```bash
+cp .env.example .env            # then fill in the unset values
+make deps                       # contracts/lib is gitignored
+cd prover/veil402-gnark && go build -o veil402-gnark . && cd -
+cargo build --workspace
+```
+
+Before the first call the pool has to know the seller, and the wallet has
+to hold something to spend:
+
+```bash
+cargo run -p veil402-daemon -- keygen        # VEIL_SPEND_KEY / VEIL_VIEW_KEY
+cargo run -p veil402-daemon -- deposit 5000000
+```
+
+`VEIL_GATEWAY_SIGNER` must be registered in the pool's enclave registry, or
+every lock is refused with `EnclaveNotLive()`.
+
+Start both. The daemon reads the seller's catalogue lazily, on the first
+request rather than at boot, so the order does not matter:
+
+```bash
+cargo run -p veil402-gateway    # :8401
+cargo run -p veil402-daemon     # :8402
+```
+
+The daemon's first sync indexes the pool from `VEIL_POOL_BLOCK`, which takes
+about half a minute before it answers on `/healthz`.
+
+Then issue a key and point any OpenAI client at it:
+
+```bash
+cargo run -p veil402-daemon -- key new aider --budget 500000
+```
+
+```bash
+aider --openai-api-base http://127.0.0.1:8402/v1 --openai-api-key sk-veil-... --model openai/glm-5.3
+```
+
+The key is printed once and stored only as a hash. `key list` shows what each
+has spent; `key revoke` stops one authenticating.
+
+### What a call does
+
+The daemon opens an *envelope* — one note, locked to the seller for
+`VEIL_ENVELOPE_WINDOW` seconds — and every call inside it is metered against
+that note rather than settled on chain. When the envelope fills or its
+deadline nears, the daemon settles, the change comes back as a new note, and
+the next call opens a fresh envelope. A buyer that walks away is swept by the
+seller instead, so the work is always paid for.
+
+The first call in a session pays for the envelope: a Groth16 proof, a lock
+transaction, and waiting for it to be indexed. Later calls in the same
+envelope pay only for inference.
+
+### Gotchas
+
+`VEIL_POOL_BLOCK` matters. Left at 0 the first sync walks the chain from
+genesis, which against a live network is minutes.
+
+`VEIL_WORKER` and `VEIL_ARTIFACTS` must be absolute paths.
+
 ## Status
 
 | Check | Result |
