@@ -266,12 +266,19 @@ impl Api {
     }
 }
 
-async fn models(State(api): State<Api>, _: Caller) -> Result<Json<Listed>, Refusal> {
+/// The catalogue, as this mandate sees it.
+///
+/// Filtered by what the key may actually buy: a mandate pinned to two models
+/// that is shown forty will pick one of the other thirty-eight and be refused
+/// at the point of spending, which reads as a broken gateway rather than a
+/// mandate doing its job.
+async fn models(State(api): State<Api>, Caller(agent): Caller) -> Result<Json<Listed>, Refusal> {
     let data = api
         .envelopes
         .offers()
         .await?
         .into_iter()
+        .filter(|offer| agent.permits(&offer.model))
         .map(|offer| api.listing(offer.model))
         .collect();
     Ok(Json(Listed {
@@ -280,11 +287,18 @@ async fn models(State(api): State<Api>, _: Caller) -> Result<Json<Listed>, Refus
     }))
 }
 
+/// One model, if this mandate may buy it.
+///
+/// A model the mandate does not cover answers exactly as one that does not
+/// exist, so the catalogue cannot be walked to learn what the seller sells.
 async fn model(
     State(api): State<Api>,
-    _: Caller,
+    Caller(agent): Caller,
     Path(model): Path<String>,
 ) -> Result<Json<Model>, Refusal> {
+    if !agent.permits(&model) {
+        return Err(Refusal::unlisted(&model));
+    }
     api.envelopes
         .offer(&model)
         .await?

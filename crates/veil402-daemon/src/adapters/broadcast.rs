@@ -90,11 +90,15 @@ pub async fn open(
         max_fee_cap: fee_cap,
         max_priority_cap: fee_cap,
     });
-    let store = RedbStateStore::open(state).map_err(|_| ChainError::Unavailable)?;
+    let store = RedbStateStore::open(state)
+        .inspect_err(|error| tracing::warn!(%error, "wallet state unavailable"))
+        .map_err(|_| ChainError::Unavailable)?;
     let endpoint = rpc
         .parse()
         .map_err(|_| ChainError::Refused("the endpoint is not a URL".into()))?;
-    let transport = Transport::url(endpoint).map_err(|_| ChainError::Unavailable)?;
+    let transport = Transport::url(endpoint)
+        .inspect_err(|error| tracing::warn!(%error, "transport refused the endpoint"))
+        .map_err(|_| ChainError::Unavailable)?;
     // The same depth the index holds back by. Twelve is an Ethereum default
     // and would never arrive on a chain that reaches finality without reorgs.
     let wallet = Arc::new(
@@ -102,15 +106,18 @@ pub async fn open(
             .store(Arc::new(store))
             .confirmations(confirmations)
             .build()
+            .inspect_err(|error| tracing::warn!(%error, "the sending engine would not build"))
             .map_err(|_| ChainError::Unavailable)?,
     );
     let provider = ProviderBuilder::new()
         .connect(rpc)
         .await
+        .inspect_err(|error| tracing::warn!(%error, "the endpoint would not connect"))
         .map_err(|_| ChainError::Unavailable)?;
     let chain_id = provider
         .get_chain_id()
         .await
+        .inspect_err(|error| tracing::warn!(%error, "chain id unavailable"))
         .map_err(|_| ChainError::Unavailable)?;
     Ok(PoolBroadcaster {
         _ticking: wallet.clone().run(tick()),
@@ -159,6 +166,7 @@ impl<P> PoolBroadcaster<P> {
                 .wallet
                 .status(sent.id)
                 .await
+                .inspect_err(|error| tracing::warn!(%error, "the engine could not say what happened to the call"))
                 .map_err(|_| ChainError::Unavailable)?
             {
                 Some(TxStatus::Confirmed { .. }) => return Ok(()),
@@ -243,6 +251,7 @@ impl<P: Provider + Send + Sync> Broadcaster for PoolBroadcaster<P> {
             .wallet
             .status(handle(&tracked)?)
             .await
+            .inspect_err(|error| tracing::warn!(%error, "the engine could not say what happened to the call"))
             .map_err(|_| ChainError::Unavailable)?;
         Ok(match status {
             Some(TxStatus::Confirmed { block }) => Some(Landed::Confirmed { block }),
@@ -256,9 +265,13 @@ impl<P: Provider + Send + Sync> Broadcaster for PoolBroadcaster<P> {
         self.provider
             .get_block(BlockId::latest())
             .await
+            .inspect_err(|error| tracing::warn!(%error, "the head block is unreadable"))
             .map_err(|_| ChainError::Unavailable)?
             .map(|block| block.header.timestamp)
-            .ok_or(ChainError::Unavailable)
+            .ok_or_else(|| {
+                tracing::warn!("the endpoint answered without a latest block");
+                ChainError::Unavailable
+            })
     }
 }
 
@@ -305,19 +318,24 @@ pub async fn depositor(
     let endpoint = rpc
         .parse()
         .map_err(|_| ChainError::Refused("the endpoint is not a URL".into()))?;
-    let transport = Transport::url(endpoint).map_err(|_| ChainError::Unavailable)?;
+    let transport = Transport::url(endpoint)
+        .inspect_err(|error| tracing::warn!(%error, "transport refused the endpoint"))
+        .map_err(|_| ChainError::Unavailable)?;
     let wallet = Arc::new(
         Wallet::builder(Arc::new(transport), Arc::new(signer), Arc::new(policy))
             .store(Arc::new(store))
             .build()
+            .inspect_err(|error| tracing::warn!(%error, "the sending engine would not build"))
             .map_err(|_| ChainError::Unavailable)?,
     );
     let chain_id = ProviderBuilder::new()
         .connect(rpc)
         .await
+        .inspect_err(|error| tracing::warn!(%error, "the endpoint would not connect"))
         .map_err(|_| ChainError::Unavailable)?
         .get_chain_id()
         .await
+        .inspect_err(|error| tracing::warn!(%error, "chain id unavailable"))
         .map_err(|_| ChainError::Unavailable)?;
     Ok(Depositor { wallet, chain_id })
 }
@@ -358,6 +376,7 @@ impl Depositor {
                 .wallet
                 .status(sent.id)
                 .await
+                .inspect_err(|error| tracing::warn!(%error, "the engine could not say what happened to the call"))
                 .map_err(|_| ChainError::Unavailable)?
             {
                 Some(TxStatus::Confirmed { .. }) => return Ok(()),
