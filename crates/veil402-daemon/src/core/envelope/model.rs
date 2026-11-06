@@ -49,6 +49,13 @@ pub struct Agreement {
     pub lock: Vec<u8>,
 }
 
+/// What one call returned, and what it cost.
+#[derive(Clone, Debug)]
+pub struct Answered {
+    pub completion: veil402_sdk::wire::Completion,
+    pub metered: Metered,
+}
+
 /// What one metered call cost, and what proves it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Metered {

@@ -5,6 +5,7 @@
 //! costs nothing and a failing request can be read off the wire.
 
 use alloy::primitives::{Address, B256};
+use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 use crate::{Field, client::Error, session::Sealed};
@@ -56,27 +57,105 @@ pub struct AcceptBody {
     pub ciphertext: String,
 }
 
+impl CallBody {
+    #[must_use]
+    pub fn new(sealed: &Sealed) -> Self {
+        Self {
+            encapsulated: encode(&sealed.encapsulated),
+            ciphertext: encode(&sealed.ciphertext),
+        }
+    }
+
+    /// # Errors
+    ///
+    /// Returns [`Error::Handover`] when the envelope is not hex of the right
+    /// shape.
+    pub fn sealed(&self) -> Result<Sealed, Error> {
+        sealed(&self.encapsulated, &self.ciphertext)
+    }
+}
+
+impl CompletionBody {
+    #[must_use]
+    pub fn new(sealed: &Sealed, metered: MeteredBody) -> Self {
+        Self {
+            encapsulated: encode(&sealed.encapsulated),
+            ciphertext: encode(&sealed.ciphertext),
+            metered,
+        }
+    }
+
+    /// # Errors
+    ///
+    /// Returns [`Error::Handover`] when the envelope is not hex of the right
+    /// shape.
+    pub fn sealed(&self) -> Result<Sealed, Error> {
+        sealed(&self.encapsulated, &self.ciphertext)
+    }
+}
+
+fn sealed(encapsulated: &str, ciphertext: &str) -> Result<Sealed, Error> {
+    let key: [u8; 32] = bytes(encapsulated)?
+        .try_into()
+        .map_err(|_| Error::Handover("encapsulated key is malformed"))?;
+    Ok(Sealed {
+        encapsulated: key,
+        ciphertext: bytes(ciphertext)?,
+    })
+}
+
 impl AcceptBody {
     /// # Errors
     ///
     /// Returns [`Error::Handover`] when the envelope is not hex of the right
     /// shape.
     pub fn sealed(&self) -> Result<Sealed, Error> {
-        let encapsulated: [u8; 32] = bytes(&self.encapsulated)?
-            .try_into()
-            .map_err(|_| Error::Handover("encapsulated key is malformed"))?;
-        Ok(Sealed {
-            encapsulated,
-            ciphertext: bytes(&self.ciphertext)?,
-        })
+        sealed(&self.encapsulated, &self.ciphertext)
     }
 }
 
-/// What the buyer consumed. Never what it costs: the meter prices it, or a
-/// buyer could name its own bill.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+/// A request, sealed to the enclave that will serve it.
+///
+/// The host between them relays bytes: it learns which session is working and
+/// how much that costs, never what was asked or what came back.
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CallBody {
-    pub units: u64,
+    pub encapsulated: String,
+    pub ciphertext: String,
+}
+
+/// What the buyer asked for, once the enclave has opened it.
+///
+/// Carries the key the answer comes back under, minted for this one request.
+#[derive(Clone, Debug, Deserialize, Serialize, BorshDeserialize, BorshSerialize)]
+pub struct Prompt {
+    pub model: String,
+    pub messages: Vec<Message>,
+    pub stream: bool,
+    /// Where to seal the answer.
+    pub reply_to: [u8; 32],
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, BorshDeserialize, BorshSerialize)]
+pub struct Message {
+    pub role: String,
+    pub content: String,
+}
+
+/// The answer, sealed back to the key the request named.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CompletionBody {
+    pub encapsulated: String,
+    pub ciphertext: String,
+    /// Not sealed: the host has to bill it, and it already knows.
+    pub metered: MeteredBody,
+}
+
+/// What the enclave served, once the buyer has opened it.
+#[derive(Clone, Debug, Deserialize, Serialize, BorshDeserialize, BorshSerialize)]
+pub struct Completion {
+    pub model: String,
+    pub content: String,
 }
 
 /// What one metered call did to the envelope.

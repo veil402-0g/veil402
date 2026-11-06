@@ -9,7 +9,9 @@ use axum::{
 };
 use serde::Deserialize;
 use veil402_sdk::{
-    wire::{AcceptBody, AgreeBody, CallBody, MeteredBody, Offer, SessionBody, SettlementBody},
+    wire::{
+        AcceptBody, AgreeBody, CallBody, CompletionBody, Offer, SessionBody, SettlementBody,
+    },
 };
 
 use super::primitives::{Response, malformed};
@@ -23,7 +25,7 @@ pub fn router(service: Arc<MeteringService>) -> Router {
         .route("/v1/catalogue", get(catalogue))
         .route("/v1/sessions/agree", post(agree))
         .route("/v1/sessions/accept", post(accept))
-        .route("/v1/sessions/{nullifier}/calls", post(calls))
+        .route("/v1/sessions/{nullifier}/chat", post(chat))
         .route("/v1/sessions/{nullifier}/settle", post(settle))
         .with_state(service)
 }
@@ -55,7 +57,7 @@ async fn accept(
         .map_or_else(Into::into, Response::ok)
 }
 
-async fn calls(
+async fn chat(
     State(service): State<Arc<MeteringService>>,
     Path(nullifier): Path<String>,
     headers: HeaderMap,
@@ -64,10 +66,15 @@ async fn calls(
     let Ok(nullifier) = veil402_sdk::wire::field(&nullifier) else {
         return malformed::<()>("nullifier").into_response();
     };
-    match service.meter(nullifier, body.units, &attempt(&headers)).await {
-        Ok(Serving::Metered(metered)) => Response::ok(metered).into_response(),
+    let Ok(sealed) = body.sealed() else {
+        return malformed::<()>("request").into_response();
+    };
+    match service.meter(nullifier, &sealed, &attempt(&headers)).await {
+        Ok(Serving::Metered(served)) => {
+            Response::ok(CompletionBody::new(&served.completion, served.metered)).into_response()
+        }
         Ok(Serving::Owing(challenge)) => Response::owing(challenge).into_response(),
-        Err(error) => Response::<MeteredBody>::from(error).into_response(),
+        Err(error) => Response::<CompletionBody>::from(error).into_response(),
     }
 }
 

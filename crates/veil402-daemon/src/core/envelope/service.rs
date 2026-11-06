@@ -7,11 +7,12 @@ use veil402_sdk::{
     Field, Secret,
     evm::{PoolClient, Session},
     session::{Handover, Recipient},
+    wire::Prompt,
 };
 
 use super::{
-    Agreement, Broadcaster, ChainError, Enclave, EnclaveError, Envelope, EnvelopeStore, Landed,
-    Metered, Phase, ProveError, Prover,
+    Agreement, Answered, Broadcaster, ChainError, Enclave, EnclaveError, Envelope, EnvelopeStore,
+    Landed, Phase, ProveError, Prover,
 };
 use crate::core::{
     StoreError,
@@ -88,6 +89,12 @@ pub struct EnvelopeService {
 #[derive(Clone, Copy, Debug)]
 pub struct Terms {
     pub pool: PoolClient,
+    /// Who this daemon buys from. The catalogue picks it; re-shopping is a
+    /// different value here, not a different code path.
+    pub seller: Address,
+    /// What one envelope reserves, and how long it holds it for.
+    pub ceiling: u64,
+    pub window: u64,
     /// Where the remainder of a settlement returns.
     pub change_owner: Field,
     /// Size a settlement should leave behind for the next envelope.
@@ -125,6 +132,7 @@ impl EnvelopeService {
     /// does not land, or the enclave refuses the delegation.
     pub async fn open(
         &self,
+        model: &str,
         seller: Address,
         ceiling: u64,
         window: u64,
@@ -152,7 +160,7 @@ impl EnvelopeService {
         // Before the lock, not after: a crash in between would leave a note
         // reserved whose change nothing could ever identify.
         self.envelopes
-            .remember(envelope.nullifier, &change_seed)
+            .remember(envelope.nullifier, model, &change_seed)
             .await?;
 
         self.broadcast
@@ -177,19 +185,74 @@ impl EnvelopeService {
         Ok(envelope)
     }
 
-    /// Meters one served call.
+    /// Serves one request, opening or rolling an envelope if it has to.
+    ///
+    /// The envelope is the thing the agent never sees: a request that has
+    /// nowhere to be billed opens one, a request that would overrun its
+    /// ceiling or its deadline settles and opens the next, and either way the
+    /// agent gets an answer rather than an error. Re-shopping is the same
+    /// path — which seller the next envelope names comes from the catalogue,
+    /// so a provider that got expensive or left is simply not chosen.
     ///
     /// # Errors
     ///
-    /// Returns [`EnvelopeError::Enclave`] when the ceiling is reached or the
-    /// enclave no longer holds the session.
-    pub async fn record(
+    /// Returns [`EnvelopeError`] when a second attempt fails too, which means
+    /// the trouble was not the envelope.
+    pub async fn dispatch(
         &self,
-        nullifier: Field,
-        units: u64,
+        prompt: &Prompt,
         attempt: &str,
-    ) -> Result<Metered, EnvelopeError> {
-        Ok(self.enclave.record(nullifier, units, attempt).await?)
+    ) -> Result<Answered, EnvelopeError> {
+        let nullifier = match self.live(&prompt.model).await? {
+            Some(nullifier) => nullifier,
+            None => self.next(&prompt.model, None).await?,
+        };
+        match self.enclave.chat(nullifier, prompt, attempt).await {
+            Ok(answered) => Ok(answered),
+            // The envelope is spent, expiring, or gone. Replace it and ask
+            // once more; a second failure was never about the envelope.
+            Err(refused) if replaceable(&refused) => {
+                let nullifier = self.next(&prompt.model, Some(nullifier)).await?;
+                Ok(self.enclave.chat(nullifier, prompt, attempt).await?)
+            }
+            Err(refused) => Err(refused.into()),
+        }
+    }
+
+    /// The envelope serving a model, if one still can.
+    ///
+    /// Derived rather than remembered: the registry says which nullifier was
+    /// last opened for the model, and the chain says whether it is still
+    /// worth anything.
+    async fn live(&self, model: &str) -> Result<Option<Field>, EnvelopeError> {
+        let Some(nullifier) = self.envelopes.newest(model).await? else {
+            return Ok(None);
+        };
+        if self.index.is_spent(nullifier).await? {
+            return Ok(None);
+        }
+        let now = self.broadcast.timestamp().await?;
+        match self.wallet.escrow(nullifier).await? {
+            Some(deadline) if now.saturating_add(BUFFER) < deadline => Ok(Some(nullifier)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Settles whatever was serving this model and opens the next envelope.
+    async fn next(
+        &self,
+        model: &str,
+        spent: Option<Field>,
+    ) -> Result<Field, EnvelopeError> {
+        if let Some(nullifier) = spent {
+            // Settling frees the note and mints the next envelope's, so the
+            // replacement needs no split.
+            self.settle(nullifier, false).await?;
+        }
+        Ok(self
+            .open(model, self.terms.seller, self.terms.ceiling, self.terms.window)
+            .await?
+            .nullifier)
     }
 
     /// Settles an envelope and writes down the change it leaves.
@@ -358,6 +421,14 @@ fn seed_of(note: &Held) -> Result<Secret, EnvelopeError> {
         .transpose()
         .map_err(|_| WalletError::Owner)?
         .ok_or(EnvelopeError::Unknown)
+}
+
+/// Whether a refusal is one a fresh envelope would fix.
+const fn replaceable(refused: &EnclaveError) -> bool {
+    matches!(
+        refused,
+        EnclaveError::CeilingReached | EnclaveError::Unknown
+    )
 }
 
 /// Mirrors `Pool.MAX_LOCK`: the pool refuses a longer reservation, and a

@@ -77,6 +77,11 @@ pub struct Config {
     pub artifacts: PathBuf,
     /// Where the enclave is served from. The daemon never holds its keys.
     pub gateway: String,
+    /// Who this daemon buys from, and what one envelope reserves from them.
+    pub seller: Address,
+    pub ceiling: u64,
+    /// How long one envelope holds its reservation for.
+    pub lock_for: u64,
     /// Keys the notes belong to. Losing them loses the balance.
     pub owner: Owner,
     /// Size a settlement should leave behind as a second note. Zero returns
@@ -138,6 +143,9 @@ impl Config {
             worker: PathBuf::from(required("VEIL_WORKER")?),
             artifacts: PathBuf::from(required("VEIL_ARTIFACTS")?),
             gateway: required("VEIL_GATEWAY_URL")?,
+            seller: address("VEIL_SELLER")?,
+            ceiling: parsed("VEIL_ENVELOPE_CEILING", 1_000)?,
+            lock_for: parsed("VEIL_ENVELOPE_WINDOW", 600)?,
             owner: Owner {
                 spend: key("VEIL_SPEND_KEY")?,
                 view: key("VEIL_VIEW_KEY")?,
@@ -260,7 +268,7 @@ impl Daemon {
             Veil::open(Proving::new(config.worker, config.artifacts))
                 .map_err(|_| StartError::Artifacts)?,
         );
-        let enclave = Arc::new(RemoteEnclave::new(&config.gateway)?);
+        let enclave = Arc::new(RemoteEnclave::new(&config.gateway, pool)?);
 
         let wallet = Arc::new(WalletService::new(store.clone(), store.clone(), config.owner));
         let envelopes = Arc::new(EnvelopeService::new(
@@ -272,6 +280,9 @@ impl Daemon {
             store,
             Terms {
                 pool,
+                seller: config.seller,
+                ceiling: config.ceiling,
+                window: config.lock_for,
                 change_owner,
                 target: config.target,
             },

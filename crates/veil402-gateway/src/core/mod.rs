@@ -6,4 +6,4 @@ mod service;
 pub use ports::{
     Accepted, Escrow, Escrows, Kept, Metering, Meters, Prices, Replayed, Resumes, Served,
 };
-pub use service::{MeterError, MeteringService, Serving};
+pub use service::{MeterError, Metered, MeteringService, Serving};

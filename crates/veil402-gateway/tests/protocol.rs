@@ -91,8 +91,10 @@ async fn a_call_without_an_envelope_is_challenged_to_pay() -> Fallible {
     let nullifier = encode(&Field::from(7_u64).to_bytes());
     let (status, body) = call(
         gateway()?,
-        &format!("/v1/sessions/{nullifier}/calls"),
-        r#"{"units":10}"#,
+        &format!("/v1/sessions/{nullifier}/chat"),
+        // Well formed but undecryptable, which is the point: no envelope
+        // means nobody tries to open it, and the answer is the price.
+        &format!(r#"{{"encapsulated":"{}","ciphertext":"00"}}"#, "ab".repeat(32)),
     )
     .await;
 

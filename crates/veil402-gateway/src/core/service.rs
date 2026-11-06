@@ -30,10 +30,18 @@ pub enum MeterError {
     Refused(String),
 }
 
+/// What one served call produced: the answer, and what it cost.
+#[derive(Clone, Debug)]
+pub struct Metered {
+    /// Sealed to the buyer. The host relays it without reading it.
+    pub completion: Sealed,
+    pub metered: MeteredBody,
+}
+
 /// A metered call, or what it would take to be allowed one.
 #[derive(Clone, Debug)]
 pub enum Serving {
-    Metered(MeteredBody),
+    Metered(Metered),
     /// No envelope covers this call. Not a failure — an answer.
     Owing(Challenge),
 }
@@ -125,11 +133,12 @@ impl MeteringService {
         Ok(())
     }
 
-    /// Prices units at the seller's rate and meters them.
+    /// Serves a sealed request and meters what it consumed.
     ///
-    /// The rate comes from the seller, never the buyer: a buyer naming its own
-    /// cost would be writing its own bill. `attempt` names the call rather
-    /// than the retry, so one served twice is billed once.
+    /// The rate comes from the seller, never the buyer, and the quantity from
+    /// the enclave, never the request: between them a buyer cannot write its
+    /// own bill. `attempt` names the call rather than the retry, so one served
+    /// twice is billed once.
     ///
     /// # Errors
     ///
@@ -138,25 +147,33 @@ impl MeteringService {
     pub async fn meter(
         &self,
         nullifier: Field,
-        units: u64,
+        sealed: &Sealed,
         attempt: &str,
     ) -> Result<Serving, MeterError> {
         let offer = self.prices.cheapest().ok_or(MeterError::Empty)?;
         if !self.held(nullifier).await? {
             return Ok(Serving::Owing(self.challenge(offer)));
         }
-        if let Some(already) = self.served.replayed(nullifier, attempt).await {
-            return Ok(Serving::Metered(already));
+        // Paid for already: serve it again, bill nothing. The answer is not
+        // kept anywhere, so the only way to return one is to make it.
+        if let Some(metered) = self.served.replayed(nullifier, attempt).await {
+            return Ok(Serving::Metered(Metered {
+                completion: self.meters.serve(nullifier, sealed).await?,
+                metered,
+            }));
         }
         let metering = self
             .meters
-            .record(nullifier, attempt, units.saturating_mul(offer.rate), units)
+            .record(nullifier, attempt, offer.rate, sealed)
             .await?;
         self.sessions.append(nullifier, &metering.record).await?;
         self.served
             .remember(nullifier, attempt, &metering.metered)
             .await;
-        Ok(Serving::Metered(metering.metered))
+        Ok(Serving::Metered(Metered {
+            completion: metering.completion,
+            metered: metering.metered,
+        }))
     }
 
     /// # Errors
@@ -190,7 +207,15 @@ impl MeteringService {
         // the restart would be metered a second time.
         for replayed in self.meters.resume(&kept).await? {
             self.served
-                .remember(nullifier, &replayed.attempt, &replayed.metered)
+                .remember(
+                    nullifier,
+                    &replayed.attempt,
+                    &MeteredBody {
+                        total: replayed.total,
+                        remaining: replayed.remaining,
+                        attestation: replayed.attestation,
+                    },
+                )
                 .await;
         }
         Ok(true)

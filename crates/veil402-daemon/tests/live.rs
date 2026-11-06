@@ -19,6 +19,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use veil402_daemon::{
+    core::envelope::EnvelopeService,
     adapters::{ChainSource, SqliteStore, Window},
     app::{Config, Daemon, Retry, now},
     core::{index::IndexService, wallet::Minted},
@@ -28,13 +29,14 @@ use veil402_sdk::{
     Config as Proving, Note, Owner, Secret, Send, Spend, Transaction, Veil,
     evm::{PoolClient, Withdrawal},
     session::{Keyring, RootSeed},
-    wire::Offer,
+    wire::{Message, Offer, Prompt},
 };
 
 const DEPOSIT: u64 = 1_000;
 
 /// What the envelope reserves, and what a settlement leaves for the next one.
 const CEILING: u64 = 600;
+const MODEL: &str = "stub";
 const TARGET: u64 = 200;
 
 fn var(name: &str) -> Result<String, Box<dyn StdError>> {
@@ -255,6 +257,7 @@ async fn an_envelope_rolls_into_the_next() -> Result<(), Box<dyn StdError>> {
             &pool,
             owner,
             &served,
+            seller,
             Minted {
                 commitment,
                 value: DEPOSIT,
@@ -276,19 +279,12 @@ async fn an_envelope_rolls_into_the_next() -> Result<(), Box<dyn StdError>> {
     caught_up(&daemon, commitment).await?;
 
     // ---- open: splits the cold note, locks, hands the session over -------
-    let first = envelopes.open(seller, CEILING, 600).await?;
+    let first = envelopes.open(MODEL, seller, CEILING, 600).await?;
     assert_eq!(first.ceiling, CEILING, "the note's value is the ceiling");
     println!("opened           ceiling {}, deadline {}", first.ceiling, first.deadline);
 
     // ---- meter, then settle ----------------------------------------------
-    let mut owed = 0;
-    for (sequence, units) in [40_u64, 110, 150].into_iter().enumerate() {
-        owed = envelopes
-            .record(first.nullifier, units, &format!("call-{sequence}"))
-            .await?
-            .total;
-    }
-    assert_eq!(owed, 300);
+    let owed = metered(&envelopes, first.nullifier).await?;
     envelopes.settle(first.nullifier, false).await?;
 
     let token = IToken::new(token_address, &provider);
@@ -302,7 +298,7 @@ async fn an_envelope_rolls_into_the_next() -> Result<(), Box<dyn StdError>> {
     );
 
     // ---- the claim: the next envelope needs no split ---------------------
-    let second = envelopes.open(seller, TARGET, 600).await?;
+    let second = envelopes.open(MODEL, seller, TARGET, 600).await?;
     assert_ne!(second.nullifier, first.nullifier);
     assert_eq!(
         second.ceiling, TARGET,
@@ -366,6 +362,7 @@ async fn daemon(
     pool: &PoolClient,
     owner: Owner,
     gateway: &str,
+    seller: Address,
     note: Minted,
     state: &Path,
 ) -> Result<Daemon, Box<dyn StdError>> {
@@ -377,6 +374,9 @@ async fn daemon(
         database: format!("sqlite://{}?mode=rwc", state.join("veil.db").display()),
         signer: var("PRIVATE_KEY")?,
         gateway: gateway.to_owned(),
+        seller,
+        ceiling: CEILING,
+        lock_for: 600,
         wallet_state: state.join("wallet.redb"),
             worker: worker()?,
             artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
@@ -435,4 +435,33 @@ async fn serve(
         let _ = axum::serve(listener, app).await;
     });
     Ok(served)
+}
+
+/// Three requests through the loop, so the registry, the sealing and the
+/// metering are exercised the way an agent would exercise them.
+async fn metered(
+    envelopes: &EnvelopeService,
+    _nullifier: veil402_sdk::Field,
+) -> Result<u64, Box<dyn StdError>> {
+    let mut owed = 0;
+    for sequence in 0..3 {
+        owed = envelopes
+            .dispatch(
+                &Prompt {
+                    model: MODEL.to_owned(),
+                    messages: vec![Message {
+                        role: "user".to_owned(),
+                        content: "x".repeat(40),
+                    }],
+                    stream: false,
+                    reply_to: [0; 32],
+                },
+                &format!("call-{sequence}"),
+            )
+            .await?
+            .metered
+            .total;
+    }
+    assert!(owed > 0, "three calls cost something");
+    Ok(owed)
 }

@@ -4,6 +4,6 @@ mod ports;
 mod service;
 
 pub use error::{ChainError, ProveError};
-pub use model::{Agreement, Envelope, Metered, Phase, Settlement};
+pub use model::{Agreement, Answered, Envelope, Metered, Phase, Settlement};
 pub use ports::{Broadcaster, EnclaveError, Enclave, EnvelopeStore, Landed, Prover, SubmissionStore};
 pub use service::{EnvelopeError, EnvelopeService, Terms};

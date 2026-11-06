@@ -6,12 +6,13 @@ use alloy::{
 };
 use async_trait::async_trait;
 use tokio::sync::RwLock;
+use borsh::BorshDeserialize;
 use veil402_enclave::{Call, Meter, record as journal, sign_lock};
 use veil402_sdk::{
     Field, Veil,
     evm::{PoolClient, Session},
-    session::{Keyring, Sealed},
-    wire::{AgreeBody, MeteredBody, SettlementBody, encode},
+    session::{EnclaveKey, Keyring, Sealed},
+    wire::{AgreeBody, Completion, MeteredBody, Prompt, SettlementBody, encode},
 };
 
 use crate::core::{Accepted, Kept, MeterError, Metering, Meters, Replayed};
@@ -94,24 +95,43 @@ impl Meters for Enclave {
         self.meters.write().await.remove(&nullifier);
     }
 
+    async fn serve(&self, nullifier: Field, sealed: &Sealed) -> Result<Sealed, MeterError> {
+        let key = self.keyring.handover(nullifier);
+        let prompt = opened(&key, sealed)?;
+        let body = borsh::to_vec(&serve(&prompt))
+            .map_err(|_| MeterError::Refused("the answer does not encode".into()))?;
+        EnclaveKey::reply(prompt.reply_to, &body).map_err(refused)
+    }
+
     async fn record(
         &self,
         nullifier: Field,
         attempt: &str,
-        price: u64,
-        units: u64,
+        rate: u64,
+        sealed: &Sealed,
     ) -> Result<Metering, MeterError> {
+        let key = self.keyring.handover(nullifier);
+        let prompt = opened(&key, sealed)?;
+        let answer = serve(&prompt);
+        // Counted here because here is the only place the request exists in
+        // the clear. A length the buyer or the provider reported would be a
+        // number neither side can check.
+        let units = consumed(&prompt, &answer);
+
         let mut meters = self.meters.write().await;
         let meter = meters.get_mut(&nullifier).ok_or(MeterError::Unknown)?;
         let sequence = meter.calls() as u64;
         let attestation = witnessed(nullifier, meter.calls(), units);
         let total = meter
             .record(Call {
-                cost: price,
+                cost: units.saturating_mul(rate),
                 attestation,
             })
             .map_err(|_| MeterError::CeilingReached)?;
+        let body = borsh::to_vec(&answer)
+            .map_err(|_| MeterError::Refused("the answer does not encode".into()))?;
         Ok(Metering {
+            completion: EnclaveKey::reply(prompt.reply_to, &body).map_err(refused)?,
             metered: MeteredBody {
                 total,
                 remaining: meter.ceiling().saturating_sub(total),
@@ -119,14 +139,7 @@ impl Meters for Enclave {
             },
             // Sealed to this enclave, so the host keeps it without reading it
             // and cannot hand back a total nobody served.
-            record: journal(
-                &self.keyring.handover(nullifier),
-                sequence,
-                attempt,
-                total,
-                attestation,
-            )
-            .map_err(refused)?,
+            record: journal(&key, sequence, attempt, total, attestation).map_err(refused)?,
         })
     }
 
@@ -149,11 +162,9 @@ impl Meters for Enclave {
             // is nothing to restore for it.
             .filter(|record| !record.attempt.is_empty())
             .map(|record| Replayed {
-                metered: MeteredBody {
-                    total: record.total,
-                    remaining: ceiling.saturating_sub(record.total),
-                    attestation: record.attestation,
-                },
+                total: record.total,
+                remaining: ceiling.saturating_sub(record.total),
+                attestation: record.attestation,
                 attempt: record.attempt,
             })
             .collect())
@@ -186,6 +197,32 @@ impl Meters for Enclave {
     async fn holds(&self, nullifier: Field) -> bool {
         self.meters.read().await.contains_key(&nullifier)
     }
+}
+
+fn opened(key: &EnclaveKey, sealed: &Sealed) -> Result<Prompt, MeterError> {
+    let bytes = key.open_prompt(sealed).map_err(refused)?;
+    Prompt::try_from_slice(&bytes)
+        .map_err(|_| MeterError::Refused("the request does not decode".into()))
+}
+
+/// What a provider would return, once there is one. Labelled rather than
+/// echoed: a stub that looked like a model's answer would eventually be
+/// mistaken for one.
+fn serve(prompt: &Prompt) -> Completion {
+    Completion {
+        model: prompt.model.clone(),
+        content: "[veil402: no provider configured]".to_owned(),
+    }
+}
+
+/// What the exchange consumed, in the units a seller prices.
+fn consumed(prompt: &Prompt, answer: &Completion) -> u64 {
+    let asked: usize = prompt
+        .messages
+        .iter()
+        .map(|message| message.content.len())
+        .sum();
+    (asked + answer.content.len()) as u64
 }
 
 /// Stands in for the digest of a request, its response, and the provider's

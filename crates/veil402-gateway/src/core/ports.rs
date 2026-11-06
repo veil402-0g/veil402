@@ -50,11 +50,15 @@ pub trait Escrows: Send + Sync {
 /// A call the enclave had already answered before it restarted.
 pub struct Replayed {
     pub attempt: String,
-    pub metered: MeteredBody,
+    pub total: u64,
+    pub remaining: u64,
+    pub attestation: alloy::primitives::B256,
 }
 
 /// A metered call and the enclave's own record of it.
 pub struct Metering {
+    /// Sealed to the key the request named.
+    pub completion: Sealed,
     pub metered: MeteredBody,
     /// Sealed to the enclave. The host keeps it and cannot read it.
     pub record: Vec<u8>,
@@ -92,18 +96,34 @@ pub trait Meters: Send + Sync {
     /// failure the daemon can repair by handing its delegation over again.
     async fn holds(&self, nullifier: Field) -> bool;
 
-    /// Meters a call that cost `price`, and seals a record of it.
+    /// Serves a request that has already been paid for, without metering it.
+    ///
+    /// A retry gets its answer again rather than a cached one: nothing here
+    /// stores what was asked or returned, and nothing should.
     ///
     /// # Errors
     ///
-    /// Returns [`MeterError`] when the session is gone or its ceiling is
-    /// reached.
+    /// Returns [`MeterError`] when the session is gone or the request does
+    /// not open.
+    async fn serve(&self, nullifier: Field, sealed: &Sealed) -> Result<Sealed, MeterError>;
+
+    /// Serves a sealed request, prices what it consumed, and seals the answer
+    /// back to the key the request named.
+    ///
+    /// The host passes bytes through: only the enclave sees the request, so
+    /// only the enclave can say how much of it there was. That is the same
+    /// reason a provider's own token count cannot be trusted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MeterError`] when the session is gone, the request does not
+    /// open, or its ceiling is reached.
     async fn record(
         &self,
         nullifier: Field,
         attempt: &str,
-        price: u64,
-        units: u64,
+        rate: u64,
+        sealed: &Sealed,
     ) -> Result<Metering, MeterError>;
 
     /// Picks a session back up from what a host kept.

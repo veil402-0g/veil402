@@ -1,16 +1,20 @@
 use async_trait::async_trait;
+use borsh::BorshDeserialize;
+use std::sync::Arc;
+
 use reqwest::{Client, Response};
 use veil402_sdk::{
     Field,
-    evm::Session,
+    evm::{PoolClient, Session},
     session::Sealed,
+    session::{Exchange, Recipient},
     wire::{
-        AcceptBody, Action, AgreeBody, CallBody, MeteredBody, Reply, SessionBody, SettlementBody,
-        bytes, encode, field,
+        AcceptBody, Action, AgreeBody, CallBody, Completion, CompletionBody, Prompt, Reply,
+        SessionBody, SettlementBody, bytes, encode, field,
     },
 };
 
-use crate::core::envelope::{Agreement, Enclave, EnclaveError, Metered, Settlement};
+use crate::core::envelope::{Agreement, Answered, Enclave, EnclaveError, Metered, Settlement};
 
 /// Header naming the call a retry repeats, so one served twice is billed once.
 const IDEMPOTENCY: &str = "idempotency-key";
@@ -27,19 +31,25 @@ fn unreachable(error: impl std::fmt::Display) -> EnclaveError {
 pub struct RemoteEnclave {
     client: Client,
     base: String,
+    /// The key each envelope's requests are sealed to, kept from `agree`.
+    /// The gateway never gets a prompt in the clear.
+    sealing: tokio::sync::RwLock<std::collections::HashMap<Field, Arc<Recipient>>>,
+    pool: PoolClient,
 }
 
 impl RemoteEnclave {
     /// # Errors
     ///
     /// Returns [`EnclaveError::Refused`] when the client cannot be built.
-    pub fn new(base: &str) -> Result<Self, EnclaveError> {
+    pub fn new(base: &str, pool: PoolClient) -> Result<Self, EnclaveError> {
         Ok(Self {
             client: Client::builder()
                 .pool_idle_timeout(std::time::Duration::from_secs(90))
                 .build()
                 .map_err(unreachable)?,
             base: base.trim_end_matches('/').to_owned(),
+            sealing: tokio::sync::RwLock::new(std::collections::HashMap::new()),
+            pool,
         })
     }
 
@@ -93,10 +103,19 @@ impl Enclave for RemoteEnclave {
             .map_err(unreachable)?
             .try_into()
             .map_err(|_| EnclaveError::Refused("the announced key is malformed".into()))?;
+        let announcement = bytes(&body.announcement).map_err(unreachable)?;
+        // Checked here, not taken on trust: a host that could name the key
+        // would be able to read every prompt it relays.
+        let recipient = Recipient::accept(handover_key, &self.pool, body.signer, &announcement)
+            .map_err(|_| EnclaveError::Refused("the announced key is not vouched for".into()))?;
+        self.sealing
+            .write()
+            .await
+            .insert(session.nullifier, Arc::new(recipient));
         Ok(Agreement {
             signer: body.signer,
             handover_key,
-            announcement: bytes(&body.announcement).map_err(unreachable)?,
+            announcement,
             lock: bytes(&body.lock).map_err(unreachable)?,
         })
     }
@@ -119,31 +138,51 @@ impl Enclave for RemoteEnclave {
         Err(refusal(response).await)
     }
 
-    async fn record(
+    async fn chat(
         &self,
         nullifier: Field,
-        units: u64,
+        prompt: &Prompt,
         attempt: &str,
-    ) -> Result<Metered, EnclaveError> {
+    ) -> Result<Answered, EnclaveError> {
+        let Some(sealing) = self.sealing.read().await.get(&nullifier).cloned() else {
+            return Err(EnclaveError::Unknown);
+        };
+        // A channel per request: the answer to one call cannot be read with
+        // the key from another.
+        let exchange = Exchange::open();
+        let asked = Prompt {
+            reply_to: exchange.public(),
+            ..prompt.clone()
+        };
+        let sealed = sealing
+            .seal_prompt(&borsh::to_vec(&asked).map_err(unreachable)?)
+            .map_err(unreachable)?;
+
         let response = self
             .client
             .post(self.url(&format!(
-                "/v1/sessions/{}/calls",
+                "/v1/sessions/{}/chat",
                 encode(&nullifier.to_bytes())
             )))
             .header(IDEMPOTENCY, attempt)
-            .json(&CallBody { units })
+            .json(&CallBody::new(&sealed))
             .send()
             .await
             .map_err(unreachable)?;
         if !response.status().is_success() {
             return Err(refusal(response).await);
         }
-        let body: MeteredBody = result(response.json().await.map_err(unreachable)?)?;
-        Ok(Metered {
-            total: body.total,
-            remaining: body.remaining,
-            attestation: body.attestation,
+        let body: CompletionBody = result(response.json().await.map_err(unreachable)?)?;
+        let answer = exchange
+            .receive(&body.sealed().map_err(unreachable)?)
+            .map_err(unreachable)?;
+        Ok(Answered {
+            completion: Completion::try_from_slice(&answer).map_err(unreachable)?,
+            metered: Metered {
+                total: body.metered.total,
+                remaining: body.metered.remaining,
+                attestation: body.metered.attestation,
+            },
         })
     }
 

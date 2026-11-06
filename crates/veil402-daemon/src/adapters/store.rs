@@ -58,7 +58,9 @@ impl SqliteStore {
              );
              CREATE TABLE IF NOT EXISTS envelopes (
                  nullifier   BLOB PRIMARY KEY,
-                 change_seed BLOB NOT NULL
+                 model       TEXT NOT NULL,
+                 change_seed BLOB NOT NULL,
+                 opened      INTEGER NOT NULL
              );
              CREATE TABLE IF NOT EXISTS submissions (
                  key    BLOB PRIMARY KEY,
@@ -333,14 +335,35 @@ impl ChainFacts for SqliteStore {
 impl EnvelopeStore for SqliteStore {
     /// Written once. A second open under the same nullifier cannot happen —
     /// the pool refuses it — and overwriting would lose the change anyway.
-    async fn remember(&self, nullifier: Field, change_seed: &Secret) -> Result<(), StoreError> {
-        sqlx::query("INSERT OR IGNORE INTO envelopes (nullifier, change_seed) VALUES (?, ?)")
-            .bind(nullifier.to_bytes().to_vec())
-            .bind(change_seed.to_bytes().to_vec())
-            .execute(&self.pool)
-            .await
-            .map_err(|_| StoreError::Unavailable)?;
+    async fn remember(
+        &self,
+        nullifier: Field,
+        model: &str,
+        change_seed: &Secret,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT OR IGNORE INTO envelopes (nullifier, model, change_seed, opened)
+             VALUES (?, ?, ?, (SELECT COALESCE(MAX(opened), 0) + 1 FROM envelopes))",
+        )
+        .bind(nullifier.to_bytes().to_vec())
+        .bind(model)
+        .bind(change_seed.to_bytes().to_vec())
+        .execute(&self.pool)
+        .await
+        .map_err(|_| StoreError::Unavailable)?;
         Ok(())
+    }
+
+    async fn newest(&self, model: &str) -> Result<Option<Field>, StoreError> {
+        let row = sqlx::query(
+            "SELECT nullifier FROM envelopes WHERE model = ? ORDER BY opened DESC LIMIT 1",
+        )
+        .bind(model)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| StoreError::Unavailable)?;
+        row.map(|row| field(row.get::<Vec<u8>, _>("nullifier")))
+            .transpose()
     }
 
     async fn change_seed(&self, nullifier: Field) -> Result<Option<Secret>, StoreError> {

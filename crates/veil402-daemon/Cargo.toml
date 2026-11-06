@@ -9,6 +9,7 @@ description = "Self-hosted Veil gateway: index, wallet, sessions"
 [dependencies]
 alloy = { version = "1", features = ["contract", "provider-http", "sol-types", "rpc-types-eth"] }
 async-trait = "0.1"
+borsh = { version = "1", features = ["derive"] }
 dotenvy = "0.15"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2"] }

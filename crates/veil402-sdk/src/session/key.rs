@@ -17,6 +17,14 @@ const INFO: &[u8] = b"veil402:handover:v1";
 /// never be opened as its own record, nor a record as a delegation.
 const JOURNAL: &[u8] = b"veil402:journal:v1";
 
+/// What a buyer sends an enclave to work on. A separate scheme again: a
+/// prompt must never open as a delegation, nor a delegation as a prompt.
+const PROMPT: &[u8] = b"veil402:prompt:v1";
+
+/// What comes back. Sealed to a key the buyer minted for this one request, so
+/// the host between them relays an answer it cannot read.
+const REPLY: &[u8] = b"veil402:reply:v1";
+
 /// An envelope only its recipient can open.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Sealed {
@@ -86,6 +94,29 @@ impl EnclaveKey {
             encapsulated: key,
             ciphertext,
         })
+    }
+
+    /// Opens a request sealed to this enclave.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Handover`] when the request was not sealed to this
+    /// key, or has been altered.
+    pub fn open_prompt(&self, sealed: &Sealed) -> Result<Vec<u8>, Error> {
+        self.unseal(sealed, PROMPT)
+    }
+
+    /// Seals an answer to the key the request named.
+    ///
+    /// Safe without an announcement: that key arrived inside a request only
+    /// the delegation's holder could have sealed, so it is already as
+    /// authenticated as the request itself.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Handover`] when encryption fails.
+    pub fn reply(reply_to: [u8; 32], payload: &[u8]) -> Result<Sealed, Error> {
+        seal(reply_to, REPLY, payload)
     }
 
     /// Opens state this key sealed.
@@ -159,6 +190,15 @@ impl Recipient {
         })
     }
 
+    /// Seals a request so only the enclave can read it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Handover`] when encryption fails.
+    pub fn seal_prompt(&self, payload: &[u8]) -> Result<Sealed, Error> {
+        encrypt(&self.public, PROMPT, payload)
+    }
+
     /// Seals a payload so only the enclave can read it.
     ///
     /// Panics if the system CSPRNG fails: HPKE needs fresh entropy per seal,
@@ -168,20 +208,64 @@ impl Recipient {
     ///
     /// Returns [`Error::Handover`] when encryption fails.
     pub fn seal(&self, payload: &[u8]) -> Result<Sealed, Error> {
-        let (encapsulated, ciphertext) = single_shot_seal::<ChaCha20Poly1305, HkdfSha256, Kem>(
-            &OpModeS::Base,
-            &self.public,
-            INFO,
-            payload,
-            &[],
-        )
-        .map_err(|_| Error::Handover("payload does not seal"))?;
-        let bytes = encapsulated.to_bytes();
-        let mut key = [0_u8; 32];
-        key.copy_from_slice(&bytes);
-        Ok(Sealed {
-            encapsulated: key,
-            ciphertext,
-        })
+        encrypt(&self.public, INFO, payload)
     }
+}
+
+/// A one-request channel a buyer opens to an enclave.
+///
+/// Minted per request and thrown away, so the answer to one call cannot be
+/// read with the key from another.
+pub struct Exchange {
+    key: EnclaveKey,
+}
+
+impl Exchange {
+    /// Mints the channel. Panics if the system CSPRNG fails, as sealing does.
+    #[must_use]
+    pub fn open() -> Self {
+        let (private, public) = <Kem as hpke::Kem>::gen_keypair();
+        Self {
+            key: EnclaveKey { private, public },
+        }
+    }
+
+    /// The half that travels inside the request.
+    #[must_use]
+    pub fn public(&self) -> [u8; 32] {
+        self.key.public()
+    }
+
+    /// Opens the answer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Handover`] when the answer was not sealed to this
+    /// channel, or has been altered.
+    pub fn receive(&self, sealed: &Sealed) -> Result<Vec<u8>, Error> {
+        self.key.unseal(sealed, REPLY)
+    }
+}
+
+fn seal(public: [u8; 32], info: &[u8], payload: &[u8]) -> Result<Sealed, Error> {
+    let parsed = Public::from_bytes(&public).map_err(|_| Error::Handover("key is malformed"))?;
+    encrypt(&parsed, info, payload)
+}
+
+fn encrypt(public: &Public, info: &[u8], payload: &[u8]) -> Result<Sealed, Error> {
+    let (encapsulated, ciphertext) = single_shot_seal::<ChaCha20Poly1305, HkdfSha256, Kem>(
+        &OpModeS::Base,
+        public,
+        info,
+        payload,
+        &[],
+    )
+    .map_err(|_| Error::Handover("payload does not seal"))?;
+    let bytes = encapsulated.to_bytes();
+    let mut key = [0_u8; 32];
+    key.copy_from_slice(&bytes);
+    Ok(Sealed {
+        encapsulated: key,
+        ciphertext,
+    })
 }

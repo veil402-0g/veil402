@@ -12,8 +12,8 @@ use veil402_gateway::{
 use veil402_sdk::{
     Field, Note, Secret, SessionKeys, Tree,
     evm::{PoolClient, Session},
-    session::{Handover, Keyring, Recipient, RootSeed},
-    wire::Offer,
+    session::{Exchange, Handover, Keyring, Recipient, RootSeed, Sealed},
+    wire::{Message, Offer, Prompt},
 };
 
 type Fallible = Result<(), Box<dyn std::error::Error>>;
@@ -69,7 +69,7 @@ fn backing(deadline: u64) -> Result<Arc<support::Pool>, Box<dyn std::error::Erro
 }
 
 /// Hands a real delegation over, against a note that is really in a tree.
-async fn delegate(service: &MeteringService) -> Result<Field, Box<dyn std::error::Error>> {
+async fn delegate(service: &MeteringService) -> Result<Delegated, Box<dyn std::error::Error>> {
     let client = pool()?;
     let seed = Secret::random()?;
     let keys = SessionKeys::from_seed(&seed)?;
@@ -117,12 +117,41 @@ async fn delegate(service: &MeteringService) -> Result<Field, Box<dyn std::error
     .seal(&handover.to_bytes()?)?;
 
     service.accept(&sealed, session).await?;
-    Ok(session.nullifier)
+    Ok(Delegated {
+        nullifier: session.nullifier,
+        sealing: Recipient::accept(
+            key,
+            &client,
+            agreed.signer,
+            &veil402_sdk::wire::bytes(&agreed.announcement)?,
+        )?,
+    })
+}
+
+/// What a daemon keeps after handing a delegation over: which envelope, and
+/// the key its requests seal to.
+struct Delegated {
+    nullifier: Field,
+    sealing: Recipient,
+}
+
+/// A request of a given size, sealed the way a daemon seals one.
+fn asking(sealing: &Recipient, size: usize) -> Result<Sealed, Box<dyn std::error::Error>> {
+    let prompt = Prompt {
+        model: "stub".to_owned(),
+        messages: vec![Message {
+            role: "user".to_owned(),
+            content: "x".repeat(size),
+        }],
+        stream: false,
+        reply_to: Exchange::open().public(),
+    };
+    Ok(sealing.seal_prompt(&borsh::to_vec(&prompt)?)?)
 }
 
 fn total(serving: &Serving) -> u64 {
     match serving {
-        Serving::Metered(metered) => metered.total,
+        Serving::Metered(served) => served.metered.total,
         Serving::Owing(_) => panic!("the gateway asked for payment mid-session"),
     }
 }
@@ -133,20 +162,26 @@ fn total(serving: &Serving) -> u64 {
 async fn a_restarted_gateway_keeps_counting() -> Fallible {
     let state = tempfile::tempdir()?;
     let held = backing(DEADLINE)?;
-    let nullifier;
+    let (nullifier, sealing, first, second);
 
     {
         let service = gateway(state.path(), held.clone())?;
-        nullifier = delegate(&service).await?;
-        assert_eq!(total(&service.meter(nullifier, 40, "a").await?), 40);
-        assert_eq!(total(&service.meter(nullifier, 110, "b").await?), 150);
+        let delegated = delegate(&service).await?;
+        nullifier = delegated.nullifier;
+        sealing = delegated.sealing;
+        first = total(&service.meter(nullifier, &asking(&sealing, 40)?, "a").await?);
+        second = total(&service.meter(nullifier, &asking(&sealing, 110)?, "b").await?);
+        assert!(second > first, "the second call added to the first");
     }
 
     // Everything in memory is gone. Only what the host kept remains.
-    let restarted = gateway(state.path(), held.clone())?;
-    let after = restarted.meter(nullifier, 50, "c").await?;
+    let restarted = gateway(state.path(), held)?;
+    let third = total(&restarted.meter(nullifier, &asking(&sealing, 50)?, "c").await?);
 
-    assert_eq!(total(&after), 200, "the restart did not reset the meter");
+    assert!(
+        third > second,
+        "the restart reset the meter: {third} should exceed {second}"
+    );
     Ok(())
 }
 
@@ -155,16 +190,17 @@ async fn a_restarted_gateway_keeps_counting() -> Fallible {
 #[tokio::test]
 async fn an_unknown_session_is_still_asked_to_pay() -> Fallible {
     let state = tempfile::tempdir()?;
-    let held = backing(DEADLINE)?;
-    let service = gateway(state.path(), held)?;
+    let service = gateway(state.path(), backing(DEADLINE)?)?;
+    let sealing = delegate(&service).await?.sealing;
 
     assert!(matches!(
-        service.meter(Field::from(9_u64), 10, "a").await?,
+        service
+            .meter(Field::from(9_u64), &asking(&sealing, 10)?, "a")
+            .await?,
         Serving::Owing(_)
     ));
     Ok(())
 }
-
 
 /// A retry that straddles a restart must be answered, not billed again. The
 /// host's own dedupe is lost with the process, so the enclave's records carry
@@ -173,22 +209,23 @@ async fn an_unknown_session_is_still_asked_to_pay() -> Fallible {
 async fn a_retry_across_a_restart_is_not_billed_twice() -> Fallible {
     let state = tempfile::tempdir()?;
     let held = backing(DEADLINE)?;
-    let nullifier;
+    let (nullifier, sealing, second);
 
     {
         let service = gateway(state.path(), held.clone())?;
-        nullifier = delegate(&service).await?;
-        assert_eq!(total(&service.meter(nullifier, 40, "req-1").await?), 40);
-        assert_eq!(total(&service.meter(nullifier, 110, "req-2").await?), 150);
+        let delegated = delegate(&service).await?;
+        nullifier = delegated.nullifier;
+        sealing = delegated.sealing;
+        total(&service.meter(nullifier, &asking(&sealing, 40)?, "req-1").await?);
+        second = total(&service.meter(nullifier, &asking(&sealing, 110)?, "req-2").await?);
     }
 
-    let restarted = gateway(state.path(), held.clone())?;
-    let again = restarted.meter(nullifier, 110, "req-2").await?;
+    let restarted = gateway(state.path(), held)?;
+    let again = total(&restarted.meter(nullifier, &asking(&sealing, 110)?, "req-2").await?);
 
-    assert_eq!(total(&again), 150, "the retry was answered, not metered");
-    assert_eq!(
-        total(&restarted.meter(nullifier, 50, "req-3").await?),
-        200,
+    assert_eq!(again, second, "the retry was answered, not metered again");
+    assert!(
+        total(&restarted.meter(nullifier, &asking(&sealing, 50)?, "req-3").await?) > second,
         "and a genuinely new call still counts"
     );
     Ok(())
@@ -201,20 +238,21 @@ async fn a_retry_across_a_restart_is_not_billed_twice() -> Fallible {
 async fn a_call_the_host_never_recorded_is_counted_on_retry() -> Fallible {
     let state = tempfile::tempdir()?;
     let held = backing(DEADLINE)?;
-    let nullifier;
+    let (nullifier, sealing, first);
 
     {
         let service = gateway(state.path(), held.clone())?;
-        nullifier = delegate(&service).await?;
-        assert_eq!(total(&service.meter(nullifier, 40, "req-1").await?), 40);
+        let delegated = delegate(&service).await?;
+        nullifier = delegated.nullifier;
+        sealing = delegated.sealing;
+        first = total(&service.meter(nullifier, &asking(&sealing, 40)?, "req-1").await?);
     }
 
     // The restart stands in for the crash: whatever was in memory and not on
     // disk is gone, and the client retries what it never got an answer to.
-    let restarted = gateway(state.path(), held.clone())?;
-    assert_eq!(
-        total(&restarted.meter(nullifier, 110, "req-2").await?),
-        150,
+    let restarted = gateway(state.path(), held)?;
+    assert!(
+        total(&restarted.meter(nullifier, &asking(&sealing, 110)?, "req-2").await?) > first,
         "the retried call was counted"
     );
     Ok(())

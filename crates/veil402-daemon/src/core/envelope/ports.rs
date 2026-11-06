@@ -4,9 +4,10 @@ use veil402_sdk::{
     Field, Prepared, Secret, Transaction,
     evm::{Session, Voucher},
     session::Sealed,
+    wire::Prompt,
 };
 
-use super::{Agreement, ChainError, Metered, ProveError, Settlement};
+use super::{Agreement, Answered, ChainError, ProveError, Settlement};
 use crate::core::StoreError;
 
 /// Where a submitted call ended up.
@@ -113,20 +114,18 @@ pub trait Enclave: Send + Sync {
     /// before it will meter anything.
     async fn accept(&self, sealed: Sealed, session: Session) -> Result<(), EnclaveError>;
 
-    /// Meters what one call consumed.
+    /// Sends a request the enclave alone can read, and returns its answer.
     ///
-    /// Units, never a price: the meter is what both sides trust, and a buyer
-    /// that named its own cost would be writing its own bill.
-    ///
-    /// `attempt` names the call rather than the retry, so one served twice is
-    /// billed once. It belongs to the caller because only the caller knows
-    /// which two requests are the same request.
-    async fn record(
+    /// The prompt is sealed to the enclave's key for this envelope, so the
+    /// host that relays it learns which session is working and what it cost,
+    /// never what was asked. `attempt` names the call rather than the retry,
+    /// so one served twice is billed once.
+    async fn chat(
         &self,
         nullifier: Field,
-        units: u64,
+        prompt: &Prompt,
         attempt: &str,
-    ) -> Result<Metered, EnclaveError>;
+    ) -> Result<Answered, EnclaveError>;
 
     /// Proves the settlement. `dust` asks for the smallest one that frees the
     /// note, for an envelope nobody owes anything on.
@@ -139,7 +138,19 @@ pub trait Enclave: Send + Sync {
 /// change a settlement mints can never be identified, let alone spent.
 #[async_trait]
 pub trait EnvelopeStore: Send + Sync {
-    async fn remember(&self, nullifier: Field, change_seed: &Secret) -> Result<(), StoreError>;
+    async fn remember(
+        &self,
+        nullifier: Field,
+        model: &str,
+        change_seed: &Secret,
+    ) -> Result<(), StoreError>;
 
     async fn change_seed(&self, nullifier: Field) -> Result<Option<Secret>, StoreError>;
+
+    /// The last envelope opened for a model.
+    ///
+    /// Only the model is kept: seller, deadline and ceiling are all on chain
+    /// against the nullifier, and a second copy of a fact the chain decides is
+    /// a copy that can disagree with it.
+    async fn newest(&self, model: &str) -> Result<Option<Field>, StoreError>;
 }
