@@ -1685,31 +1685,21 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
             {v.depositing ? (
               <div className={s.steps}>
                 {v.depositSteps.map((st, i) => (
-                  <div key={i} className={s.step} style={{ '--d0': st.op } as CSSVars}>
-                    <span
-                      className={s.stepMark}
-                      style={
-                        { '--d0': st.bg, '--d1': st.fg, '--d2': st.ring } as CSSVars
-                      }
-                    >
+                  <div
+                    key={i}
+                    className={s.step}
+                    style={{ '--d0': st.op, '--d1': st.fillW, '--d2': st.ink } as CSSVars}
+                  >
+                    <span className={s.stepFill} />
+                    {st.knobOn ? <span className={s.stepKnob} /> : null}
+                    <span className={s.stepLabel}>{st.label}</span>
+                    <span className={s.stepMark} style={{ '--d0': st.tone } as CSSVars}>
                       {st.mark}
-                    </span>
-                    <span className={s.stepText}>
-                      <span className={s.stepLabel}>{st.label}</span>
-                      <span className={s.stepNote}>{st.note}</span>
-                    </span>
-                    <span className={s.stepBar}>
-                      <span
-                        className={s.stepFill}
-                        style={{ '--d0': st.barW } as CSSVars}
-                      />
                     </span>
                   </div>
                 ))}
                 {v.depositDone ? (
-                  <span className={s.stepDone}>
-                    {v.depositAmountF} USDC shielded · one note committed
-                  </span>
+                  <span className={s.stepDone}>{v.depositAmountF} USDC shielded</span>
                 ) : null}
                 {v.depositFailed ? (
                   <span className={s.stepFailed}>{v.depositError}</span>

@@ -71,10 +71,10 @@ function explain(error: unknown): string {
 
 
 /** The steps a deposit goes through, in the order they happen. */
-const STEPS: { key: Stage; label: string; note: string }[] = [
-  { key: 'approving', label: 'Allowance', note: 'letting the pool move the tokens' },
-  { key: 'shielding', label: 'Shielding', note: 'the transfer itself' },
-  { key: 'placing', label: 'Committing', note: 'writing the note down' },
+const STEPS: { key: Stage; label: string }[] = [
+  { key: 'approving', label: 'Allowance' },
+  { key: 'shielding', label: 'Shielding' },
+  { key: 'placing', label: 'Committing' },
 ]
 
 /** Fractions of what there is, which is more use than a figure typed here. */
@@ -1041,20 +1041,24 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     depositFailed: depositing?.stage === 'failed',
     depositError: depositing?.error ?? '',
     depositAmountF: depositing ? money(depositing.amount / 10 ** (config?.decimals ?? 6)) : '',
+    depositNote: depositing?.stage === 'done' ? 'one note committed' : 'shielding',
     depositSteps: STEPS.map((step, i) => {
       const at = depositing ? STEPS.findIndex((x) => x.key === depositing.stage) : -1
       const finished = depositing?.stage === 'done' || (at >= 0 && i < at)
       const active = at === i && depositing?.stage !== 'failed'
       const broke = depositing?.stage === 'failed' && at === i
+      // The gradient is revealed rather than drawn, the way every other
+      // filled surface here works; the knob rides its leading edge.
+      const fill = finished ? 100 : active ? 58 : 0
       return {
         label: step.label,
-        note: step.note,
         mark: finished ? '✓' : broke ? '!' : String(i + 1).padStart(2, '0'),
-        bg: finished ? '#1230d6' : active ? '#0d0e12' : broke ? '#ff4d1a' : '#fff',
-        fg: finished || active || broke ? '#fff' : '#8b8e97',
-        ring: finished ? '#1230d6' : broke ? '#ff4d1a' : '#e3e5ea',
-        barW: finished ? '100%' : active ? '55%' : '0%',
-        op: finished || active || broke ? 1 : 0.5,
+        fillW: `${fill}%`,
+        knobAt: `${fill}%`,
+        knobOn: finished || active || broke,
+        tone: broke ? '#ff4d1a' : '#0d0e12',
+        ink: finished || active ? '#fff' : broke ? '#ff4d1a' : '#8b8e97',
+        op: finished || active || broke ? 1 : 0.45,
       }
     }),
     closeDeposit: () => {
