@@ -2505,7 +2505,7 @@
   background: var(--d1);
   color: var(--d2);
   box-shadow: inset 0 0 0 1px var(--d3);
-  font-size: 13px;
+  font: 500 13px 'JetBrains Mono',monospace;
   line-height: 1;
   opacity: var(--d4);
   transition: background .4s ease,color .4s ease,box-shadow .4s ease,opacity .5s ease;
@@ -2583,4 +2583,12 @@
   .trackSpin {
     animation: none;
   }
+}
+
+/* Drawn, not typed: the glyph is a thin script tick against a geometric
+   face, and it reads as the wrong alphabet at this size. */
+.trackTick {
+  width: 15px;
+  height: 15px;
+  color: var(--d2);
 }

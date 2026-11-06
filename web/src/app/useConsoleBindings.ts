@@ -1059,7 +1059,8 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
         num: String(i + 1),
         left: `${((i + 0.5) / STEPS.length) * 100}%`,
         // A tick is a claim, and a step still running has not earned one.
-        mark: finished ? '✓' : broke ? '!' : active ? '' : '+',
+        done: finished,
+        mark: broke ? '!' : '+',
         running: active,
         // Each phase sits a little further back than the one before it, so
         // the track reads as depth rather than as five equal things.

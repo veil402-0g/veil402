@@ -1701,7 +1701,22 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                         } as CSSVars
                       }
                     >
-                      {st.running ? <span className={s.trackSpin} /> : st.mark}
+                      {st.running ? (
+                        <span className={s.trackSpin} />
+                      ) : st.done ? (
+                        <svg className={s.trackTick} viewBox="0 0 16 16" aria-hidden="true">
+                          <path
+                            d="M3.6 8.5 6.6 11.5 12.4 5.2"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.1"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      ) : (
+                        st.mark
+                      )}
                     </span>
                   ))}
                 </div>
