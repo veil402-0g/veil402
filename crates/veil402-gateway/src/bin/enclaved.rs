@@ -151,12 +151,21 @@ mod enclaved {
     const WORKER: &str = "/usr/local/bin/veil402-gnark";
     const ARTIFACTS: &str = "/opt/veil402/artifacts/transaction-v4";
 
+    /// What one successful build left behind.
+    struct Serving {
+        settings: Settings,
+        meters: Arc<dyn Meters>,
+        /// Reported on every posting, not just the one that built, so the
+        /// parent can keep checking the seed is still the measured one.
+        commitment: String,
+    }
+
     /// The meter, and the settings it was built for.
     #[derive(Default)]
     pub struct Built {
         /// Held across the whole build so two postings cannot race into two
         /// meters, each having derived the seed separately.
-        state: Mutex<Option<(Settings, Arc<dyn Meters>)>>,
+        state: Mutex<Option<Serving>>,
     }
 
     impl Built {
@@ -165,7 +174,7 @@ mod enclaved {
             self.state
                 .lock()
                 .ok()
-                .and_then(|held| held.as_ref().map(|(_, meters)| meters.clone()))
+                .and_then(|held| held.as_ref().map(|serving| serving.meters.clone()))
         }
 
         /// Takes a posting: builds on the first, agrees with the rest.
@@ -176,9 +185,9 @@ mod enclaved {
         /// has already been attested to, and neither should be applied.
         pub async fn reconcile(&self, lent: Lent) -> Reply {
             if let Ok(held) = self.state.lock() {
-                if let Some((pinned, meters)) = held.as_ref() {
-                    return if *pinned == lent.settings {
-                        Reply::Ready { commitment: commitment_of(meters) }
+                if let Some(serving) = held.as_ref() {
+                    return if serving.settings == lent.settings {
+                        Reply::Ready { commitment: serving.commitment.clone() }
                     } else {
                         tracing::error!(
                             "a posting asked this enclave to serve a different pool; refusing"
@@ -197,7 +206,11 @@ mod enclaved {
                         // one was deriving; the first to arrive is the one
                         // that counts.
                         if held.is_none() {
-                            *held = Some((lent.settings, meters));
+                            *held = Some(Serving {
+                                settings: lent.settings,
+                                meters,
+                                commitment: commitment.clone(),
+                            });
                         }
                     }
                     Reply::Ready { commitment }
@@ -208,10 +221,6 @@ mod enclaved {
                 }
             }
         }
-    }
-
-    fn commitment_of(_meters: &Arc<dyn Meters>) -> String {
-        String::new()
     }
 
     async fn build(lent: &Lent) -> Result<(Arc<dyn Meters>, String), String> {

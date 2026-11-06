@@ -108,6 +108,13 @@ pub struct Config {
     pub confirmations: u64,
 }
 
+/// A value only when there is one. Empty counts as absent: a key the
+/// deployment's env file sets for every container can be taken back by one
+/// of them, and blanking it is the only gesture available.
+fn set(name: &'static str) -> Option<String> {
+    env::var(name).ok().filter(|value| !value.trim().is_empty())
+}
+
 fn required(name: &'static str) -> Result<String, ConfigError> {
     env::var(name).map_err(|_| ConfigError::Missing(name))
 }
@@ -143,15 +150,13 @@ impl Config {
             serving_rpc: env::var("VEIL_0G_CHAIN_RPC").unwrap_or_else(|_| SERVING_RPC.to_owned()),
             serving: parsed("VEIL_0G_INFERENCE", SERVING)?,
             pool,
-            enclave: env::var("VEIL_ENCLAVE_CID")
-                .ok()
+            enclave: set("VEIL_ENCLAVE_CID")
                 .map(|cid| cid.parse().map_err(|_| ConfigError::Invalid("VEIL_ENCLAVE_CID")))
                 .transpose()?,
             // Absent is correct once an enclave holds it: a host that still
             // had the seed in its environment would not be a host that had
             // stopped being able to read the traffic.
-            root: env::var("VEIL_ROOT_SEED")
-                .ok()
+            root: set("VEIL_ROOT_SEED")
                 .map(|seed| {
                     hex::decode(seed)
                         .ok()
@@ -264,13 +269,24 @@ async fn meter(
 ) -> Result<Arc<dyn Meters>, StartError> {
     #[cfg(target_os = "linux")]
     if let Some(cid) = config.enclave {
-        let linked = crate::adapters::link::Linked::open(crate::adapters::link::Vsock {
-            cid,
-            port: ENCLAVE_PORT,
-        })
-        .await
-        .map_err(|_| StartError::Enclave)?;
-        return Ok(Arc::new(linked));
+        // The posting worker is what builds the meter, and the seed it
+        // needs is a round trip to KMS away; until that lands the enclave
+        // is listening but has nothing to answer with.
+        let deadline = std::time::Instant::now() + ENCLAVE_WAIT;
+        loop {
+            let link = crate::adapters::link::Linked::open(crate::adapters::link::Vsock {
+                cid,
+                port: ENCLAVE_PORT,
+            })
+            .await;
+            match link {
+                Ok(linked) => return Ok(Arc::new(linked)),
+                Err(_) if std::time::Instant::now() < deadline => {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+                Err(_) => return Err(StartError::Enclave),
+            }
+        }
     }
 
     let root = config.root.ok_or(StartError::Seedless)?;
@@ -297,6 +313,12 @@ pub const ENCLAVE_PORT: u32 = 5402;
 
 /// Where the parent relays the enclave's KMS traffic.
 pub const KMS_RELAY_PORT: u32 = 8000;
+
+#[cfg(target_os = "linux")]
+/// How long to let the enclave finish bootstrapping before giving up on it.
+/// Generous: the alternative to waiting is a gateway that exits because KMS
+/// was a second slower than usual.
+const ENCLAVE_WAIT: std::time::Duration = std::time::Duration::from_mins(2);
 
 /// Where attested keys are looked up, or nothing if that cannot be reached.
 ///

@@ -18,7 +18,7 @@ use crate::app::Config;
 
 /// How often the parent repeats itself. A restarted enclave is dark for at
 /// most this long, and the posting costs one vsock round trip.
-const EVERY: Duration = Duration::from_secs(60);
+const EVERY: Duration = Duration::from_mins(1);
 
 /// Credentials the parent can lend. They authorise asking KMS, and nothing
 /// else: the key policy is what decides whether the answer comes back, and
