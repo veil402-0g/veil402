@@ -1040,8 +1040,12 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     depositDone: depositing?.stage === 'done',
     depositFailed: depositing?.stage === 'failed',
     depositError: depositing?.error ?? '',
-    depositAmountF: depositing ? money(depositing.amount / 10 ** (config?.decimals ?? 6)) : '',
-    depositNote: depositing?.stage === 'done' ? 'one note committed' : 'shielding',
+    // The outcome belongs on the thing you press to leave, not on a line
+    // of its own under the track.
+    doneBtnLabel:
+      depositing?.stage === 'done'
+        ? `${money(depositing.amount / 10 ** (config?.decimals ?? 6))} USDC shielded`
+        : 'Close',
     // The fill stops a little past whatever is happening, so its rounded
     // end sits beside that checkpoint instead of cutting through it.
     depositFill: (() => {

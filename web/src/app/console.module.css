@@ -2563,13 +2563,6 @@
   animation: vspin .75s linear infinite;
 }
 
-.stepDone {
-  font: 400 11px 'JetBrains Mono',monospace;
-  color: #1230d6;
-  letter-spacing: .02em;
-  padding: 2px 0 4px;
-}
-
 .stepFailed {
   font: 400 11px 'JetBrains Mono',monospace;
   color: #ff4d1a;

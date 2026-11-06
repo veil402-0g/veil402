@@ -1732,15 +1732,12 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                     </span>
                   ))}
                 </div>
-                {v.depositDone ? (
-                  <span className={s.stepDone}>{v.depositAmountF} USDC shielded</span>
-                ) : null}
                 {v.depositFailed ? (
                   <span className={s.stepFailed}>{v.depositError}</span>
                 ) : null}
                 {v.depositDone || v.depositFailed ? (
                   <button className={s.s259} onClick={v.closeDeposit}>
-                    Done
+                    {v.doneBtnLabel}
                   </button>
                 ) : null}
               </div>
