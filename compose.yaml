@@ -210,12 +210,17 @@ services:
     environment:
       AGENT_B_PORT: "8500"
       DAEMON_B: http://daemon-b:8402/api/v1
-      STUB: "1"
       PRICE: "500000"
+      ARC_SESSION: veil-shop
+      HOME: /home/node
     depends_on: [daemon-b]
+    volumes:
+      - ./.arc-studio:/home/node/.arc-studio:ro
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
+      # Arc Studio writes session state beside its credentials.
+      - /home/node/.cache:size=64m,mode=0700,uid=1000,gid=1000
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     logging:
