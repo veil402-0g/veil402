@@ -1,20 +1,19 @@
 #!/usr/bin/env node
-// Agent A — the client. It needs a smart contract. It asks the ContractShop
-// (Agent B), gets back an x402 "402 Payment Required", pays B PRIVATELY through
-// its own Veil daemon, then presents the proof and collects the contract.
+// Your build agent. You ask it for a smart contract in plain words; it finds
+// the ContractShop (another agent), gets an x402 "402 Payment Required", pays
+// for it PRIVATELY through your Veil wallet, waits for the build, and hands you
+// the finished contract. Everything after your one prompt happens on its own.
 //
-// On chain the payment is only commitments and nullifiers. The proof A hands
-// B is the note's blinding — a secret only the payer holds — so B can confirm
-// it was paid without the payment ever being public.
+//   node agent-a.mjs                      → chat: ask it, it does the rest
+//   node agent-a.mjs "an escrow contract" → one-shot
 
 import { writeFileSync } from 'node:fs'
+import { createInterface } from 'node:readline'
 
 const SHOP = process.env.AGENT_B ?? 'http://127.0.0.1:8500'
 const DAEMON_A = process.env.DAEMON_A ?? 'http://127.0.0.1:8402/api/v1'
-const request =
-  process.argv.slice(2).join(' ') ||
-  'an ERC-20 token named VeilDemo with an owner-only mint(address,uint256)'
 
+const usd = (units) => `$${(units / 1e6).toFixed(2)}`
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 async function post(url, body) {
@@ -26,50 +25,72 @@ async function post(url, body) {
   return { status: res.status, body: await res.json().catch(() => ({})) }
 }
 
-async function main() {
-  console.log(`[client] I need: ${request}`)
+/** One commission, start to finish, from a single plain-language request. */
+async function commission(request) {
+  console.log(`\n🤖 on it — commissioning: "${request}"`)
 
-  // 1. Ask. Expect a 402 with the price and where to pay it.
-  console.log('[client] → POST /task')
+  // 1. Ask the ContractShop. It answers with a 402 and a price.
   const first = await post(`${SHOP}/task`, { request })
-  if (first.status !== 402) throw new Error(`expected 402, got ${first.status}`)
+  if (first.status !== 402) throw new Error(`the shop did not ask for payment (got ${first.status})`)
   const { invoiceId, price, payTo } = first.body
-  console.log(`[client] ← 402 Payment Required: ${price} units → ${String(payTo).slice(0, 30)}…  (invoice ${String(invoiceId).slice(0, 8)})`)
+  console.log(`   → the ContractShop asked for ${usd(price)} to build it  (x402: 402 Payment Required)`)
 
   // 2. Pay privately through the pool. Keep the blinding — it is the proof.
-  console.log('[client] paying privately through the pool…')
+  console.log(`   → paying ${usd(price)} privately through the shielded pool…`)
   const pay = await post(`${DAEMON_A}/pay`, { address: payTo, amount: price })
   if (pay.body.status !== 'ok') throw new Error(pay.body.error || 'payment failed')
   const { recipient_commitment: commitment, blinding } = pay.body.result
-  console.log(`[client] paid. commitment ${String(commitment).slice(0, 16)}… (the chain shows no sender, recipient, or amount)`)
+  console.log(`   ✓ paid — on chain this is one opaque commitment ${commitment.slice(0, 12)}…  (no sender, recipient, or amount)`)
 
-  // 3. Present the proof. B confirms the note arrived in its own wallet; retry
-  //    while B's daemon catches up (discovery + a block).
-  console.log('[client] → POST /task with proof, waiting for B to confirm…')
-  for (let i = 0; i < 15; i++) {
+  // 3. Present the proof and wait for the build. The fetch blocks while the
+  //    shop computes; the loop only re-tries while payment isn't yet confirmed.
+  console.log(`   → proving the payment and waiting for the build…`)
+  for (let i = 0; i < 200; i++) {
     const retry = await post(`${SHOP}/task`, { invoiceId, commitment, blinding })
     if (retry.status === 200) {
       const r = retry.body
-      console.log(`[client] ← 200 OK. delivered: ${r.contract ?? 'a draft'}${r.address ? ' @ ' + r.address : ''}`)
-      if (r.network) console.log(`[client]   network: ${r.network}`)
-      if (r.explorerUrl) console.log(`[client]   explorer: ${r.explorerUrl}`)
+      console.log(`   ✓ delivered: ${r.contract || 'a contract'}${r.address ? ' @ ' + r.address : ''}`)
+      if (r.network) console.log(`     network:  ${r.network}`)
+      if (r.explorerUrl) console.log(`     explorer: ${r.explorerUrl}`)
       if (r.source) {
         const out = `./${r.contract || 'Contract'}.sol`
         writeFileSync(out, r.source)
-        const lines = r.source.split('\n')
-        console.log(`[client]   received the computed contract (${lines.length} lines), saved to ${out}:`)
-        console.log('    ' + lines.slice(0, 22).join('\n    '))
-        if (lines.length > 22) console.log('    … (full file on disk)')
+        console.log(`     saved ${r.source.split('\n').length} lines of Solidity to ${out}`)
       }
-      console.log('[client] done — requested, paid privately over x402, and received the computed result.')
-      return
+      console.log('   done.')
+      return r
     }
     await sleep(2000)
   }
-  throw new Error('B never confirmed the payment')
+  throw new Error('the shop never confirmed the payment')
+}
+
+async function main() {
+  const arg = process.argv.slice(2).join(' ')
+  if (arg) {
+    await commission(arg)
+    return
+  }
+  const rl = createInterface({ input: process.stdin, output: process.stdout })
+  console.log("🤖 I'm your build agent. Tell me what smart contract you need and I'll")
+  console.log('   commission it from the ContractShop and pay for it privately. (Ctrl-C to quit)')
+  const loop = () =>
+    rl.question('\nyou> ', async (line) => {
+      const req = line.trim()
+      if (req === 'exit' || req === 'quit') return rl.close()
+      if (req) {
+        try {
+          await commission(req)
+        } catch (error) {
+          console.error('   ✗ failed:', error.message)
+        }
+      }
+      loop()
+    })
+  loop()
 }
 
 main().catch((error) => {
-  console.error('[client] failed:', error.message)
+  console.error('failed:', error.message)
   process.exit(1)
 })
