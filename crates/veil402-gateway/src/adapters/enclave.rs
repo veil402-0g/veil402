@@ -253,6 +253,7 @@ impl Meters for Enclave {
             meter.settle(&self.veil, &self.signer).await
         }
         .map_err(refused)?;
+        tracing::debug!(root = ?prepared.proof.public.root, "settlement proved");
         Ok(SettlementBody {
             // An output rather than the nullifier: the lock was tracked under
             // that already, and a submission is idempotent on its key.

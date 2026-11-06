@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Some(Command::Keygen) => return keygen(),
         Some(Command::Deposit { amount }) => {
             tracing_subscriber::fmt::init();
-            let commitment = app::deposit(amount).await?;
+            let commitment = app::deposit(&Config::from_env()?, amount).await?;
             println!("{}", hex::encode(commitment.to_bytes()));
             eprintln!("shielded {amount} under this daemon's key");
             return Ok(());

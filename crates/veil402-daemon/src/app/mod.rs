@@ -119,8 +119,7 @@ sol! {
 ///
 /// Returns [`StartError`] when the chain refuses either call, or the note
 /// cannot be written down.
-pub async fn deposit(amount: u64) -> Result<Field, StartError> {
-    let config = Config::from_env()?;
+pub async fn deposit(config: &Config, amount: u64) -> Result<Field, StartError> {
     let provider = ProviderBuilder::new()
         .connect(&config.rpc)
         .await
@@ -131,11 +130,16 @@ pub async fn deposit(amount: u64) -> Result<Field, StartError> {
         .map_err(|_| StartError::Chain(host(&config.rpc)))?;
     let pool = PoolClient::new(config.pool, config.token, config.verifier, chain_id)
         .map_err(|_| StartError::Pool(config.pool))?;
+    // The daemon's own engine state, not a second one beside it. Nonces are
+    // coordinated through that store, so a deposit that opened its own would
+    // hand the chain two transactions claiming the same nonce and watch one
+    // of them vanish. Sharing it means the running daemon holds the lock and
+    // this refuses outright, which is the answer a person can act on.
     let sender = adapters::depositor(
         &config.rpc,
         &config.signer,
         [config.pool, config.token],
-        &config.wallet_state.with_extension("deposit.redb"),
+        &config.wallet_state,
         config.fee_cap,
     )
     .await?;
@@ -185,7 +189,7 @@ pub async fn deposit(amount: u64) -> Result<Field, StartError> {
     let store = Arc::new(SqliteStore::open(&config.database).await?);
     let random = Secret::from_bytes(note.random.to_bytes())
         .map_err(|_| StartError::Deposit("the note will not re-encode".into()))?;
-    WalletService::new(store.clone(), store, config.owner)
+    WalletService::new(store.clone(), store, owner(&config.owner)?)
         .remember(
             &[Minted {
                 commitment,
@@ -201,6 +205,19 @@ pub async fn deposit(amount: u64) -> Result<Field, StartError> {
     Ok(commitment)
 }
 
+/// A second handle on the same keys. They are the balance, not a secret
+/// this process keeps from itself.
+fn owner(owner: &Owner) -> Result<Owner, StartError> {
+    let copied = |secret: &Secret| {
+        Secret::from_bytes(secret.to_bytes())
+            .map_err(|_| StartError::Deposit("the owner will not re-encode".into()))
+    };
+    Ok(Owner {
+        spend: copied(&owner.spend)?,
+        view: copied(&owner.view)?,
+    })
+}
+
 /// Seconds since the epoch, which is the clock holds and staleness use.
 #[must_use]
 pub fn now() -> u64 {
@@ -213,8 +230,13 @@ pub fn now() -> u64 {
 /// Everything the daemon needs to run.
 #[derive(Debug)]
 pub struct Config {
-    /// EVM endpoint the pool is read through.
+    /// EVM endpoint the pool is read through, and calls are sent to.
     pub rpc: String,
+    /// Endpoint the pool's history is read from, when that is a different
+    /// one. Reading logs and submitting calls are different jobs: a node
+    /// that serves a wide block range is not always one that will take a
+    /// transaction.
+    pub logs: String,
     /// Deployed pool, and the two addresses a proof is bound to.
     pub pool: Address,
     pub token: Address,
@@ -298,6 +320,7 @@ impl Config {
     pub fn from_env() -> Result<Self, ConfigError> {
         Ok(Self {
             rpc: required("VEIL_RPC_URL")?,
+            logs: env::var("VEIL_LOGS_URL").or_else(|_| required("VEIL_RPC_URL"))?,
             pool: address("VEIL_POOL")?,
             token: address("VEIL_TOKEN")?,
             verifier: address("VEIL_VERIFIER")?,
@@ -436,7 +459,11 @@ impl Daemon {
             .get_chain_id()
             .await
             .map_err(|_| StartError::Chain(host(&config.rpc)))?;
-        let source = Arc::new(ChainSource::new(provider, config.pool, config.window));
+        let reading = ProviderBuilder::new()
+            .connect(&config.logs)
+            .await
+            .map_err(|_| StartError::Chain(host(&config.logs)))?;
+        let source = Arc::new(ChainSource::new(reading, config.pool, config.window));
         let index = Arc::new(IndexService::load(source, store.clone()).await?);
 
         let pool = PoolClient::new(config.pool, config.token, config.verifier, chain_id)
@@ -513,6 +540,12 @@ impl Daemon {
     #[must_use]
     pub const fn index(&self) -> &Arc<IndexService> {
         &self.index
+    }
+
+    /// The agent ledger, for whatever issues or reads keys.
+    #[must_use]
+    pub fn agents(&self) -> Option<&Arc<AgentService>> {
+        self.api.as_ref().map(|serving| &serving.api.agents)
     }
 
     /// Syncs until the process is signalled, or until the index can no longer

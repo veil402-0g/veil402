@@ -162,12 +162,13 @@ impl<P: Provider + Send + Sync> Broadcaster for PoolBroadcaster<P> {
 
 /// Sends the one-off calls a deposit makes.
 ///
-/// Its own engine rather than the daemon's, for two reasons: approving the
-/// pool means touching the token, which the daemon has no business doing,
-/// and a deposit is a command that ends rather than a loop that runs.
+/// Its own engine rather than the daemon's, because approving the pool means
+/// touching the token, which the daemon has no business doing. It drives the
+/// engine from the loop that waits rather than from a task of its own: a
+/// command that ends has to let go of the store on its last line, and a
+/// background ticker would still be holding it.
 pub struct Depositor {
     wallet: Arc<Wallet>,
-    _ticking: Runner,
     chain_id: u64,
 }
 
@@ -194,7 +195,11 @@ pub async fn depositor(
         max_fee_cap: fee_cap,
         max_priority_cap: fee_cap,
     });
-    let store = RedbStateStore::open(state).map_err(|_| ChainError::Unavailable)?;
+    let store = RedbStateStore::open(state).map_err(|_| {
+        ChainError::Refused(
+            "the transaction engine's state is already open; stop the daemon first".into(),
+        )
+    })?;
     let endpoint = rpc
         .parse()
         .map_err(|_| ChainError::Refused("the endpoint is not a URL".into()))?;
@@ -212,11 +217,7 @@ pub async fn depositor(
         .get_chain_id()
         .await
         .map_err(|_| ChainError::Unavailable)?;
-    Ok(Depositor {
-        _ticking: wallet.clone().run(TICK),
-        wallet,
-        chain_id,
-    })
+    Ok(Depositor { wallet, chain_id })
 }
 
 impl Depositor {
@@ -246,6 +247,11 @@ impl Depositor {
             .map_err(|error| ChainError::Refused(error.to_string()))?;
         let since = Instant::now();
         loop {
+            // Nothing else is turning the engine over, so this does.
+            self.wallet
+                .tick()
+                .await
+                .map_err(|error| ChainError::Refused(error.to_string()))?;
             match self
                 .wallet
                 .status(sent.id)

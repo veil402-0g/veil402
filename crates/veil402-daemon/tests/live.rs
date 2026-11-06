@@ -396,6 +396,7 @@ async fn daemon(
         listen: "127.0.0.1:0".parse()?,
         cap: 1_024,
         rpc: var("RPC_URL")?,
+        logs: var("RPC_URL")?,
         pool: pool.address(),
         token: var("TOKEN")?.parse()?,
         verifier: var("VERIFIER")?.parse()?,

@@ -300,19 +300,21 @@ impl EnvelopeService {
             return Ok(newest);
         }
         if let Some(nullifier) = known {
-            // Only an envelope the pool still holds a reservation for can
-            // be settled. One whose lock never landed, or whose deadline
-            // went by while nobody asked for anything, has nothing left to
-            // pay out, and the pool refuses a settlement against either.
-            // The registry keeps its change seed regardless, since a lock
-            // whose fate is unknown may yet have landed.
+            // Only an envelope the pool still holds an open reservation for
+            // can be settled. One whose lock never landed, whose deadline
+            // went by while nobody asked for anything, or that the seller
+            // has already closed itself has nothing left to pay out, and the
+            // pool refuses a settlement against any of them. The registry
+            // keeps its change seed regardless, since a lock whose fate is
+            // unknown may yet have landed.
             let now = self.broadcast.timestamp().await?;
-            if self
-                .wallet
-                .escrow(nullifier)
-                .await?
-                .is_some_and(|deadline| deadline > now)
-            {
+            let open = !self.index.is_spent(nullifier).await?
+                && self
+                    .wallet
+                    .escrow(nullifier)
+                    .await?
+                    .is_some_and(|deadline| deadline > now);
+            if open {
                 match self.settle(nullifier, false).await {
                     Ok(()) | Err(EnvelopeError::Enclave(EnclaveError::Unknown)) => {}
                     Err(refused) => return Err(refused),
@@ -442,6 +444,7 @@ impl EnvelopeService {
             .ok_or(EnvelopeError::Unknown)?;
         let reseeded = self.wallet.reseed(&note, path, now).await?;
         let prepared = self.prover.transfer(reseeded.transaction).await?;
+        tracing::debug!(root = ?prepared.proof.public.root, "reseed proved");
         self.broadcast
             .submit(reseeded.session, prepared.calldata)
             .await?;
