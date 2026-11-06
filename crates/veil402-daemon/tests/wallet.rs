@@ -14,7 +14,10 @@ use veil402_daemon::{
         wallet::{Held, Minted, NoteStore, Recovered, WalletError, WalletService, choose},
     },
 };
-use veil402_sdk::{Field, Note, Opening, Owner, Secret, SessionKeys, session::seal_note};
+use veil402_sdk::{
+    Field, MerklePath, Note, Opening, Owner, Secret, SessionKeys,
+    session::{PaymentAddress, seal_note},
+};
 
 type Fallible = Result<(), Box<dyn std::error::Error>>;
 
@@ -512,5 +515,114 @@ async fn a_wallet_finds_its_own_notes_with_no_record_of_them() -> Fallible {
 
     // Scanning again is idempotent, and costs nothing the second time.
     assert_eq!(wallet.discover(0).await?, 0, "a note was found twice");
+    Ok(())
+}
+
+/// A note the payer holds, ready to be spent.
+fn held(leaf: u32, value: u64, seed: Option<Secret>) -> Result<Held, Box<dyn std::error::Error>> {
+    Ok(Held {
+        commitment: field(u64::from(leaf) + 1),
+        leaf,
+        nullifier: field(u64::from(leaf) + 1_000),
+        value,
+        asset: ASSET,
+        random: Secret::random()?,
+        seed,
+    })
+}
+
+/// A payment must pay something, and no single note can be split across two.
+#[tokio::test]
+async fn pay_refuses_zero_and_an_amount_no_single_note_covers() -> Fallible {
+    let store = store().await?;
+    let wallet = wallet(&store, Owner::random()?);
+    let to = PaymentAddress::new(Owner::random()?.public()?, [5; 32]);
+    let note = held(0, 1_000, None)?;
+
+    assert!(matches!(
+        wallet.pay(&note, MerklePath::only_leaf()?, &to, 0, 0).await,
+        Err(WalletError::Unpayable(_))
+    ));
+    assert!(matches!(
+        wallet.pay(&note, MerklePath::only_leaf()?, &to, 1_001, 0).await,
+        Err(WalletError::Unpayable(_))
+    ));
+    Ok(())
+}
+
+/// The remainder of a paid note comes back as the sender's own change.
+#[tokio::test]
+async fn pay_returns_the_change_to_the_sender() -> Fallible {
+    let store = store().await?;
+    let wallet = wallet(&store, Owner::random()?);
+    let to = PaymentAddress::new(Owner::random()?.public()?, [6; 32]);
+    let note = held(0, 1_000, None)?;
+
+    let paid = wallet.pay(&note, MerklePath::only_leaf()?, &to, 300, 0).await?;
+    let change = paid.change.expect("a partial payment leaves change");
+
+    place(&store, &[change], 0).await?;
+    wallet.reconcile(0).await?;
+    let spendable: Vec<u64> = store
+        .spendable(ASSET, 0)
+        .await?
+        .iter()
+        .map(|note| note.value)
+        .collect();
+    assert_eq!(spendable, vec![700]);
+    Ok(())
+}
+
+/// A payment of the whole note leaves no change to write down.
+#[tokio::test]
+async fn pay_sends_the_whole_note_with_no_change() -> Fallible {
+    let store = store().await?;
+    let wallet = wallet(&store, Owner::random()?);
+    let to = PaymentAddress::new(Owner::random()?.public()?, [7; 32]);
+    let note = held(0, 1_000, None)?;
+
+    let paid = wallet.pay(&note, MerklePath::only_leaf()?, &to, 1_000, 0).await?;
+    assert!(paid.change.is_none());
+    assert!(store.unplaced().await?.is_empty(), "no change was written down");
+    Ok(())
+}
+
+/// The whole claim: a note sealed to a payee's address is found and spendable
+/// by that payee, and invisible to anyone else scanning the same chain.
+#[tokio::test]
+async fn a_payment_is_found_by_its_payee_and_not_a_stranger() -> Fallible {
+    let store_payee = store().await?;
+    let store_stranger = store().await?;
+    let payee = wallet(&store_payee, Owner {
+        spend: Secret::from_bytes([11; 32])?,
+        view: Secret::from_bytes([12; 32])?,
+    });
+    let stranger = wallet(&store_stranger, Owner::random()?);
+
+    // What a sender emits when it pays the payee 500: the note minted under
+    // the payee's identity, its opening sealed to the payee's viewing key.
+    let random = Secret::from_bytes([13; 32])?;
+    let note = Note { value: 500, asset: ASSET, random: Secret::from_bytes([13; 32])? };
+    let commitment = note.commitment_for(payee.identity()?)?;
+    let opening = Opening {
+        value: 500,
+        asset: ASSET.to_bytes(),
+        secret: random.to_bytes(),
+        session: false,
+    };
+    let view = payee.view();
+    shielded(&store_payee, 0, commitment, view, &opening).await?;
+    shielded(&store_stranger, 0, commitment, view, &opening).await?;
+
+    payee.discover(0).await?;
+    stranger.discover(0).await?;
+    payee.reconcile(0).await?;
+    stranger.reconcile(0).await?;
+
+    assert_eq!(store_payee.spendable(ASSET, 0).await?[0].value, 500, "the payee holds it");
+    assert!(
+        store_stranger.spendable(ASSET, 0).await?.is_empty(),
+        "a stranger learns nothing of it"
+    );
     Ok(())
 }
