@@ -46,8 +46,13 @@ const CAP: u32 = 256;
 /// minutes of its deadline — does not fire the moment a session opens.
 const WINDOW: u64 = 180;
 
-/// Blocks per log query. Only has to be under whatever the endpoint serves.
-const CHUNK: u64 = 1_000;
+/// Blocks per log query.
+///
+/// Wide on purpose. A cold index walks from the pool's first block to the
+/// head one query at a time, so the chunk decides how long that takes — and
+/// the gap grows with the chain. At a thousand it outran the patience below
+/// and the test blamed the daemon for the endpoint's round trips.
+const CHUNK: u64 = 20_000;
 
 /// Turns the services' own logging on, once, so a failure here is readable.
 fn watching() {
@@ -111,7 +116,7 @@ fn model() -> String {
 fn seller(bind: &str, state: &Path) -> Result<(), Box<dyn StdError>> {
     let config = veil402_gateway::app::Config {
         serving_rpc: String::new(),
-            serving: alloy::primitives::Address::ZERO,
+        serving: alloy::primitives::Address::ZERO,
         fee_cap: 20_000_000_000_000,
         pool: pool()?,
         root: alloy::hex::decode(var("VEIL_ROOT_SEED")?)?
