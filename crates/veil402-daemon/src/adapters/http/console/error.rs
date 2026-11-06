@@ -10,7 +10,8 @@ use axum::http::StatusCode;
 
 use super::primitives::Response;
 use crate::core::{
-    agent::AgentError, envelope::EnvelopeError, index::IndexError, wallet::WalletError,
+    StoreError, agent::AgentError, envelope::EnvelopeError, index::IndexError, payment::PayError,
+    wallet::WalletError,
 };
 
 const INTERNAL: &str = "the daemon could not answer";
@@ -50,5 +51,21 @@ impl From<EnvelopeError> for Response<()> {
 impl From<IndexError> for Response<()> {
     fn from(error: IndexError) -> Self {
         internal(&error)
+    }
+}
+
+impl From<StoreError> for Response<()> {
+    fn from(error: StoreError) -> Self {
+        internal(&error)
+    }
+}
+
+impl From<PayError> for Response<()> {
+    fn from(error: PayError) -> Self {
+        if error.invalid() {
+            Self::invalid(error.to_string())
+        } else {
+            internal(&error)
+        }
     }
 }

@@ -34,6 +34,7 @@ use crate::{
         },
         treasury::TreasuryService,
         index::{IndexError, IndexService},
+        payment::PaymentService,
         receipts::{Direction, Receipt, Receipts},
         wallet::{Deposit, Minted, WalletError, WalletService},
     },
@@ -542,13 +543,23 @@ impl Daemon {
         let agents = Arc::new(AgentService::new(store.clone()));
         let keys = owner(&config.owner)?;
         let wallet = Arc::new(WalletService::new(store.clone(), store.clone(), config.owner));
+        let prover = Arc::new(LocalProver::new(veil, pool));
+        let receipts: Arc<dyn Receipts> = store.clone();
+        let payment = Arc::new(PaymentService::new(
+            wallet.clone(),
+            index.clone(),
+            prover.clone(),
+            sending.clone(),
+            receipts.clone(),
+            pool,
+        ));
         let envelopes = Arc::new(EnvelopeService::new(
             wallet.clone(),
             index.clone(),
             enclave,
             sending,
-            Arc::new(LocalProver::new(veil, pool)),
-            store.clone(),
+            prover,
+            store,
             Terms {
                 pool,
                 seller: config.seller,
@@ -556,7 +567,6 @@ impl Daemon {
                 window: config.lock_for,
             },
         ));
-        let receipts: Arc<dyn Receipts> = store;
         Ok(Self {
             api: Some(Serving {
                 listen: config.listen,
@@ -572,6 +582,8 @@ impl Daemon {
                     envelopes: envelopes.clone(),
                     index: index.clone(),
                     wallet: wallet.clone(),
+                    payment,
+                    receipts: receipts.clone(),
                     funding: Arc::new(Purse::new(provider, config.token, broadcast.account())),
                     treasury: Arc::new(TreasuryService::new(
                         wallet.clone(),

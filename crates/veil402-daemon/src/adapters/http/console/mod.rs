@@ -9,6 +9,7 @@
 //! keeps this surface to the machine it runs on.
 
 mod activity;
+mod address;
 mod agents;
 mod audit;
 mod config;
@@ -16,6 +17,7 @@ mod deposit;
 mod dto;
 mod error;
 mod envelope;
+mod pay;
 mod pool;
 mod primitives;
 mod state;
@@ -31,6 +33,8 @@ pub fn router(console: Console) -> Router {
     Router::new()
         .route("/config", get(config::config))
         .route("/pool", get(pool::pool))
+        .route("/address", get(address::address))
+        .route("/pay", post(pay::pay))
         .route("/deposit", get(deposit::progress).post(deposit::start))
         .route("/envelope", get(envelope::envelope))
         .route("/activity", get(activity::activity))

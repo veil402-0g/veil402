@@ -562,6 +562,15 @@ impl Fixture {
             envelopes: self.service.clone(),
             index: self.index.clone(),
             wallet: self.wallet.clone(),
+            payment: Arc::new(veil402_daemon::core::payment::PaymentService::new(
+                self.wallet.clone(),
+                self.index.clone(),
+                Arc::new(Unused),
+                self.chain.clone(),
+                self.store.clone(),
+                pool().expect("pool"),
+            )),
+            receipts: self.store.clone(),
             funding: Arc::new(Unfunded),
             treasury: Arc::new(TreasuryService::new(
                 self.wallet.clone(),
