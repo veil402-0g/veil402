@@ -34,6 +34,7 @@ use crate::{
         },
         treasury::TreasuryService,
         index::{IndexError, IndexService},
+        receipts::{Direction, Receipt, Receipts},
         wallet::{Deposit, Minted, WalletError, WalletService},
     },
 };
@@ -478,6 +479,8 @@ pub struct Daemon {
     envelopes: Option<Arc<EnvelopeService>>,
     api: Option<Serving>,
     retry: Retry,
+    /// Records payments found while scanning, so the console can show them.
+    receipts: Option<Arc<dyn Receipts>>,
 }
 
 /// The agent API, and where it answers from.
@@ -545,7 +548,7 @@ impl Daemon {
             enclave,
             sending,
             Arc::new(LocalProver::new(veil, pool)),
-            store,
+            store.clone(),
             Terms {
                 pool,
                 seller: config.seller,
@@ -553,6 +556,7 @@ impl Daemon {
                 window: config.lock_for,
             },
         ));
+        let receipts: Arc<dyn Receipts> = store;
         Ok(Self {
             api: Some(Serving {
                 listen: config.listen,
@@ -591,6 +595,7 @@ impl Daemon {
                     .filter_map(|origin| HeaderValue::from_str(origin).ok())
                     .collect(),
             }),
+            receipts: Some(receipts),
             ..Self::new(index, wallet, config.retry).serving(envelopes)
         })
     }
@@ -604,6 +609,7 @@ impl Daemon {
             envelopes: None,
             api: None,
             retry,
+            receipts: None,
         }
     }
 
@@ -667,6 +673,22 @@ impl Daemon {
         // Before reconciling: a note found on chain this pass should be
         // placed in the same one rather than waiting for the next.
         let found = self.wallet.discover(now()).await?;
+        if let Some(receipts) = &self.receipts {
+            let at = now();
+            for received in &found {
+                if let Err(error) = receipts
+                    .record(&Receipt {
+                        direction: Direction::Received,
+                        amount: received.value,
+                        commitment: received.commitment,
+                        at,
+                    })
+                    .await
+                {
+                    tracing::warn!(%error, "a received payment was not recorded");
+                }
+            }
+        }
         let seen = self.wallet.reconcile(now()).await?;
         // A seller settles for itself when a deadline nears, so an envelope
         // can be spent without us asking. Its change is still ours.
@@ -679,7 +701,7 @@ impl Daemon {
             placed = seen.placed,
             spent = seen.spent,
             escrowed = seen.escrowed,
-            found,
+            found = found.len(),
             "synced"
         );
         if seen.stale > 0 {
