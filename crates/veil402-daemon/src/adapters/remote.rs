@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
+use alloy::primitives::B256;
 use eventsource_stream::{Event, Eventsource, EventStreamError};
 use futures_util::{StreamExt, stream, stream::BoxStream};
 use reqwest::{Client, Response};
@@ -10,8 +11,8 @@ use veil402_sdk::{
     session::Sealed,
     session::{Exchange, Inbound, Recipient},
     wire::{
-        AcceptBody, Action, AgreeBody, CallBody, MeteredBody, Offer, Prompt, RefusedBody, Reply,
-        SessionBody, SettlementBody, bytes, encode, field,
+        AcceptBody, Action, AgreeBody, CallBody, Delivered, MeteredBody, Offer, Prompt,
+        RefusedBody, Reply, SessionBody, SettlementBody, bytes, encode, field,
     },
 };
 
@@ -265,6 +266,10 @@ struct Reading {
     exchange: Exchange,
     inbound: Option<Inbound>,
     ended: bool,
+    /// Every sealed frame as it arrived, folded the way the seller folds
+    /// them, so the bill can be held against the answer.
+    delivered: Delivered,
+    frames_seen: bool,
 }
 
 impl Reading {
@@ -300,6 +305,8 @@ fn reading(
             exchange,
             inbound: None,
             ended: false,
+            delivered: Delivered::new(),
+            frames_seen: false,
         },
         |mut reading| async move {
             loop {
@@ -316,23 +323,32 @@ fn reading(
                         Err(refused) => return Some((Err(refused), reading)),
                     },
                     BILL => {
-                        return Some((metered(&event.data), reading));
+                        let delivered = core::mem::take(&mut reading.delivered).finish();
+                        let seen = reading.frames_seen;
+                        return Some((metered(&event.data, delivered, seen), reading));
                     }
                     ERROR => {
                         return Some((Err(EnclaveError::Refused(event.data)), reading));
                     }
                     _ if event.data.trim() == DONE => return reading.ending(),
                     _ => {
-                        let opened = match (reading.inbound.as_mut(), bytes(&event.data)) {
-                            (Some(inbound), Ok(sealed)) => inbound.frame(&sealed),
-                            (None, _) => {
-                                return Some((
-                                    Err(EnclaveError::Refused("a frame before its key".into())),
-                                    reading,
-                                ));
-                            }
-                            (_, Err(error)) => return Some((Err(unreachable(error)), reading)),
+                        let sealed = match bytes(&event.data) {
+                            Ok(sealed) => sealed,
+                            Err(error) => return Some((Err(unreachable(error)), reading)),
                         };
+                        let Some(inbound) = reading.inbound.as_mut() else {
+                            return Some((
+                                Err(EnclaveError::Refused("a frame before its key".into())),
+                                reading,
+                            ));
+                        };
+                        let opened = inbound.frame(&sealed);
+                        // The terminator carries no answer, and the seller
+                        // seals it only once it has folded the rest.
+                        if opened.as_ref().is_ok_and(|frame| !frame.last) {
+                            reading.delivered.frame(&sealed);
+                            reading.frames_seen = true;
+                        }
                         return Some((
                             opened
                                 .map(|frame| Piece::Body(frame.payload))
@@ -347,8 +363,17 @@ fn reading(
     .boxed()
 }
 
-fn metered(data: &str) -> Result<Piece, EnclaveError> {
+/// Reads the bill, and refuses one that does not account for the answer.
+///
+/// A bill with nothing to bind is only honest when nothing was streamed: a
+/// remembered answer is served as the bill alone.
+fn metered(data: &str, delivered: B256, streamed: bool) -> Result<Piece, EnclaveError> {
     let body: MeteredBody = serde_json::from_str(data).map_err(unreachable)?;
+    if streamed && body.delivered != Some(delivered) {
+        return Err(EnclaveError::Refused(
+            "the bill does not account for the answer that arrived".into(),
+        ));
+    }
     Ok(Piece::Billed(Metered {
         cost: body.cost,
         total: body.total,

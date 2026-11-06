@@ -19,7 +19,7 @@ use veil402_sdk::{
     Field, Veil,
     evm::{PoolClient, Session},
     session::{EnclaveKey, Keyring, Outbound, Sealed},
-    wire::{AgreeBody, MeteredBody, Offer, Prompt, SettlementBody, encode},
+    wire::{AgreeBody, Delivered, MeteredBody, Offer, Prompt, SettlementBody, encode},
 };
 
 use crate::core::{
@@ -198,6 +198,7 @@ impl Meters for Enclave {
                 nullifier,
                 attempt: attempt.to_owned(),
                 pricing: self.pricing,
+                delivered: Delivered::new(),
             }),
         })
     }
@@ -279,6 +280,8 @@ struct Relay {
     nullifier: Field,
     attempt: String,
     pricing: Pricing,
+    /// Each sealed frame, folded as it goes out.
+    delivered: Delivered,
 }
 
 /// Seals each frame on its way past, and bills the call when it ends.
@@ -292,11 +295,13 @@ fn relaying(relay: Relay) -> BoxStream<'static, Result<Billed, MeterError>> {
             Err(error) => return Some((Err(declined(error)), relay)),
         };
         let next = match served {
-            Served::Frame(bytes) => relay
-                .outbound
-                .frame(&bytes, false)
-                .map(Billed::Frame)
-                .map_err(refused),
+            Served::Frame(bytes) => match relay.outbound.frame(&bytes, false) {
+                Ok(sealed) => {
+                    relay.delivered.frame(&sealed);
+                    Ok(Billed::Frame(sealed))
+                }
+                Err(error) => Err(refused(error)),
+            },
             // A frame of its own, sealed as the last, so a relay that stops
             // early cannot pass a half-answer off as a whole one. Nothing
             // out here can tell it from any other frame, which is the point.
@@ -341,7 +346,10 @@ async fn bill(relay: &mut Relay, receipt: &Receipt) -> Result<Metering, MeterErr
             "a provider's signature did not match its attested key"
         );
     }
-    let attestation = witnessed(receipt);
+    // Folded before the terminator frame is sealed, which carries no answer
+    // and could not be counted here without counting this bill.
+    let delivered = core::mem::take(&mut relay.delivered).finish();
+    let attestation = witnessed(receipt, delivered);
     let sequence = meter.calls() as u64;
     let total = meter
         .record(Call { cost, attestation })
@@ -352,6 +360,7 @@ async fn bill(relay: &mut Relay, receipt: &Receipt) -> Result<Metering, MeterErr
             total,
             remaining: meter.ceiling().saturating_sub(total),
             attestation,
+            delivered: Some(delivered),
         },
         record: journal(&relay.key, sequence, &relay.attempt, total, attestation)
             .map_err(refused)?,
@@ -375,8 +384,11 @@ fn model(body: &[u8]) -> Result<String, MeterError> {
 
 /// Binds the upstream's own receipt, so what a settlement covers can be
 /// matched against what the provider says it served.
-fn witnessed(receipt: &Receipt) -> B256 {
-    let mut bound = Vec::with_capacity(96);
+fn witnessed(receipt: &Receipt, delivered: B256) -> B256 {
+    let mut bound = Vec::with_capacity(128);
+    // What the buyer received, so what settles commits to the answer and not
+    // only to what it was billed.
+    bound.extend_from_slice(delivered.as_slice());
     bound.extend_from_slice(receipt.reference.as_bytes());
     bound.extend_from_slice(&receipt.cost.to_be_bytes());
     bound.extend_from_slice(&receipt.tokens.prompt.to_be_bytes());

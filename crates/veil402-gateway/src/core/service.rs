@@ -331,6 +331,8 @@ impl MeteringService {
                             total: replayed.total,
                             remaining: replayed.remaining,
                             attestation: replayed.attestation,
+                            // The stream is not replayed, only the bill.
+                            delivered: None,
                         },
                     },
                 )

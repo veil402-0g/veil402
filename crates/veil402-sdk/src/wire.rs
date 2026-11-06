@@ -4,7 +4,7 @@
 //! delegation inside is already authenticated by HPKE — so the readable form
 //! costs nothing and a failing request can be read off the wire.
 
-use alloy::primitives::{Address, B256};
+use alloy::primitives::{Address, B256, Keccak256, keccak256};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
@@ -128,6 +128,43 @@ pub struct MeteredBody {
     pub total: u64,
     pub remaining: u64,
     pub attestation: B256,
+    /// The frames this call sealed, folded in send order, so the buyer can
+    /// check the bill against the answer it actually received.
+    ///
+    /// Absent on a remembered answer: a retry is served the bill without the
+    /// stream, so there is nothing to bind it to.
+    #[serde(default)]
+    pub delivered: Option<B256>,
+}
+
+/// Folds the sealed frames of one answer, in the order they were sent.
+///
+/// The terminator is not one of them: it carries no answer, and the seller
+/// seals it only once it has folded the rest. Both ends fold the same way or
+/// no bill would ever match, so the fold lives here rather than on either
+/// side of it.
+pub struct Delivered(Keccak256);
+
+impl Default for Delivered {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Delivered {
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Keccak256::new())
+    }
+
+    pub fn frame(&mut self, sealed: &[u8]) {
+        self.0.update(keccak256(sealed));
+    }
+
+    #[must_use]
+    pub fn finish(self) -> B256 {
+        self.0.finalize()
+    }
 }
 
 /// An upstream's refusal, carried without being read.

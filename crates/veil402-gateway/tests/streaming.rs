@@ -17,9 +17,9 @@ use veil402_gateway::{
     app::{Config, assemble},
     core::MeteringService,
 };
-use veil402_sdk::wire::{CallBody, MeteredBody, encode};
+use veil402_sdk::wire::{CallBody, Delivered, MeteredBody, bytes, encode};
 
-use support::{DEADLINE, ROOT, asking, backing, delegate, pool};
+use support::{Asked, DEADLINE, ROOT, asked, asking, backing, delegate, pool};
 
 type Fallible = Result<(), Box<dyn std::error::Error>>;
 
@@ -38,6 +38,7 @@ fn refusing(
     let state = tempfile::tempdir()?;
     Ok(assemble(
         &Config {
+            vouched: std::collections::HashMap::new(),
             fee_cap: 20_000_000_000_000,
             pool: pool()?,
             root: ROOT,
@@ -58,7 +59,6 @@ fn refusing(
             multicall: alloy::primitives::Address::repeat_byte(0xCA),
             wallet_state: std::path::PathBuf::from("/nonexistent/wallet.redb"),
             confirmations: 0,
-            vouched: std::collections::HashMap::new(),
         },
         backing(DEADLINE)?,
         Arc::new(support::Upstream {
@@ -134,6 +134,60 @@ async fn a_relayed_stream_is_billed_once_and_its_key_cannot_be_spent_again() -> 
     )
     .await?;
     assert_eq!(status, 422, "a key was reused for another request");
+    Ok(())
+}
+
+/// The bill accounts for the answer. Every sealed frame but the terminator,
+/// folded as both ends fold them, so a seller billing for an answer it never
+/// sent — or a relay that dropped one on the way — does not match.
+#[tokio::test]
+async fn a_bill_binds_the_frames_the_buyer_received() -> Fallible {
+    let service = gateway(3, false)?;
+    let delegated = delegate(&service).await?;
+    let Asked { sealed, exchange } = asked(&delegated.sealing, 40)?;
+
+    let (status, stream) = chat(service, delegated.nullifier, &sealed, "bound").await?;
+    assert_eq!(status, 200);
+
+    // Read it the way the daemon reads it.
+    let mut inbound = None;
+    let mut delivered = Delivered::new();
+    let mut billed: Option<MeteredBody> = None;
+    let mut named = "";
+    let mut folded = 0;
+    for line in stream.lines().filter(|line| !line.is_empty()) {
+        if let Some(name) = line.strip_prefix("event: ") {
+            named = name;
+            continue;
+        }
+        let Some(data) = line.strip_prefix("data: ") else {
+            continue;
+        };
+        let event = core::mem::take(&mut named);
+        match event {
+            "head" => {
+                let head: [u8; 32] = bytes(data)?.try_into().map_err(|_| "a malformed key")?;
+                inbound = Some(exchange.inbound(head)?);
+            }
+            "bill" => billed = Some(serde_json::from_str(data)?),
+            _ if data.trim() == "[DONE]" => {}
+            _ => {
+                let raw = bytes(data)?;
+                let frame = inbound.as_mut().ok_or("a frame before its key")?.frame(&raw)?;
+                if !frame.last {
+                    delivered.frame(&raw);
+                    folded += 1;
+                }
+            }
+        }
+    }
+
+    assert_eq!(folded, 3, "the answer did not arrive whole");
+    assert_eq!(
+        billed.ok_or("a stream with no bill")?.delivered,
+        Some(delivered.finish()),
+        "the bill does not bind the answer that arrived"
+    );
     Ok(())
 }
 
