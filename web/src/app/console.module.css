@@ -2478,12 +2478,18 @@
 
 .trackFill {
   position: absolute;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--d0);
+  max-width: 100%;
   border-radius: 999px;
   background-image: radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);
   background-repeat: no-repeat;
-  background-size: var(--d0) 100%;
-  transition: background-size .8s cubic-bezier(.65,0,.25,1);
+  /* Sized to the track, not to the fill, so the gradient does not squash
+     and re-stretch as the capsule grows. */
+  background-size: 560px 100%;
+  transition: width .8s cubic-bezier(.65,0,.25,1);
 }
 
 .trackDot {
@@ -2501,7 +2507,8 @@
   box-shadow: inset 0 0 0 1px var(--d3);
   font-size: 13px;
   line-height: 1;
-  transition: background .4s ease,color .4s ease,box-shadow .4s ease;
+  opacity: var(--d4);
+  transition: background .4s ease,color .4s ease,box-shadow .4s ease,opacity .5s ease;
 }
 
 .trackLabels {
@@ -2514,30 +2521,46 @@
   flex-direction: column;
   align-items: center;
   gap: 3px;
+  opacity: var(--d0);
+  transition: opacity .5s ease;
 }
 
 .trackNum {
   font: 500 10px 'JetBrains Mono',monospace;
   letter-spacing: .08em;
-  color: var(--d0);
+  color: var(--d1);
   transition: color .4s ease;
 }
 
 .trackName {
   font-size: 12.5px;
   letter-spacing: -0.01em;
-  color: var(--d0);
+  color: var(--d1);
   transition: color .4s ease;
 }
 
-/* A running checkpoint breathes: the chain says only "not yet". */
+/* A running checkpoint beats, and turns an arc instead of showing a tick
+   it has not earned. */
 @keyframes vdot {
   0%, 100% { transform: translate(-50%,-50%) scale(1); }
-  50% { transform: translate(-50%,-50%) scale(1.14); }
+  50% { transform: translate(-50%,-50%) scale(1.13); }
+}
+
+@keyframes vspin {
+  to { transform: rotate(360deg); }
 }
 
 .trackDot[data-run='true'] {
-  animation: vdot 1.7s ease-in-out infinite;
+  animation: vdot 1.6s ease-in-out infinite;
+}
+
+.trackSpin {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid rgba(18,48,214,.22);
+  border-top-color: #1230d6;
+  animation: vspin .75s linear infinite;
 }
 
 .stepDone {
@@ -2556,5 +2579,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .trackDot[data-run='true'] { animation: none; }
+  .trackDot[data-run='true'],
+  .trackSpin {
+    animation: none;
+  }
 }

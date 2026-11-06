@@ -1697,20 +1697,21 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                           '--d1': st.dotBg,
                           '--d2': st.dotFg,
                           '--d3': st.ring,
+                          '--d4': st.op,
                         } as CSSVars
                       }
                     >
-                      {st.mark}
+                      {st.running ? <span className={s.trackSpin} /> : st.mark}
                     </span>
                   ))}
                 </div>
                 <div className={s.trackLabels}>
                   {v.depositSteps.map((st, i) => (
-                    <span key={i} className={s.trackLabel}>
-                      <span className={s.trackNum} style={{ '--d0': st.numFg } as CSSVars}>
+                    <span key={i} className={s.trackLabel} style={{ '--d0': st.op } as CSSVars}>
+                      <span className={s.trackNum} style={{ '--d1': st.numFg } as CSSVars}>
                         {st.num}
                       </span>
-                      <span className={s.trackName} style={{ '--d0': st.labelFg } as CSSVars}>
+                      <span className={s.trackName} style={{ '--d1': st.labelFg } as CSSVars}>
                         {st.label}
                       </span>
                     </span>

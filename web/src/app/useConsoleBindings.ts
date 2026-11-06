@@ -1042,13 +1042,12 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     depositError: depositing?.error ?? '',
     depositAmountF: depositing ? money(depositing.amount / 10 ** (config?.decimals ?? 6)) : '',
     depositNote: depositing?.stage === 'done' ? 'one note committed' : 'shielding',
-    // One track, a checkpoint per step. The fill reaches the circle of
-    // whatever is happening now, so a running step is a place on the bar
-    // rather than a percentage nothing reported.
+    // The fill stops a little past whatever is happening, so its rounded
+    // end sits beside that checkpoint instead of cutting through it.
     depositFill: (() => {
       if (depositing?.stage === 'done') return '100%'
       const at = depositing ? STEPS.findIndex((x) => x.key === depositing.stage) : -1
-      return at < 0 ? '0%' : `${((at + 0.5) / STEPS.length) * 100}%`
+      return at < 0 ? '0px' : `calc(${((at + 0.5) / STEPS.length) * 100}% + 27px)`
     })(),
     depositSteps: STEPS.map((step, i) => {
       const at = depositing ? STEPS.findIndex((x) => x.key === depositing.stage) : -1
@@ -1056,15 +1055,17 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
       const active = at === i && depositing?.stage !== 'failed'
       const broke = depositing?.stage === 'failed' && at === i
       return {
-        label: broke ? `(${step.label})` : active ? `(${step.label})` : step.label,
+        label: active || broke ? `(${step.label})` : step.label,
         num: String(i + 1),
         left: `${((i + 0.5) / STEPS.length) * 100}%`,
-        mark: finished ? '✓' : broke ? '!' : active ? '✓' : '+',
+        // A tick is a claim, and a step still running has not earned one.
+        mark: finished ? '✓' : broke ? '!' : active ? '' : '+',
         running: active,
-        // A checkpoint behind the fill is white on the gradient; one ahead
-        // of it is a faint outline on the empty track.
-        dotBg: finished || active ? '#fff' : broke ? '#ff4d1a' : '#f4f6fd',
-        dotFg: broke ? '#fff' : finished || active ? '#1230d6' : '#c4c8d4',
+        // Each phase sits a little further back than the one before it, so
+        // the track reads as depth rather than as five equal things.
+        op: finished || active || broke ? 1 : Math.max(0.3, 0.62 - (i - at - 1) * 0.22),
+        dotBg: finished ? '#fff' : active ? '#fff' : broke ? '#ff4d1a' : '#f4f6fd',
+        dotFg: broke ? '#fff' : '#1230d6',
         ring: finished || active || broke ? 'transparent' : '#e3e5ea',
         numFg: finished || active ? '#1230d6' : broke ? '#ff4d1a' : '#c4c8d4',
         labelFg: finished || active ? '#0d0e12' : broke ? '#ff4d1a' : '#8b8e97',
