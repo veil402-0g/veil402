@@ -167,8 +167,24 @@ const server = createServer(async (req, res) => {
       return reply(402, { invoiceId, price: invoice.price, reason: 'payment not confirmed' })
     }
 
+    // A build takes minutes, and a client that asks again while it runs must
+    // not start a second one: the account allows three at once, and a poller
+    // fills that in ninety seconds.
+    if (invoice.building) {
+      console.log(`[shop] invoice ${invoiceId.slice(0, 8)}: already building`)
+      return reply(202, { invoiceId, status: 'building', reason: 'still building' })
+    }
+
     console.log(`[shop] invoice ${invoiceId.slice(0, 8)}: payment confirmed, fulfilling`)
-    const work = await fulfil(invoice.request)
+    invoice.building = true
+    let work
+    try {
+      work = await fulfil(invoice.request)
+    } catch (error) {
+      invoice.building = false
+      throw error
+    }
+    invoice.building = false
     invoice.fulfilled = true
     invoice.result = { ok: true, ...work }
     console.log(`[shop] delivered ${work.contract ?? 'a draft'}${work.address ? ' @ ' + work.address : ''}`)
