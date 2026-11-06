@@ -745,6 +745,15 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                       >
                         {a.id} · {a.purpose}
                       </span>
+                      {a.keyKnown ? (
+                        <button
+                          className={s.keyCopy}
+                          onClick={a.copyKey}
+                          title="Copy this mandate's API key"
+                        >
+                          {a.keyMask} ⧉
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                   <div
@@ -1779,12 +1788,33 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
               </span>
               </>
             ) : null}
-            <button
-              className={s.s259}
-              onClick={v.confirmMandate}
-            >
-              Sign & issue mandate
-            </button>
+            {v.hasIssued ? (
+              <div className={s.keyPanel}>
+                <span className={s.keyPanelHead}>
+                  API key for {v.issuedFor}
+                </span>
+                <code className={s.keyPanelValue}>{v.issuedKey}</code>
+                <span className={s.keyPanelNote}>
+                  The daemon keeps only a hash of this. Copy it now — nothing can show it
+                  again.
+                </span>
+                <div className={s.keyPanelRow}>
+                  <button className={s.s259} onClick={v.copyIssued}>
+                    Copy key
+                  </button>
+                  <button className={s.keyPanelDone} onClick={v.doneIssued}>
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                className={s.s259}
+                onClick={v.confirmMandate}
+              >
+                Sign & issue mandate
+              </button>
+            )}
           </div>
         </div>
         </>

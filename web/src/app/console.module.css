@@ -2392,3 +2392,66 @@
   align-items: center;
   gap: 8px;
 }
+
+/* A mandate is an API key; the row offers the one this browser kept. */
+.keyCopy {
+  align-self: flex-start;
+  border: 0;
+  cursor: pointer;
+  background: rgba(18,48,214,.06);
+  color: #1230d6;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font: 500 10px 'JetBrains Mono',monospace;
+  letter-spacing: .02em;
+}
+
+.keyCopy:hover {
+  background: rgba(18,48,214,.12);
+}
+
+/* Shown until dismissed: nothing can produce this value a second time. */
+.keyPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.keyPanelHead {
+  font: 500 11px 'JetBrains Mono',monospace;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: #6b6e78;
+}
+
+.keyPanelValue {
+  font: 500 12px 'JetBrains Mono',monospace;
+  word-break: break-all;
+  background: #f4f6fd;
+  box-shadow: inset 0 0 0 1px rgba(18,48,214,.16);
+  padding: 10px 12px;
+  color: #0d0e12;
+}
+
+.keyPanelNote {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #8b8e97;
+}
+
+.keyPanelRow {
+  display: flex;
+  gap: 8px;
+}
+
+.keyPanelDone {
+  border: 0;
+  cursor: pointer;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #e3e5ea;
+  color: #0d0e12;
+  padding: 0 18px;
+  font: 500 11.5px 'JetBrains Mono',monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}

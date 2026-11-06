@@ -22,6 +22,7 @@ import {
 import { useViewTransition } from '../transition/context'
 import { ApiError, client, type Bootstrap } from '../api/client'
 import { CADENCE, fold, snapshot } from '../ledger/live'
+import { forget, keyFor, masked, remember } from '../api/keys'
 
 /** Treemap grid for the pool-composition dot field. */
 const DOT_ROWS = 6
@@ -100,6 +101,10 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
   const [ledger, setLedger] = useState<Ledger>(seedEmpty)
   const [now, setNow] = useState(() => Date.now())
   const [config, setConfig] = useState<Bootstrap | null>(null)
+  /** The key a mandate was just issued with. The one moment it exists. */
+  const [issued, setIssued] = useState<{ id: string; name: string; key: string } | null>(null)
+  /** Bumped when the keyring changes, so the rows re-read it. */
+  const [keyring, setKeyring] = useState(0)
   /** What stopped the daemon answering, in words the operator can act on. */
   const [offline, setOffline] = useState('')
 
@@ -326,6 +331,8 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     ledger.sessions.filter((x) => x.agentId === agentId).reduce((q, x) => q + x.escrow, 0)
 
   const agentRows = ledger.agents.map((a) => {
+    void keyring
+    const known = keyFor(a.id)
     const held = heldFor(a.id)
     const pct = a.budget ? a.spent / a.budget : 0
     const revoked = a.status === 'revoked'
@@ -383,6 +390,15 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
       opacity: revoked ? 0.5 : 1,
       canRevoke: !revoked,
       isRevoked: revoked,
+      // Only a key this browser issued can be handed back; nothing else
+      // holds one.
+      keyKnown: !revoked && known !== null,
+      keyMask: known ? masked(known) : '',
+      copyKey: () => {
+        if (!known) return
+        void navigator.clipboard?.writeText(known)
+        notify(`Key for ${a.name} copied`, a.id)
+      },
       canPause: !revoked && config?.features.pause === true,
       pauseLabel: a.status === 'paused' ? 'Resume' : 'Pause',
       togglePause: () => {
@@ -399,6 +415,8 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
         api
           .revoke(a.id)
           .then(() => {
+            forget(a.id)
+            setKeyring((n) => n + 1)
             void refresh()
             notify(`Mandate ${a.id} revoked · ${a.name}`, 'the key no longer opens', '#ff4d1a')
           })
@@ -798,15 +816,11 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
           models: form.mEndpoints.length ? form.mEndpoints : undefined,
         })
         .then((granted) => {
+          remember(granted.id, granted.key)
+          setKeyring((n) => n + 1)
+          setIssued({ id: granted.id, name, key: granted.key })
           void refresh()
-          setMandateOpen(false)
           setForm((f) => ({ ...f, mName: '', mError: '' }))
-          notify(
-            `Mandate ${granted.id} issued to ${name}`,
-            // The one moment it exists: it was never stored and cannot be
-            // shown again.
-            `key ${granted.key} — copy it now`,
-          )
         })
         .catch((error: unknown) => setForm((f) => ({ ...f, mError: explain(error) })))
       return
@@ -1025,6 +1039,18 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     setMBudget: (e: ChangeEvent<HTMLInputElement>) =>
       setForm((f) => ({ ...f, mBudget: e.target.value })),
     mError: form.mError,
+    issuedKey: issued?.key ?? '',
+    issuedFor: issued ? `${issued.name} · ${issued.id}` : '',
+    hasIssued: !!issued,
+    copyIssued: () => {
+      if (!issued) return
+      void navigator.clipboard?.writeText(issued.key)
+      notify('Key copied', issued.id)
+    },
+    doneIssued: () => {
+      setIssued(null)
+      setMandateOpen(false)
+    },
     freeF:
       T.free > 0
         ? `${money(T.free)} USDC`
