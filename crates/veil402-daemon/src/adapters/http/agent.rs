@@ -1,9 +1,11 @@
+//! The agent API: `OpenAI`'s shape over a shielded note.
+
 use std::{convert::Infallible, sync::Arc};
 
 use axum::{
     Json, RequestPartsExt, Router,
     body::Bytes,
-    extract::{FromRequestParts, Path, Query, State},
+    extract::{FromRequestParts, Path, State},
     http::{HeaderMap, header::CONTENT_TYPE, request::Parts},
     response::{
         IntoResponse, Response,
@@ -19,13 +21,13 @@ use futures_util::{StreamExt, stream::BoxStream};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
-use alloy::{hex, primitives::B256};
+use alloy::hex;
 
 use super::primitives::Refusal;
 use crate::{
     app::now,
     core::{
-        agent::{Agent, AgentService, Audit, Charge, Hold},
+        agent::{Agent, AgentService, Charge, Hold},
         envelope::{EnclaveError, EnvelopeError, EnvelopeService, Metered, Piece, collected},
         index::IndexService,
     },
@@ -59,7 +61,6 @@ pub fn router(api: Api) -> Router {
         .route("/v1/chat/completions", post(completions))
         .route("/v1/models", get(models))
         .route("/v1/models/{model}", get(model))
-        .route("/v1/audit", get(audit))
         .route("/healthz", get(healthz))
         .with_state(api)
 }
@@ -106,7 +107,9 @@ async fn completions(
         .await?
         .ok_or_else(|| Refusal::unlisted(&asked.model))?;
 
-    let hold = api.agents.reserve(&agent, offer.rates().most(&body, api.cap))?;
+    let hold = api
+        .agents
+        .reserve(&agent, &asked.model, offer.rates().most(&body, api.cap))?;
     let pieces = api.envelopes.dispatch(&body, &attempt(&headers)).await?;
 
     if asked.stream {
@@ -215,70 +218,6 @@ async fn bill(api: &Api, agent: &str, hold: &mut Option<Hold>, metered: &Metered
         // whose it was.
         tracing::error!(%error, agent, cost = metered.cost, "a served call was not filed");
     }
-}
-
-/// What an audit narrows to. Everything absent means everything.
-#[derive(Deserialize)]
-struct Scope {
-    agent: Option<String>,
-    from: Option<u64>,
-    to: Option<u64>,
-    /// One call, by the digest that settles it.
-    tx: Option<String>,
-}
-
-/// The calls an audit covers, each with what proves it.
-///
-/// Read-only and narrowed: this is what an auditor is handed, so it carries
-/// the binding and the settlement it belongs to, never the answer itself.
-async fn audit(State(api): State<Api>, Query(scope): Query<Scope>) -> Result<Response, Refusal> {
-    let attestation = scope
-        .tx
-        .as_deref()
-        .map(|tx| {
-            veil402_sdk::wire::bytes(tx)
-                .ok()
-                .and_then(|raw| <[u8; 32]>::try_from(raw).ok())
-                .map(B256::from)
-                .ok_or_else(|| Refusal::malformed("tx is not a 32-byte digest".to_owned()))
-        })
-        .transpose()?;
-
-    let filed = api
-        .agents
-        .audit(&Audit {
-            agent: scope.agent,
-            from: scope.from,
-            to: scope.to,
-            attestation,
-        })
-        .await
-        .map_err(|_| Refusal::internal("the ledger could not be read"))?;
-
-    let calls: Vec<_> = filed
-        .iter()
-        .map(|filed| {
-            let charge = &filed.charge;
-            serde_json::json!({
-                "agent": filed.agent,
-                "label": filed.label,
-                "model": charge.model,
-                "cost": charge.cost,
-                "at": charge.at,
-                "attestation": charge.attestation,
-                // Enough to recompute the attestation and place it in the
-                // root the settlement signed; the answer stays sealed.
-                "proof": {
-                    "nullifier": veil402_sdk::wire::encode(&charge.nullifier.to_bytes()),
-                    "delivered": charge.delivered,
-                    "sequence": charge.sequence,
-                    "witness": charge.witness,
-                },
-            })
-        })
-        .collect();
-
-    Ok(Json(serde_json::json!({ "object": "list", "data": calls })).into_response())
 }
 
 /// A stream that ended badly says so in the shape a client already reads.

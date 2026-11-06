@@ -18,7 +18,7 @@ pub use veil402_daemon::core::envelope::Landed;
 use veil402_daemon::core::{
     StoreError,
     envelope::{Broadcaster, ChainError as SendError},
-    index::{Batch, ChainError, Commitment, CommitmentSource, IndexStore, Nullified},
+    index::{Batch, ChainError, Commitment, CommitmentSource, IndexStore, Locked, Nullified},
 };
 use futures_util::StreamExt;
 use veil402_sdk::{Field, StoredNode, Tree};
@@ -257,6 +257,10 @@ impl IndexStore for Memory {
             .cloned()
             .collect())
     }
+
+    async fn escrows(&self, _: u32) -> Result<Vec<Locked>, StoreError> {
+        Ok(Vec::new())
+    }
 }
 
 /// A broadcaster that sends nothing.
@@ -289,7 +293,7 @@ use alloy::{
     signers::{SignerSync, local::PrivateKeySigner},
 };
 use veil402_daemon::{
-    adapters::{Api, SqliteStore},
+    adapters::{Api, Console, Settings, SqliteStore, router},
     core::{
         agent::AgentService,
         envelope::{
@@ -310,6 +314,10 @@ use veil402_sdk::{
 pub const CEILING: u64 = 1_000;
 pub const WINDOW: u64 = 600;
 pub const MODEL: &str = "stub";
+
+/// A second model the seller sells, so a mandate that names one can be told
+/// from a mandate that names none.
+pub const OTHER: &str = "stub-mini";
 /// What the fake enclave says every call cost.
 pub const COST: u64 = 7;
 /// Output assumed when a request names no limit of its own.
@@ -376,12 +384,15 @@ impl Vouching {
 #[async_trait]
 impl Enclave for Vouching {
     async fn catalogue(&self) -> Result<Vec<Offer>, EnclaveError> {
-        Ok(vec![Offer {
-            model: MODEL.to_owned(),
-            prompt: 500_000,
-            completion: 2_000_000,
-            max_output: 4_096,
-        }])
+        Ok([MODEL, OTHER]
+            .into_iter()
+            .map(|model| Offer {
+                model: model.to_owned(),
+                prompt: 500_000,
+                completion: 2_000_000,
+                max_output: 4_096,
+            })
+            .collect())
     }
 
     async fn agree(&self, session: &Session) -> Result<Agreement, EnclaveError> {
@@ -411,7 +422,7 @@ impl Enclave for Vouching {
 
     async fn chat(
         &self,
-        _: Field,
+        nullifier: Field,
         _: &[u8],
         _: &str,
     ) -> Result<futures_util::stream::BoxStream<'static, Result<Piece, EnclaveError>>, EnclaveError>
@@ -437,7 +448,9 @@ impl Enclave for Vouching {
             delivered: None,
             witness: None,
             sequence: 0,
-            nullifier: Field::from(0_u64),
+            // The envelope it was asked to meter: a canned one would hide
+            // every mistake in attributing a call to its escrow.
+            nullifier,
         })));
         Ok(futures_util::stream::iter(pieces).boxed())
     }
@@ -496,6 +509,7 @@ impl Prover for Unused {
 
 pub struct Fixture {
     pub store: Arc<SqliteStore>,
+    pub wallet: Arc<WalletService>,
     pub service: Arc<EnvelopeService>,
     pub agents: Arc<AgentService>,
     pub index: Arc<IndexService>,
@@ -504,7 +518,28 @@ pub struct Fixture {
     pub nullifier: Field,
 }
 
+/// What the console's tests present. Not an agent key: the two surfaces
+/// authenticate different people.
+pub const OPERATOR: &str = "console-token-for-tests";
+
 impl Fixture {
+    #[must_use]
+    pub fn console(&self) -> Console {
+        Console {
+            agents: self.agents.clone(),
+            envelopes: self.service.clone(),
+            index: self.index.clone(),
+            wallet: self.wallet.clone(),
+            token: Some(Arc::from(OPERATOR)),
+            settings: Arc::new(Settings::new(1, seller(), seller(), seller(), seller(), CEILING, WINDOW)),
+        }
+    }
+
+    /// Both surfaces, as the daemon serves them.
+    pub fn served(&self) -> axum::Router {
+        router(self.api(), self.console(), &[])
+    }
+
     #[must_use]
     pub fn api(&self) -> Api {
         Api {
@@ -559,7 +594,7 @@ pub async fn fixture(
     let enclave = Arc::new(Vouching::new(client, frames)?);
     let chain = Arc::new(Sending::new(verdict));
     let service = Arc::new(EnvelopeService::new(
-        wallet,
+        wallet.clone(),
         index,
         enclave.clone(),
         chain.clone(),
@@ -576,6 +611,7 @@ pub async fn fixture(
         agents: Arc::new(AgentService::new(store.clone())),
         index: Arc::new(IndexService::load(Arc::new(Chain::new(0)), store.clone()).await?),
         store,
+        wallet,
         service,
         enclave,
         chain,

@@ -10,11 +10,11 @@ use axum::{
     body::Body,
     http::{Request, StatusCode, header},
 };
-use common::{COST, Fallible, MODEL, serving};
+use common::{COST, Fallible, MODEL, OPERATOR, OTHER, serving};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
-use veil402_daemon::{adapters::router, core::agent::Charge, core::envelope::EnclaveError};
+use veil402_daemon::{core::agent::Charge, core::envelope::EnclaveError};
 
 const NOW: u64 = 1_900_000_000;
 
@@ -50,9 +50,9 @@ async fn text(body: Body) -> Result<String, Box<dyn std::error::Error>> {
 #[tokio::test]
 async fn an_agent_streams_in_openai_s_own_wire_shape_and_is_billed() -> Fallible {
     let fixture = serving(3).await?;
-    let issued = fixture.agents.issue("aider", None, NOW).await?;
+    let issued = fixture.agents.issue("aider", None, None, NOW).await?;
 
-    let response = router(fixture.api())
+    let response = fixture.served()
         .oneshot(asking(&issued.key, true))
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
@@ -86,9 +86,9 @@ async fn an_agent_streams_in_openai_s_own_wire_shape_and_is_billed() -> Fallible
 #[tokio::test]
 async fn a_disconnected_agent_is_billed_anyway() -> Fallible {
     let fixture = serving(MANY).await?;
-    let issued = fixture.agents.issue("aider", None, NOW).await?;
+    let issued = fixture.agents.issue("aider", None, None, NOW).await?;
 
-    let response = router(fixture.api())
+    let response = fixture.served()
         .oneshot(asking(&issued.key, true))
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
@@ -107,11 +107,11 @@ async fn a_disconnected_agent_is_billed_anyway() -> Fallible {
 #[tokio::test]
 async fn a_key_that_was_never_issued_is_refused_in_openai_s_own_shape() -> Fallible {
     let fixture = serving(1).await?;
-    let issued = fixture.agents.issue("aider", None, NOW).await?;
+    let issued = fixture.agents.issue("aider", None, None, NOW).await?;
     fixture.agents.revoke(&issued.agent.id).await?;
 
     for key in ["", "sk-proj-somebody-elses", &issued.key] {
-        let response = router(fixture.api()).oneshot(asking(key, true)).await?;
+        let response = fixture.served().oneshot(asking(key, true)).await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{key} was let in");
         assert_eq!(
             response.headers().get(header::WWW_AUTHENTICATE).expect("challenge"),
@@ -133,9 +133,9 @@ async fn a_key_that_was_never_issued_is_refused_in_openai_s_own_shape() -> Falli
 #[tokio::test]
 async fn an_agent_at_its_budget_is_told_not_to_retry() -> Fallible {
     let fixture = serving(1).await?;
-    let issued = fixture.agents.issue("aider", Some(10), NOW).await?;
+    let issued = fixture.agents.issue("aider", Some(10), None, NOW).await?;
 
-    let response = router(fixture.api())
+    let response = fixture.served()
         .oneshot(asking(&issued.key, true))
         .await?;
 
@@ -159,11 +159,11 @@ async fn an_agent_at_its_budget_is_told_not_to_retry() -> Fallible {
 #[tokio::test]
 async fn a_model_the_daemon_cannot_buy_privately_is_not_offered() -> Fallible {
     let fixture = serving(1).await?;
-    let issued = fixture.agents.issue("cline", None, NOW).await?;
+    let issued = fixture.agents.issue("cline", None, None, NOW).await?;
 
     let listed: Value = serde_json::from_str(
         &text(
-            router(fixture.api())
+            fixture.served()
                 .oneshot(listing(&issued.key, "/v1/models"))
                 .await?
                 .into_body(),
@@ -171,11 +171,16 @@ async fn a_model_the_daemon_cannot_buy_privately_is_not_offered() -> Fallible {
         .await?,
     )?;
     assert_eq!(listed["object"], "list");
-    assert_eq!(listed["data"][0]["id"], MODEL);
     assert_eq!(listed["data"][0]["object"], "model");
-    assert!(listed["data"][1].is_null(), "more models than are sold");
+    let sold: Vec<&str> = listed["data"]
+        .as_array()
+        .expect("data")
+        .iter()
+        .map(|model| model["id"].as_str().expect("id"))
+        .collect();
+    assert_eq!(sold, [MODEL, OTHER], "the listing is not what is sold");
 
-    let response = router(fixture.api())
+    let response = fixture.served()
         .oneshot(listing(&issued.key, "/v1/models/gpt-4o"))
         .await?;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
@@ -189,7 +194,7 @@ async fn a_model_the_daemon_cannot_buy_privately_is_not_offered() -> Fallible {
         .header(header::AUTHORIZATION, format!("Bearer {}", issued.key))
         .body(body)?;
     assert_eq!(
-        router(fixture.api()).oneshot(request).await?.status(),
+        fixture.served().oneshot(request).await?.status(),
         StatusCode::NOT_FOUND
     );
     assert!(
@@ -202,9 +207,9 @@ async fn a_model_the_daemon_cannot_buy_privately_is_not_offered() -> Fallible {
 #[tokio::test]
 async fn an_answer_that_was_not_streamed_comes_back_whole() -> Fallible {
     let fixture = serving(1).await?;
-    let issued = fixture.agents.issue("script", None, NOW).await?;
+    let issued = fixture.agents.issue("script", None, None, NOW).await?;
 
-    let response = router(fixture.api())
+    let response = fixture.served()
         .oneshot(asking(&issued.key, false))
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
@@ -238,10 +243,10 @@ fn refused(status: u16, retry_after: Option<u64>) -> EnclaveError {
 #[tokio::test]
 async fn a_refusal_about_the_request_reaches_the_agent_whole() -> Fallible {
     let fixture = serving(1).await?;
-    let issued = fixture.agents.issue("aider", None, NOW).await?;
+    let issued = fixture.agents.issue("aider", None, None, NOW).await?;
 
     fixture.enclave.refusing(refused(400, None));
-    let response = router(fixture.api())
+    let response = fixture.served()
         .oneshot(asking(&issued.key, true))
         .await?;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -262,10 +267,10 @@ async fn a_refusal_about_the_request_reaches_the_agent_whole() -> Fallible {
 #[tokio::test]
 async fn a_rate_limit_carries_the_wait_the_upstream_asked_for() -> Fallible {
     let fixture = serving(1).await?;
-    let issued = fixture.agents.issue("aider", None, NOW).await?;
+    let issued = fixture.agents.issue("aider", None, None, NOW).await?;
     fixture.enclave.refusing(refused(429, Some(90)));
 
-    let response = router(fixture.api())
+    let response = fixture.served()
         .oneshot(asking(&issued.key, true))
         .await?;
 
@@ -281,14 +286,14 @@ async fn a_rate_limit_carries_the_wait_the_upstream_asked_for() -> Fallible {
 #[tokio::test]
 async fn a_refusal_about_the_seller_is_not_told_in_the_seller_s_voice() -> Fallible {
     let fixture = serving(1).await?;
-    let issued = fixture.agents.issue("aider", None, NOW).await?;
+    let issued = fixture.agents.issue("aider", None, None, NOW).await?;
     fixture.enclave.refusing(EnclaveError::Upstream {
         status: 402,
         retry_after: None,
         body: br#"{"error":{"message":"the AI provider balance is empty","type":"insufficient_quota","code":"insufficient_balance"}}"#.to_vec(),
     });
 
-    let response = router(fixture.api())
+    let response = fixture.served()
         .oneshot(asking(&issued.key, true))
         .await?;
 
@@ -309,17 +314,17 @@ async fn a_refusal_about_the_seller_is_not_told_in_the_seller_s_voice() -> Falli
 #[tokio::test]
 async fn an_audit_shows_one_agent_and_leaves_the_rest_sealed() -> Fallible {
     let fixture = serving(2).await?;
-    let mine = fixture.agents.issue("mine", None, NOW).await?;
-    let theirs = fixture.agents.issue("theirs", None, NOW).await?;
+    let mine = fixture.agents.issue("mine", None, None, NOW).await?;
+    let theirs = fixture.agents.issue("theirs", None, None, NOW).await?;
 
     // One real call, so a row carries what a real one would, and one filed
     // directly: the fixture holds a single note, and what is under test is
     // the narrowing rather than the envelope.
-    let response = router(fixture.api()).oneshot(asking(&mine.key, false)).await?;
+    let response = fixture.served().oneshot(asking(&mine.key, false)).await?;
     assert_eq!(response.status(), StatusCode::OK);
 
     let other = fixture.agents.authenticate(&theirs.key).await?;
-    let hold = fixture.agents.reserve(&other, COST)?;
+    let hold = fixture.agents.reserve(&other, MODEL, COST)?;
     fixture
         .agents
         .charge(
@@ -337,31 +342,48 @@ async fn an_audit_shows_one_agent_and_leaves_the_rest_sealed() -> Fallible {
         )
         .await?;
 
+    // An agent key authenticates as one agent; the ledger spans all of them.
+    // Presenting one here must not read the other's history.
+    let refused = fixture
+        .served()
+        .oneshot(listing(&mine.key, "/api/v1/audit"))
+        .await?;
+    assert_eq!(
+        refused.status(),
+        StatusCode::UNAUTHORIZED,
+        "an agent key opened the operator's ledger"
+    );
+
     let everything: Value = serde_json::from_str(
         &text(
-            router(fixture.api())
-                .oneshot(listing(&mine.key, "/v1/audit"))
+            fixture
+                .served()
+                .oneshot(listing(OPERATOR, "/api/v1/audit"))
                 .await?
                 .into_body(),
         )
         .await?,
     )?;
     assert_eq!(
-        everything["data"].as_array().expect("data").len(),
+        everything["result"]["items"].as_array().expect("items").len(),
         2,
         "both calls were filed"
     );
 
     let narrowed: Value = serde_json::from_str(
         &text(
-            router(fixture.api())
-                .oneshot(listing(&mine.key, &format!("/v1/audit?agent={}", theirs.agent.id)))
+            fixture
+                .served()
+                .oneshot(listing(
+                    OPERATOR,
+                    &format!("/api/v1/audit?agent={}", theirs.agent.id),
+                ))
                 .await?
                 .into_body(),
         )
         .await?,
     )?;
-    let rows = narrowed["data"].as_array().expect("data");
+    let rows = narrowed["result"]["items"].as_array().expect("items");
     assert_eq!(rows.len(), 1, "the filter did not narrow");
     assert_eq!(rows[0]["label"], "theirs");
     assert_eq!(rows[0]["model"], MODEL, "the row names what was bought");

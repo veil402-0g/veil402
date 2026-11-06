@@ -4,7 +4,7 @@ use thiserror::Error;
 use tokio::sync::RwLock;
 use veil402_sdk::{Field, Tree, Witness};
 
-use super::{Batch, ChainError, Commitment, CommitmentSource, Health, IndexStore};
+use super::{Batch, ChainError, Commitment, CommitmentSource, Health, IndexStore, Locked};
 use crate::core::StoreError;
 
 #[derive(Debug, Error)]
@@ -189,6 +189,15 @@ impl IndexService {
     /// Returns [`IndexError::Store`] when the store is unreadable.
     pub async fn leaf_of(&self, commitment: Field) -> Result<Option<u32>, IndexError> {
         Ok(self.store.leaf_of(commitment).await?)
+    }
+
+    /// The escrows the pool has opened most recently, newest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IndexError::Store`] when the store is unreadable.
+    pub async fn escrows(&self, limit: u32) -> Result<Vec<Locked>, IndexError> {
+        Ok(self.store.escrows(limit).await?)
     }
 
     /// Returns commitments from `from`, for scanning ciphertexts to find owned

@@ -1,4 +1,5 @@
 use alloy::primitives::B256;
+use serde::{Deserialize, Serialize};
 use veil402_sdk::{Field, wire::Witness};
 
 /// An agent, as the ledger knows it. One key, one row, one running total.
@@ -20,6 +21,22 @@ pub struct Agent {
     /// When it was last billed for anything.
     pub used: Option<u64>,
     pub revoked: bool,
+    /// Stopped, but not for good. Revoking is the one-way door; this is the
+    /// one an operator can walk back.
+    pub paused: bool,
+    /// Models this key may buy. `None` is any, which is what a key issued
+    /// before the allowlist existed has.
+    pub models: Option<Vec<String>>,
+}
+
+impl Agent {
+    /// Whether this key may buy `model`.
+    #[must_use]
+    pub fn permits(&self, model: &str) -> bool {
+        self.models
+            .as_ref()
+            .is_none_or(|allowed| allowed.iter().any(|listed| listed == model))
+    }
 }
 
 /// An agent, and what proves a presented key is its.
@@ -57,6 +74,16 @@ pub struct Charge {
     pub model: String,
 }
 
+/// Where a page of an audit stopped.
+///
+/// Both halves, because the ledger is ordered by both: several calls served
+/// in the same second are told apart only by their place in the envelope.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Mark {
+    pub at: u64,
+    pub sequence: u64,
+}
+
 /// Which calls an audit covers.
 ///
 /// Narrowing is the point: an auditor is shown one payment, one agent's
@@ -69,6 +96,25 @@ pub struct Audit {
     pub to: Option<u64>,
     /// One call, by the digest that settles it.
     pub attestation: Option<B256>,
+    /// Every call served under one envelope, which is how the open one is
+    /// broken down per agent.
+    pub nullifier: Option<Field>,
+    /// Where the previous page stopped. Keyset rather than an offset: the
+    /// ledger grows at the head while a reader is paging through it.
+    pub after: Option<Mark>,
+    /// Rows at most. `None` is every row the filters leave.
+    pub limit: Option<u32>,
+}
+
+impl Filed {
+    /// Where a page that ended on this row should resume.
+    #[must_use]
+    pub const fn mark(&self) -> Mark {
+        Mark {
+            at: self.charge.at,
+            sequence: self.charge.sequence,
+        }
+    }
 }
 
 /// One call as an audit sees it: who made it, and what proves it.

@@ -16,18 +16,21 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
     sol,
 };
+use axum::http::HeaderValue;
 use thiserror::Error;
 use tokio::time::sleep;
 use veil402_sdk::{Config as Proving, Field, Note, Owner, Secret, Veil, evm::PoolClient};
 
 use crate::{
-    adapters::{self, Api, ChainSource, LocalProver, RemoteEnclave, SqliteStore, Window},
+    adapters::{
+        self, Api, ChainSource, Console, LocalProver, RemoteEnclave, Settings, SqliteStore, Window,
+    },
     core::{
         StoreError,
         agent::AgentService,
         envelope::{ChainError, EnclaveError, EnvelopeError, EnvelopeService, Terms},
         index::{IndexError, IndexService},
-        wallet::{Minted, WalletError, WalletService},
+        wallet::{Deposit, Minted, WalletError, WalletService},
     },
 };
 
@@ -36,6 +39,10 @@ const DATABASE: &str = "sqlite://veil402.db?mode=rwc";
 /// Loopback, because this process holds the keys that spend the notes and
 /// speaks no TLS. Reaching it from anywhere else is a decision, not a default.
 const LISTEN: &str = "127.0.0.1:8402";
+
+/// Where the console runs in development. A list rather than `*`, because
+/// this surface issues mandates.
+const CONSOLE_ORIGIN: &str = "http://localhost:5173,http://127.0.0.1:5173";
 
 /// What a call is assumed to produce when its request names no limit.
 /// Only the reservation rests on it; the bill is whatever arrives.
@@ -189,7 +196,8 @@ pub async fn deposit(config: &Config, amount: u64) -> Result<Field, StartError> 
     let store = Arc::new(SqliteStore::open(&config.database).await?);
     let random = Secret::from_bytes(note.random.to_bytes())
         .map_err(|_| StartError::Deposit("the note will not re-encode".into()))?;
-    WalletService::new(store.clone(), store, owner(&config.owner)?)
+    let wallet = WalletService::new(store.clone(), store, owner(&config.owner)?);
+    wallet
         .remember(
             &[Minted {
                 commitment,
@@ -200,6 +208,14 @@ pub async fn deposit(config: &Config, amount: u64) -> Result<Field, StartError> 
             }],
             now(),
         )
+        .await
+        .map_err(|error| refused(&error))?;
+    wallet
+        .deposited(&Deposit {
+            commitment,
+            amount,
+            at: now(),
+        })
         .await
         .map_err(|error| refused(&error))?;
     Ok(commitment)
@@ -269,6 +285,11 @@ pub struct Config {
     pub listen: SocketAddr,
     /// Output a call is assumed to produce when it names no limit.
     pub cap: u32,
+    /// What an operator presents to the console. Unset leaves that surface
+    /// closed rather than open: this is the key to every agent's ledger.
+    pub console_token: Option<String>,
+    /// Origins the console may be served from, for the browser's sake.
+    pub console_origins: Vec<String>,
     /// Most this daemon will pay per unit of gas, in wei.
     pub fee_cap: u128,
     /// Keys the notes belong to. Losing them loses the balance.
@@ -335,6 +356,13 @@ impl Config {
             lock_for: parsed("VEIL_ENVELOPE_WINDOW", 600)?,
             listen: parsed("VEIL_LISTEN", LISTEN.parse().map_err(|_| ConfigError::Invalid("VEIL_LISTEN"))?)?,
             cap: parsed("VEIL_CALL_CAP", CALL_CAP)?,
+            console_token: env::var("VEIL_CONSOLE_TOKEN").ok().filter(|token| !token.is_empty()),
+            console_origins: env::var("VEIL_CONSOLE_ORIGIN")
+                .unwrap_or_else(|_| CONSOLE_ORIGIN.to_owned())
+                .split(',')
+                .map(|origin| origin.trim().to_owned())
+                .filter(|origin| !origin.is_empty())
+                .collect(),
             fee_cap: parsed("VEIL_MAX_FEE_GWEI", MAX_FEE_GWEI)? * GWEI,
             owner: Owner {
                 spend: key("VEIL_SPEND_KEY")?,
@@ -429,6 +457,10 @@ pub struct Daemon {
 struct Serving {
     listen: SocketAddr,
     api: Api,
+    console: Console,
+    /// Parsed once at start: an origin the browser would reject is a
+    /// configuration mistake, and finding it per request would hide it.
+    origins: Vec<HeaderValue>,
 }
 
 impl Daemon {
@@ -494,12 +526,33 @@ impl Daemon {
             api: Some(Serving {
                 listen: config.listen,
                 api: Api {
-                    agents,
+                    agents: agents.clone(),
                     envelopes: envelopes.clone(),
                     index: index.clone(),
                     cap: config.cap,
                     started: now(),
                 },
+                console: Console {
+                    agents,
+                    envelopes: envelopes.clone(),
+                    index: index.clone(),
+                    wallet: wallet.clone(),
+                    token: config.console_token.map(Arc::from),
+                    settings: Arc::new(Settings::new(
+                        chain_id,
+                        config.pool,
+                        config.token,
+                        config.verifier,
+                        config.seller,
+                        config.session,
+                        config.lock_for,
+                    )),
+                },
+                origins: config
+                    .console_origins
+                    .iter()
+                    .filter_map(|origin| HeaderValue::from_str(origin).ok())
+                    .collect(),
             }),
             ..Self::new(index, wallet, config.retry).serving(envelopes)
         })
@@ -608,7 +661,12 @@ impl Daemon {
             Err(error) => return Halted::Unserved(error.to_string()),
         };
         tracing::info!(listen = %serving.listen, "serving the agent API");
-        match axum::serve(listener, adapters::router(serving.api.clone())).await {
+        let router = adapters::router(
+            serving.api.clone(),
+            serving.console.clone(),
+            &serving.origins,
+        );
+        match axum::serve(listener, router).await {
             Ok(()) => future::pending().await,
             Err(error) => Halted::Unserved(error.to_string()),
         }

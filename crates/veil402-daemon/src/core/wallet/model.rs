@@ -69,6 +69,25 @@ pub enum Recovered {
     Change(Field),
 }
 
+/// What the wallet is worth, and across how many notes.
+///
+/// The count is not decoration: the balance is spendable only in whole
+/// notes, so one note of a thousand and a thousand notes of one spend very
+/// differently.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Holdings {
+    pub balance: u64,
+    pub notes: u32,
+}
+
+/// A shield, which is the one public thing a buyer does.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Deposit {
+    pub commitment: Field,
+    pub amount: u64,
+    pub at: u64,
+}
+
 /// A commitment the wallet has not yet tried to open.
 #[derive(Clone, Debug)]
 pub struct Unopened {

@@ -20,6 +20,22 @@ pub struct Envelope {
     pub ceiling: u64,
 }
 
+/// The envelope serving calls right now.
+///
+/// One at a time, and shared: a ceiling belongs to the note it reserved, not
+/// to whoever happens to be spending against it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Open {
+    pub nullifier: Field,
+    pub seller: Address,
+    pub ceiling: u64,
+    pub deadline: u64,
+    /// When the lock was taken, derived from the window it was taken for.
+    /// The pool records a deadline; the block that carried it is gone from
+    /// the chain's answerable window long before a console asks.
+    pub opened: u64,
+}
+
 /// What an enclave returns when it agrees to meter a session.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Agreement {

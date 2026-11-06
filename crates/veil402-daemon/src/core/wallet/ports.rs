@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use veil402_sdk::Field;
 
-use super::{Held, Minted, Unopened, Unplaced};
+use super::{Deposit, Held, Minted, Unopened, Unplaced};
 use crate::core::StoreError;
 
 /// Holds the notes we own.
@@ -49,6 +49,13 @@ pub trait NoteStore: Send + Sync {
 
     /// Lets a note go, for a caller that knows its lock will never land.
     async fn free(&self, commitment: Field) -> Result<(), StoreError>;
+
+    /// Records a shield. The note itself is remembered like any other; this
+    /// is the public half, which nothing else on the row distinguishes.
+    async fn deposited(&self, deposit: &Deposit) -> Result<(), StoreError>;
+
+    /// The most recent shield, if this wallet has ever made one.
+    async fn last_deposit(&self) -> Result<Option<Deposit>, StoreError>;
 }
 
 /// What the wallet needs the chain to tell it.

@@ -29,6 +29,9 @@ fn filed(attestation: B256, cost: u64, at: u64) -> Charge {
 
 type Fallible = Result<(), Box<dyn std::error::Error>>;
 
+/// What these tests buy. Only a mandate that names models cares which.
+const MODEL: &str = "stub";
+
 const NOW: u64 = 1_900_000_000;
 
 async fn ledger() -> Result<AgentService, Box<dyn std::error::Error>> {
@@ -46,8 +49,8 @@ fn tampered(key: &str) -> String {
 #[tokio::test]
 async fn a_key_opens_only_the_agent_it_was_issued_for() -> Fallible {
     let ledger = ledger().await?;
-    let issued = ledger.issue("aider", None, NOW).await?;
-    let other = ledger.issue("cline", None, NOW).await?;
+    let issued = ledger.issue("aider", None, None, NOW).await?;
+    let other = ledger.issue("cline", None, None, NOW).await?;
 
     assert_eq!(ledger.authenticate(&issued.key).await?.label, "aider");
 
@@ -74,10 +77,10 @@ async fn a_key_opens_only_the_agent_it_was_issued_for() -> Fallible {
 #[tokio::test]
 async fn a_revoked_key_stops_opening_without_losing_what_it_spent() -> Fallible {
     let ledger = ledger().await?;
-    let issued = ledger.issue("aider", None, NOW).await?;
+    let issued = ledger.issue("aider", None, None, NOW).await?;
     let agent = ledger.authenticate(&issued.key).await?;
     ledger
-        .charge(ledger.reserve(&agent, 100)?, &filed(B256::repeat_byte(1), 90, NOW))
+        .charge(ledger.reserve(&agent, MODEL, 100)?, &filed(B256::repeat_byte(1), 90, NOW))
         .await?;
 
     assert!(ledger.revoke(&agent.id).await?);
@@ -99,19 +102,19 @@ async fn a_revoked_key_stops_opening_without_losing_what_it_spent() -> Fallible 
 #[tokio::test]
 async fn a_budget_bounds_what_is_in_flight_as_well_as_what_is_spent() -> Fallible {
     let ledger = ledger().await?;
-    let issued = ledger.issue("aider", Some(1_000), NOW).await?;
+    let issued = ledger.issue("aider", Some(1_000), None, NOW).await?;
     let agent = ledger.authenticate(&issued.key).await?;
 
-    let first = ledger.reserve(&agent, 600)?;
+    let first = ledger.reserve(&agent, MODEL, 600)?;
     // Nothing has been billed yet, and two of these would still overrun it.
     assert!(matches!(
-        ledger.reserve(&agent, 600),
+        ledger.reserve(&agent, MODEL, 600),
         Err(AgentError::Exhausted { .. })
     ));
 
     // A hold that is dropped is a hold given back.
     drop(first);
-    let second = ledger.reserve(&agent, 600)?;
+    let second = ledger.reserve(&agent, MODEL, 600)?;
     ledger
         .charge(second, &filed(B256::repeat_byte(2), 250, NOW))
         .await?;
@@ -120,16 +123,16 @@ async fn a_budget_bounds_what_is_in_flight_as_well_as_what_is_spent() -> Fallibl
     assert_eq!(agent.spent, 250, "the bill, not the estimate");
     assert_eq!(agent.calls, 1);
     assert!(matches!(
-        ledger.reserve(&agent, 800),
+        ledger.reserve(&agent, MODEL, 800),
         Err(AgentError::Exhausted { budget: 1_000, committed: 250 })
     ));
-    assert!(ledger.reserve(&agent, 700).is_ok());
+    assert!(ledger.reserve(&agent, MODEL, 700).is_ok());
 
     let open = ledger
-        .authenticate(&ledger.issue("uncapped", None, NOW).await?.key)
+        .authenticate(&ledger.issue("uncapped", None, None, NOW).await?.key)
         .await?;
     assert!(
-        ledger.reserve(&open, u64::MAX).is_ok(),
+        ledger.reserve(&open, MODEL, u64::MAX).is_ok(),
         "no budget is no ceiling here"
     );
     Ok(())
@@ -141,15 +144,15 @@ async fn a_budget_bounds_what_is_in_flight_as_well_as_what_is_spent() -> Fallibl
 #[tokio::test]
 async fn one_call_filed_twice_is_billed_once() -> Fallible {
     let ledger = ledger().await?;
-    let issued = ledger.issue("aider", Some(1_000), NOW).await?;
+    let issued = ledger.issue("aider", Some(1_000), None, NOW).await?;
     let agent = ledger.authenticate(&issued.key).await?;
     let attestation = B256::repeat_byte(7);
 
     ledger
-        .charge(ledger.reserve(&agent, 100)?, &filed(attestation, 80, NOW))
+        .charge(ledger.reserve(&agent, MODEL, 100)?, &filed(attestation, 80, NOW))
         .await?;
     ledger
-        .charge(ledger.reserve(&agent, 100)?, &filed(attestation, 80, NOW + 5))
+        .charge(ledger.reserve(&agent, MODEL, 100)?, &filed(attestation, 80, NOW + 5))
         .await?;
 
     let agent = ledger.authenticate(&issued.key).await?;

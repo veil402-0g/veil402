@@ -19,7 +19,7 @@ use veil402_sdk::{
 
 use super::{
     Agreement, Answered, Broadcaster, ChainError, Enclave, EnclaveError, Envelope, EnvelopeStore, Landed,
-    Piece, ProveError, Prover,
+    Open, Piece, ProveError, Prover,
 };
 use crate::core::{
     StoreError,
@@ -230,6 +230,35 @@ impl EnvelopeService {
         self.deliver(&note, &envelope, &agreement, &change_seed, session)
             .await?;
         Ok(envelope)
+    }
+
+    /// The envelope serving calls now, if one is open.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvelopeError`] when the store or the chain mirror cannot
+    /// be read.
+    pub async fn current(&self) -> Result<Option<Open>, EnvelopeError> {
+        let Some(nullifier) = self.envelopes.newest().await? else {
+            return Ok(None);
+        };
+        let Some(note) = self.wallet.note(nullifier).await? else {
+            return Ok(None);
+        };
+        let opened = self.envelopes.opened(nullifier).await?.unwrap_or_default();
+        Ok(Some(Open {
+            nullifier,
+            seller: self.terms.seller,
+            ceiling: note.value,
+            // The pool's own record once the index has seen the lock, and
+            // the window it was opened for until then.
+            deadline: self
+                .wallet
+                .escrow(nullifier)
+                .await?
+                .unwrap_or_else(|| opened.saturating_add(self.terms.window)),
+            opened,
+        }))
     }
 
     /// Serves one request, opening or rolling an envelope if it has to.

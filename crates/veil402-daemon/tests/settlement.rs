@@ -156,6 +156,8 @@ fn buying(
         fee_cap: 20_000_000_000_000,
         listen: listen.parse()?,
         cap: CAP,
+        console_token: None,
+        console_origins: Vec::new(),
         rpc: var("RPC_URL")?,
         logs: env::var("LOGS_URL").unwrap_or(var("RPC_URL")?),
         pool: var("POOL")?.parse()?,
@@ -378,7 +380,7 @@ async fn the_buyer_settles_what_it_spent() -> Fallible {
     let daemon = Arc::new(Daemon::start(config).await?);
     let running = started(&daemon);
     placed(&daemon, &running, note).await?;
-    let key = ledger(&daemon)?.issue("test", None, now()).await?.key;
+    let key = ledger(&daemon)?.issue("test", None, None, now()).await?.key;
 
     ask("http://127.0.0.1:18402", &key).await?;
     let store = SqliteStore::open(&database).await?;
@@ -458,7 +460,7 @@ async fn the_seller_closes_what_the_buyer_abandoned() -> Fallible {
     let daemon = Arc::new(Daemon::start(config).await?);
     let running = started(&daemon);
     placed(&daemon, &running, note).await?;
-    let key = ledger(&daemon)?.issue("test", None, now()).await?.key;
+    let key = ledger(&daemon)?.issue("test", None, None, now()).await?.key;
     ask("http://127.0.0.1:18412", &key).await?;
 
     let store = SqliteStore::open(&database).await?;
@@ -491,7 +493,7 @@ async fn the_seller_closes_what_the_buyer_abandoned() -> Fallible {
     let running = started(&daemon);
     spendable(&store, &running, asset).await?;
 
-    let key = ledger(&daemon)?.issue("back", None, now()).await?.key;
+    let key = ledger(&daemon)?.issue("back", None, None, now()).await?.key;
     ask("http://127.0.0.1:18413", &key).await?;
     assert_ne!(
         store.newest().await?.ok_or("no envelope")?,

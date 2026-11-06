@@ -26,7 +26,7 @@ const PREFIX: &str = "sk-veil-";
 const ID: usize = 8;
 const SECRET: usize = 32;
 
-#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum AgentError {
     /// Unissued, mistyped, or revoked. One answer for all three: which it
     /// was is only ever useful to somebody guessing.
@@ -34,6 +34,9 @@ pub enum AgentError {
     Unknown,
     #[error("this agent has committed {committed} of its {budget}")]
     Exhausted { budget: u64, committed: u64 },
+    /// The mandate names the models this key may buy, and this is not one.
+    #[error("this agent's mandate does not cover {model}")]
+    Unlisted { model: String },
     /// The machine would not produce randomness, which is not a condition
     /// anything here can work around.
     #[error("no randomness is available")]
@@ -91,6 +94,7 @@ impl AgentService {
         &self,
         label: &str,
         budget: Option<u64>,
+        models: Option<Vec<String>>,
         now: u64,
     ) -> Result<Issued, AgentError> {
         let secret = random::<SECRET>()?;
@@ -103,6 +107,10 @@ impl AgentService {
             created: now,
             used: None,
             revoked: false,
+            paused: false,
+            // An empty allowlist would be a key that can buy nothing, which
+            // nobody means by leaving the chips unticked.
+            models: models.filter(|listed| !listed.is_empty()),
         };
         self.agents.issue(&agent, keccak256(secret)).await?;
         let key = format!("{PREFIX}{}-{}", agent.id, hex::encode(secret));
@@ -127,24 +135,33 @@ impl AgentService {
             .await?
             .ok_or(AgentError::Unknown)?;
         let proven = keccak256(secret).0.ct_eq(&registered.digest.0);
-        if registered.agent.revoked || !bool::from(proven) {
+        if registered.agent.revoked || registered.agent.paused || !bool::from(proven) {
             return Err(AgentError::Unknown);
         }
         Ok(registered.agent)
     }
 
-    /// Reserves headroom for one call.
+    /// Admits one call: what it may buy, then what it may spend.
     ///
-    /// Against the snapshot the call authenticated with, so a charge filed
-    /// in between is one call's worth of slack rather than a race worth
+    /// Both gates in one place, and on the path every call already takes, so
+    /// a route cannot enforce the budget and forget the mandate.
+    ///
+    /// Reserved against the snapshot the call authenticated with, so a charge
+    /// filed in between is one call's worth of slack rather than a race worth
     /// locking for. The envelope's ceiling is the hard stop either way, and
     /// the enclave holds that.
     ///
     /// # Errors
     ///
-    /// Returns [`AgentError::Exhausted`] when the estimate would take the
+    /// Returns [`AgentError::Unlisted`] when the mandate does not cover the
+    /// model, or [`AgentError::Exhausted`] when the estimate would take the
     /// agent past its budget, counting what it already has in flight.
-    pub fn reserve(&self, agent: &Agent, estimate: u64) -> Result<Hold, AgentError> {
+    pub fn reserve(&self, agent: &Agent, model: &str, estimate: u64) -> Result<Hold, AgentError> {
+        if !agent.permits(model) {
+            return Err(AgentError::Unlisted {
+                model: model.to_owned(),
+            });
+        }
         let mut held = self.held.lock().map_err(|_| StoreError::Unavailable)?;
         let flight = held.entry(agent.id.clone()).or_insert(0);
         let committed = agent.spent.saturating_add(*flight);
@@ -200,6 +217,15 @@ impl AgentService {
     /// Returns [`AgentError::Store`] when the ledger cannot be written.
     pub async fn revoke(&self, id: &str) -> Result<bool, AgentError> {
         Ok(self.agents.revoke(id).await?)
+    }
+
+    /// Holds a key, or lets it run again. Whether it changed anything.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AgentError::Store`] when the ledger cannot be written.
+    pub async fn pause(&self, id: &str, paused: bool) -> Result<bool, AgentError> {
+        Ok(self.agents.pause(id, paused).await?)
     }
 }
 

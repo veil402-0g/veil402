@@ -158,4 +158,8 @@ pub trait EnvelopeStore: Send + Sync {
     /// deadline and ceiling are all on chain against the nullifier, and a
     /// second copy of a fact the chain decides is one that can disagree.
     async fn newest(&self) -> Result<Option<Field>, StoreError>;
+
+    /// When an envelope was opened. The pool's deadline is the authority
+    /// once the index has seen the lock; this covers the window before it.
+    async fn opened(&self, nullifier: Field) -> Result<Option<u64>, StoreError>;
 }

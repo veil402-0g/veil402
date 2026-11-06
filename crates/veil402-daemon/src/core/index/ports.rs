@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use thiserror::Error;
 use veil402_sdk::{Field, StoredNode};
 
-use super::{Batch, Commitment};
+use super::{Batch, Commitment, Locked};
 use crate::core::StoreError;
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
@@ -54,4 +54,8 @@ pub trait IndexStore: Send + Sync {
 
     /// Commitments from `from`, for scanning ciphertexts to find owned notes.
     async fn notes(&self, from: u32, limit: u32) -> Result<Vec<Commitment>, StoreError>;
+
+    /// The escrows the pool opened most recently. Ours by construction:
+    /// only a note's owner can name its nullifier.
+    async fn escrows(&self, limit: u32) -> Result<Vec<Locked>, StoreError>;
 }

@@ -7,7 +7,9 @@ use veil402_sdk::{
     session::{Sealed, Viewing, seal_note},
 };
 
-use super::{ChainFacts, Held, Minted, NoteStore, Reconciled, Recovered, Unopened};
+use super::{
+    ChainFacts, Deposit, Held, Holdings, Minted, NoteStore, Reconciled, Recovered, Unopened,
+};
 use crate::core::StoreError;
 
 /// A note still unplaced after this long means its transaction never landed.
@@ -331,6 +333,46 @@ impl WalletService {
     /// Returns [`WalletError::Store`] when the chain's record cannot be read.
     pub async fn escrow(&self, nullifier: Field) -> Result<Option<u64>, WalletError> {
         Ok(self.chain.escrow(nullifier).await?)
+    }
+
+    /// The note a nullifier would spend, whether or not it is spent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError::Store`] when the store cannot be read.
+    pub async fn note(&self, nullifier: Field) -> Result<Option<Held>, WalletError> {
+        Ok(self.notes.by_nullifier(nullifier).await?)
+    }
+
+    /// What this wallet is worth, across how many notes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError::Store`] when the store cannot be read.
+    pub async fn holdings(&self) -> Result<Holdings, WalletError> {
+        let held = self.notes.outstanding().await?;
+        Ok(Holdings {
+            balance: held.iter().map(|note| note.value).sum(),
+            notes: u32::try_from(held.len()).unwrap_or(u32::MAX),
+        })
+    }
+
+    /// Writes down a shield, which is the one thing a buyer does in public.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError::Store`] when the store cannot be written.
+    pub async fn deposited(&self, deposit: &Deposit) -> Result<(), WalletError> {
+        Ok(self.notes.deposited(deposit).await?)
+    }
+
+    /// The most recent shield, if there has been one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError::Store`] when the store cannot be read.
+    pub async fn last_deposit(&self) -> Result<Option<Deposit>, WalletError> {
+        Ok(self.notes.last_deposit().await?)
     }
 
     /// The key that signs for a note: its own session owner, or this wallet's.
