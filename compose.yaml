@@ -214,12 +214,15 @@ services:
       ARC_SESSION: veil-shop
       HOME: /home/node
     depends_on: [daemon-b]
+    # The token is the file, and only the file: the directory around it is
+    # scratch, because the CLI writes its session state next to it and a
+    # read-only mount there stops every build with EROFS.
     volumes:
-      - ./.arc-studio:/home/node/.arc-studio:ro
+      - ./.arc-studio/credentials.json:/home/node/.arc-studio/credentials.json:ro
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
-      # Arc Studio writes session state beside its credentials.
+      - /home/node/.arc-studio:size=8m,mode=0700,uid=1000,gid=1000
       - /home/node/.cache:size=64m,mode=0700,uid=1000,gid=1000
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
