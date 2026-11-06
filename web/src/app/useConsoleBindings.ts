@@ -207,7 +207,12 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
 
   useEffect(() => () => window.clearTimeout(toastTimer.current), [])
 
-  const api = useMemo(() => client(), [])
+  // `?api=` points one build at a chosen daemon, so two tabs can watch two of
+  // them side by side; absent it, the built-in base still answers.
+  const api = useMemo(() => {
+    const override = new URLSearchParams(window.location.search).get('api')
+    return client(override ?? undefined)
+  }, [])
 
   // Settings and the first snapshot land in one await, so an unset config is
   // exactly "nothing has been read yet" — not "the pool holds nothing".
