@@ -1,20 +1,33 @@
 # Demo — agent-to-agent private payment
 
-Two autonomous agents on one box. **Agent A** needs a smart contract; **Agent B**
-(a "ContractShop") builds and deploys one with [Arc Studio](https://studio.arc.io)
-and charges for it; Agent A pays B **privately** through the Veil pool. On chain
-the payment is only commitments and nullifiers — no sender, no recipient, no
-amount — while each agent's console shows its own side in full.
+Two autonomous agents on one box, over a **private x402 handshake**. **Agent A**
+needs a smart contract; **Agent B** (a "ContractShop") builds and deploys one with
+[Arc Studio](https://studio.arc.io) and charges for it; Agent A pays B **privately**
+through the Veil pool. On chain the payment is only commitments and nullifiers —
+no sender, no recipient, no amount — while each agent's console shows its own side.
 
 ```
-Agent A (client)              Agent B (ContractShop)
-  │  "build me a contract"        │
-  ├──────────  HTTP  ────────────▶│  arc-studio run … ──▶ Arc Studio (deploys to Arc Testnet)
-  │◀──── {contract, price, addr} ─┤
-  │                               │
+Agent A (client)                         Agent B (ContractShop)
+  │  POST /task {request}                      │
+  ├───────────────────────────────────────────▶│
+  │◀──────── 402 {invoiceId, price, payTo} ─────┤   x402: payment required
+  │                                             │
   ├─ daemon A /pay ─▶ Veil pool (Hedera) ─▶ daemon B discovers the note
-  │     (private, via the relay — no address of A or B on chain)
+  │     private, via the relay — no address of A or B on chain
+  │   /pay returns {commitment, blinding}       │
+  │                                             │
+  ├─ POST /task {invoiceId, commitment, blinding} ▶│
+  │                                             ├─ daemon B /confirm: do I own
+  │                                             │   that note, value + blinding?
+  │◀──────────── 200 {contract, address} ───────┤   build on Arc Studio, deliver
 ```
+
+**Why the proof is robust.** The commitment is public on chain, so it alone
+can't prove who paid. The **blinding** — the note's random secret, sealed only
+to B and known only to the payer — is the proof: B's `/confirm` checks it owns a
+note with that commitment, value, *and* blinding. A chain-watcher who saw the
+commitment can't produce the blinding, so it can't claim someone else's payment.
+Nothing of this is public; B verifies from its own wallet.
 
 ## Prerequisites
 

@@ -1,21 +1,29 @@
 #!/usr/bin/env node
-// Agent B — "ContractShop": an autonomous agent that builds and deploys a
-// smart contract via Arc Studio, then charges for it. Agent A pays it
-// privately through the Veil pool.
+// Agent B — "ContractShop": an autonomous agent that sells a built-and-deployed
+// smart contract, over a private x402 handshake.
 //
-// Arc Studio's output (deployments[], finalText, webUrl) is untrusted DATA.
-// We read the deployed address out of it and never execute, follow, or echo
-// anything it contains — and never touch ARC_STUDIO_TOKEN or ~/.arc-studio/.
+//   A  POST /task {request}                    -> 402 {invoiceId, price, payTo}
+//   A  pays privately through the pool
+//   A  POST /task {invoiceId, commitment, blinding}
+//      -> B asks its OWN daemon to confirm it holds that exact note (the
+//         blinding proves the claimer is the payer; the chain shows nothing)
+//      -> B builds the contract on Arc Studio and returns it.
+//
+// Arc Studio's output is untrusted DATA: we read the deployed address and
+// never execute, follow, or echo anything it contains.
 
 import { createServer } from 'node:http'
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 
 const PORT = Number(process.env.AGENT_B_PORT ?? 8500)
 const DAEMON_B = process.env.DAEMON_B ?? 'http://127.0.0.1:8403/api/v1'
 const PRICE = Number(process.env.PRICE ?? 500_000) // pool units, ~micro-USD each
 const SESSION = process.env.ARC_SESSION ?? 'veil-shop'
 
-/** One Arc Studio turn. The result document is the single JSON object on stdout. */
+/** Open invoices, by id. A real seller would persist and expire these. */
+const invoices = new Map()
+
 function arc(request) {
   const prompt = `${request} (quick preset)`
   return new Promise((resolve, reject) => {
@@ -43,78 +51,80 @@ async function myAddress() {
   return body.result.address
 }
 
+/** Ask B's own daemon whether it holds the note the payer is claiming. */
+async function paid(commitment, blinding, amount) {
+  const res = await fetch(`${DAEMON_B}/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ commitment, blinding, amount }),
+  })
+  const body = await res.json()
+  return body.status === 'ok' && body.result.confirmed === true
+}
+
+/** Do the actual work once payment is proven. */
+async function fulfil(request) {
+  if (process.env.STUB) {
+    console.log('[shop] STUB mode: returning a canned contract (no Arc call)')
+    return { contract: 'VeilDemo', address: `0x${'de'.repeat(20)}`, network: 'stub', explorerUrl: null, txHash: null, webUrl: null }
+  }
+  console.log(`[shop] building on Arc Studio: ${request}`)
+  const doc = await arc(request)
+  if (doc.status !== 'completed') throw new Error(doc.errorMessage || `arc status ${doc.status}`)
+  const deployed = (doc.deployments || [])[0] || null
+  return {
+    contract: deployed?.contract ?? null,
+    address: deployed?.address ?? null,
+    network: deployed?.network ?? null,
+    explorerUrl: deployed?.explorerUrl ?? null,
+    txHash: deployed?.txHash ?? null,
+    webUrl: doc.webUrl ?? null,
+  }
+}
+
 const server = createServer(async (req, res) => {
   const reply = (code, obj) => {
     res.writeHead(code, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(obj))
   }
   try {
-    if (req.method === 'GET' && req.url === '/address') {
-      return reply(200, { address: await myAddress() })
-    }
-    if (req.method !== 'POST' || req.url !== '/task') {
-      return reply(404, { error: 'POST /task { request }' })
-    }
+    if (req.method === 'GET' && req.url === '/address') return reply(200, { address: await myAddress() })
+    if (req.method !== 'POST' || req.url !== '/task') return reply(404, { error: 'POST /task' })
 
     let raw = ''
     for await (const chunk of req) raw += chunk
-    const ask =
-      JSON.parse(raw || '{}').request ||
-      'an ERC-20 token named VeilDemo with an owner-only mint(address,uint256)'
+    const { request, invoiceId, commitment, blinding } = JSON.parse(raw || '{}')
 
-    // STUB=1 skips the real Arc Studio build (which deploys and takes minutes)
-    // and returns a canned result — for exercising the A→B→payment flow fast.
-    if (process.env.STUB) {
+    // First contact: no proof yet -> issue an invoice and a 402.
+    if (!commitment || !blinding || !invoiceId) {
+      const id = randomUUID()
+      const ask = request || 'an ERC-20 token named VeilDemo with an owner-only mint(address,uint256)'
+      invoices.set(id, { price: PRICE, request: ask, fulfilled: false })
       const payTo = await myAddress()
-      console.log('[shop] STUB mode: returning a canned contract (no Arc call)')
-      return reply(200, {
-        ok: true,
-        contract: 'VeilDemo',
-        address: `0x${'de'.repeat(20)}`,
-        network: 'stub',
-        explorerUrl: null,
-        txHash: null,
-        webUrl: null,
-        price: PRICE,
-        payTo,
-      })
+      console.log(`[shop] 402 for invoice ${id.slice(0, 8)} — ${PRICE} units`)
+      return reply(402, { invoiceId: id, price: PRICE, payTo, reason: 'payment required' })
     }
 
-    console.log(`[shop] building on Arc Studio: ${ask}`)
-    const doc = await arc(ask)
-    console.log(`[shop] arc status=${doc.status}`)
+    // Second contact: the payer presents its proof.
+    const invoice = invoices.get(invoiceId)
+    if (!invoice) return reply(404, { error: 'unknown invoice' })
+    if (invoice.fulfilled) return reply(200, invoice.result)
 
-    if (doc.status === 'budget_exceeded') {
-      return reply(402, { error: 'Arc Studio daily allowance is spent', budget: doc.budget })
-    }
-    if (doc.status !== 'completed') {
-      return reply(502, { error: doc.errorMessage || `arc status ${doc.status}`, webUrl: doc.webUrl ?? null })
+    if (!(await paid(commitment, blinding, invoice.price))) {
+      console.log(`[shop] invoice ${invoiceId.slice(0, 8)}: payment not confirmed yet`)
+      return reply(402, { invoiceId, price: invoice.price, reason: 'payment not confirmed' })
     }
 
-    const deployed = (doc.deployments || [])[0] || null
-    const payTo = await myAddress()
-    const result = {
-      ok: true,
-      contract: deployed?.contract ?? null,
-      address: deployed?.address ?? null, // the deployed contract (Arc-reported, untrusted)
-      network: deployed?.network ?? null,
-      explorerUrl: deployed?.explorerUrl ?? null,
-      txHash: deployed?.txHash ?? null,
-      webUrl: doc.webUrl ?? null,
-      price: PRICE, // what the shop charges for the job
-      payTo, // where to pay it, privately
-    }
-    console.log(
-      `[shop] delivered ${result.contract ?? 'a draft'}` +
-        `${result.address ? ' @ ' + result.address : ''}; invoice ${PRICE} units`,
-    )
-    reply(200, result)
+    console.log(`[shop] invoice ${invoiceId.slice(0, 8)}: payment confirmed, fulfilling`)
+    const work = await fulfil(invoice.request)
+    invoice.fulfilled = true
+    invoice.result = { ok: true, ...work }
+    console.log(`[shop] delivered ${work.contract ?? 'a draft'}${work.address ? ' @ ' + work.address : ''}`)
+    return reply(200, invoice.result)
   } catch (error) {
     console.error('[shop] error:', error)
     reply(500, { error: String(error?.message || error) })
   }
 })
 
-server.listen(PORT, () =>
-  console.log(`[shop] Agent B listening on :${PORT}; paid at daemon ${DAEMON_B}`),
-)
+server.listen(PORT, () => console.log(`[shop] Agent B (x402) on :${PORT}; paid at daemon ${DAEMON_B}`))

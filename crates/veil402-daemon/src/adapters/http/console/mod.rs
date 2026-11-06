@@ -13,6 +13,7 @@ mod address;
 mod agents;
 mod audit;
 mod config;
+mod confirm;
 mod deposit;
 mod dto;
 mod error;
@@ -35,6 +36,7 @@ pub fn router(console: Console) -> Router {
         .route("/pool", get(pool::pool))
         .route("/address", get(address::address))
         .route("/pay", post(pay::pay))
+        .route("/confirm", post(confirm::confirm))
         .route("/deposit", get(deposit::progress).post(deposit::start))
         .route("/envelope", get(envelope::envelope))
         .route("/activity", get(activity::activity))
