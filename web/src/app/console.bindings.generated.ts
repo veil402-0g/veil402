@@ -56,6 +56,7 @@ export interface ConsoleBindings {
   openFund: unknown
   openMandate: unknown
   pickAuditAgent: unknown
+  playgroundUrl: unknown
   proofBtnLabel: unknown
   proofBtnOpacity: unknown
   proofRows: unknown

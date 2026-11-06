@@ -22,6 +22,13 @@ import { parseFragment } from 'parse5'
 
 const ROOT = new URL('..', import.meta.url).pathname
 
+/** The brand mesh, as every gradient-wipe button in the design writes it. */
+const MESH =
+  'radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),' +
+  'radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),' +
+  'radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),' +
+  'linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%)'
+
 /** Elements split out into their own component file, keyed by a source marker. */
 const TARGETS = [
   {
@@ -46,6 +53,24 @@ const TARGETS = [
     name: 'Console',
     markers: [],
     urls: { 'Veil%20402%20Landing.dc.html': '/' },
+    // Markup the app adds to the design's header, kept here so `npm run gen`
+    // does not drop it.
+    inject: [
+      [
+        '<div style="display:flex;align-items:stretch;height:40px;flex-shrink:0">',
+        '<a href="{{ playgroundUrl }}" target="_blank" rel="noopener"' +
+          ' style="display:flex;align-items:center;align-self:center;background-image:' +
+          MESH +
+          ';background-repeat:no-repeat;background-position:0 0;background-size:0% 100%' +
+          ';background-color:rgba(255,255,255,.75);box-shadow:inset 0 0 0 1px rgba(18,48,214,.16)' +
+          ";color:#0d0e12;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:500" +
+          ';letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;text-decoration:none' +
+          ';padding:9px 14px;margin-right:14px' +
+          ';transition:background-size .5s cubic-bezier(.65,0,.25,1),color .2s ease .12s,box-shadow .25s ease"' +
+          ' style-hover="background-size:100% 100%;color:#fff;box-shadow:inset 0 0 0 1px rgba(18,48,214,0)"' +
+          '>Playground</a>',
+      ],
+    ],
   },
 ]
 
@@ -447,9 +472,13 @@ function componentFile(name, jsx, bindingsType) {
 
 for (const t of TARGETS) {
   let src = readFileSync(`${ROOT}${t.src}`, 'utf8')
-  for (const [find, inject] of t.markers) {
+  for (const [find, attrs] of t.markers) {
     if (!src.includes(find)) throw new Error(`marker not found in ${t.src}: ${find}`)
-    src = src.replace(find, find.replace('<div ', `<div ${inject}`))
+    src = src.replace(find, find.replace('<div ', `<div ${attrs}`))
+  }
+  for (const [after, html] of t.inject ?? []) {
+    if (!src.includes(after)) throw new Error(`inject anchor not found in ${t.src}: ${after}`)
+    src = src.replace(after, after + html)
   }
 
   const open = /<x-dc(?:\s[^>]*)?>/.exec(src)

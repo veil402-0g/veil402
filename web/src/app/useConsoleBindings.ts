@@ -69,6 +69,9 @@ function amountOf(v: string): number {
   return parseFloat(String(v).replace(/[^0-9.]/g, '')) || 0
 }
 
+/** Where the Playground button points; the compose stack publishes Langflow here. */
+const PLAYGROUND_URL = import.meta.env.VITE_PLAYGROUND_URL ?? 'http://localhost:7860'
+
 export interface ConsoleOptions {
   /** `false` freezes the simulated feed. */
   liveFeed?: boolean
@@ -765,6 +768,7 @@ export function useConsoleBindings({
       transition.go('/', 'VEIL402.XYZ', { x: e.clientX, y: e.clientY })
     },
     navigate,
+    playgroundUrl: PLAYGROUND_URL,
 
     balInt,
     balDec,
