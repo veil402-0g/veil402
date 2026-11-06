@@ -18,6 +18,11 @@ struct Cli {
 enum Command {
     /// Prints a fresh owner for the environment file.
     Keygen,
+    /// Shields tokens into the pool, under this daemon's key.
+    Deposit {
+        /// Pool units to shield, roughly a micro-USD each.
+        amount: u64,
+    },
     /// The keys agents authenticate with.
     Key {
         #[command(subcommand)]
@@ -53,6 +58,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     match Cli::parse().command {
         Some(Command::Keygen) => return keygen(),
+        Some(Command::Deposit { amount }) => {
+            tracing_subscriber::fmt::init();
+            let commitment = app::deposit(amount).await?;
+            println!("{}", hex::encode(commitment.to_bytes()));
+            eprintln!("shielded {amount} under this daemon's key");
+            return Ok(());
+        }
         Some(Command::Key { what }) => return key(what).await,
         None => {}
     }

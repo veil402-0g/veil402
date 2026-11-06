@@ -52,6 +52,8 @@ pub enum ConfigError {
 /// Everything the gateway needs to serve.
 #[derive(Debug)]
 pub struct Config {
+    /// Most this gateway will pay per unit of gas, in wei.
+    pub fee_cap: u128,
     pub pool: PoolClient,
     /// Seed every enclave key derives from. On real hardware this comes from
     /// KMS gated on attestation; here it is configuration.
@@ -126,6 +128,7 @@ impl Config {
         )
         .map_err(|_| ConfigError::Invalid("VEIL_POOL"))?;
         Ok(Self {
+            fee_cap: parsed("VEIL_MAX_FEE_GWEI", MAX_FEE_GWEI)? * GWEI,
             pool,
             root: hex::decode(required("VEIL_ROOT_SEED")?)
                 .map_err(|_| ConfigError::Invalid("VEIL_ROOT_SEED"))?
@@ -160,6 +163,18 @@ impl Config {
         })
     }
 }
+
+/// Most either process will pay per unit of gas.
+///
+/// A cap rather than a price: the oracle decides what a call costs, and this
+/// only stops a spike from draining the key that pays for them. The
+/// library's default is an Ethereum number, and Hedera prices gas to a
+/// dollar target — about a thousand gwei — so that default refuses every
+/// transaction on it.
+const MAX_FEE_GWEI: u128 = 20_000;
+
+/// Gwei, in wei.
+const GWEI: u128 = 1_000_000_000;
 
 #[derive(Debug, Error)]
 pub enum StartError {
@@ -229,11 +244,14 @@ pub async fn serve(config: Config) -> Result<(), StartError> {
         adapters::settler(
             &config.rpc,
             &config.signer,
-            config.pool.address(),
-            config.multicall,
             &config.wallet_state,
-            config.pool.chain_id(),
-            config.confirmations,
+            adapters::Sending {
+                pool: config.pool.address(),
+                multicall: config.multicall,
+                chain_id: config.pool.chain_id(),
+                confirmations: config.confirmations,
+                fee_cap: config.fee_cap,
+            },
         )
         .await?,
     );

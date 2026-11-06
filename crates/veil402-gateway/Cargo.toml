@@ -10,6 +10,7 @@ description = "Untrusted host for the Veil enclave: terminates 402, relays, sett
 alloy = { version = "1", features = ["contract", "provider-http", "signers", "signer-local", "sol-types"] }
 async-trait = "0.1"
 axum = "0.8"
+dotenvy = "0.15"
 redb = "2"
 borsh = { version = "1", features = ["derive"] }
 futures-util = "0.3"

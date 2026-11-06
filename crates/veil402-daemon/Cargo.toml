@@ -7,7 +7,7 @@ license.workspace = true
 description = "Self-hosted Veil gateway: index, wallet, sessions"
 
 [dependencies]
-alloy = { version = "1", features = ["contract", "provider-http", "sol-types", "rpc-types-eth"] }
+alloy = { version = "1", features = ["contract", "network", "provider-http", "rpc-types-eth", "signer-local", "signers", "sol-types"] }
 async-trait = "0.1"
 axum = "0.8"
 axum-extra = { version = "0.10", features = ["typed-header"] }

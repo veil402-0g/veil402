@@ -15,10 +15,22 @@ use walletkit::{
         LocalSigner, RedbStateStore, SystemClock, Transport,
         policy::{DefaultPolicyEngine, TargetAllowlist},
     },
-    core::wallet::{SimOutcome, TxIntent},
+    core::wallet::{GasEnvelope, SimOutcome, TxIntent},
 };
 
 use crate::core::{MeterError, Settlement, Settles};
+
+/// What a sender needs beyond the endpoint it sends through.
+#[derive(Clone, Copy, Debug)]
+pub struct Sending {
+    /// The only two addresses this key may ever reach.
+    pub pool: Address,
+    pub multicall: Address,
+    pub chain_id: u64,
+    pub confirmations: u64,
+    /// Most it will pay per unit of gas.
+    pub fee_cap: u128,
+}
 
 sol! {
     struct Call3 {
@@ -68,17 +80,25 @@ pub struct Settler {
 pub async fn settler(
     rpc: &str,
     key: &str,
-    pool: Address,
-    multicall: Address,
     state: &Path,
-    chain_id: u64,
-    confirmations: u64,
+    sending: Sending,
 ) -> Result<Settler, MeterError> {
+    let Sending {
+        pool,
+        multicall,
+        chain_id,
+        confirmations,
+        fee_cap,
+    } = sending;
     let signer = LocalSigner::from_private_key(key).map_err(refused)?;
     let policy = DefaultPolicyEngine::new(
         vec![Box::new(TargetAllowlist::new([pool, multicall]))],
         Arc::new(SystemClock),
-    );
+    )
+    .with_fee_caps(GasEnvelope {
+        max_fee_cap: fee_cap,
+        max_priority_cap: fee_cap,
+    });
     let store = RedbStateStore::open(state).map_err(refused)?;
     let endpoint = rpc
         .parse()

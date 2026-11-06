@@ -48,6 +48,7 @@ fn gateway(
 ) -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
     Ok(assemble(
         &Config {
+            fee_cap: 20_000_000_000_000,
             pool: pool()?,
             root: ROOT,
             worker: "/nonexistent/worker".into(),

@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use alloy::{
     eips::BlockId,
@@ -13,7 +16,7 @@ use walletkit::{
         LocalSigner, RedbStateStore, SystemClock, Transport,
         policy::{DefaultPolicyEngine, TargetAllowlist},
     },
-    core::wallet::{HandleId, TxIntent, TxStatus},
+    core::wallet::{GasEnvelope, HandleId, TxIntent, TxStatus},
 };
 
 use crate::core::envelope::{Broadcaster, ChainError, Landed, SubmissionStore};
@@ -22,6 +25,10 @@ use crate::core::envelope::{Broadcaster, ChainError, Landed, SubmissionStore};
 /// On its own clock, because a transaction in flight needs attention
 /// whether or not the index has anything to do.
 const TICK: Duration = Duration::from_secs(5);
+
+/// How long a one-off call may take to land, and how often it is asked.
+const PATIENCE: Duration = Duration::from_mins(2);
+const POLL: Duration = Duration::from_millis(250);
 
 /// Sends pool calls through `walletkit`, which owns nonces, fee bumps and the
 /// reorg-aware lifecycle this daemon would otherwise have to keep itself.
@@ -55,13 +62,18 @@ pub async fn open(
     state: &std::path::Path,
     submissions: Arc<dyn SubmissionStore>,
     confirmations: u64,
+    fee_cap: u128,
 ) -> Result<PoolBroadcaster<impl Provider + 'static>, ChainError> {
     let signer = LocalSigner::from_private_key(key)
         .map_err(|error| ChainError::Refused(error.to_string()))?;
     let policy = DefaultPolicyEngine::new(
         vec![Box::new(TargetAllowlist::new([pool]))],
         Arc::new(SystemClock),
-    );
+    )
+    .with_fee_caps(GasEnvelope {
+        max_fee_cap: fee_cap,
+        max_priority_cap: fee_cap,
+    });
     let store = RedbStateStore::open(state).map_err(|_| ChainError::Unavailable)?;
     let endpoint = rpc
         .parse()
@@ -145,5 +157,111 @@ impl<P: Provider + Send + Sync> Broadcaster for PoolBroadcaster<P> {
             .map_err(|_| ChainError::Unavailable)?
             .map(|block| block.header.timestamp)
             .ok_or(ChainError::Unavailable)
+    }
+}
+
+/// Sends the one-off calls a deposit makes.
+///
+/// Its own engine rather than the daemon's, for two reasons: approving the
+/// pool means touching the token, which the daemon has no business doing,
+/// and a deposit is a command that ends rather than a loop that runs.
+pub struct Depositor {
+    wallet: Arc<Wallet>,
+    _ticking: Runner,
+    chain_id: u64,
+}
+
+/// Opens a sender that may only ever reach `targets`.
+///
+/// # Errors
+///
+/// Returns [`ChainError`] when the endpoint cannot be reached, the key is
+/// malformed, or the engine's own store cannot be opened.
+pub async fn depositor(
+    rpc: &str,
+    key: &str,
+    targets: [Address; 2],
+    state: &std::path::Path,
+    fee_cap: u128,
+) -> Result<Depositor, ChainError> {
+    let signer = LocalSigner::from_private_key(key)
+        .map_err(|error| ChainError::Refused(error.to_string()))?;
+    let policy = DefaultPolicyEngine::new(
+        vec![Box::new(TargetAllowlist::new(targets))],
+        Arc::new(SystemClock),
+    )
+    .with_fee_caps(GasEnvelope {
+        max_fee_cap: fee_cap,
+        max_priority_cap: fee_cap,
+    });
+    let store = RedbStateStore::open(state).map_err(|_| ChainError::Unavailable)?;
+    let endpoint = rpc
+        .parse()
+        .map_err(|_| ChainError::Refused("the endpoint is not a URL".into()))?;
+    let transport = Transport::url(endpoint).map_err(|_| ChainError::Unavailable)?;
+    let wallet = Arc::new(
+        Wallet::builder(Arc::new(transport), Arc::new(signer), Arc::new(policy))
+            .store(Arc::new(store))
+            .build()
+            .map_err(|_| ChainError::Unavailable)?,
+    );
+    let chain_id = ProviderBuilder::new()
+        .connect(rpc)
+        .await
+        .map_err(|_| ChainError::Unavailable)?
+        .get_chain_id()
+        .await
+        .map_err(|_| ChainError::Unavailable)?;
+    Ok(Depositor {
+        _ticking: wallet.clone().run(TICK),
+        wallet,
+        chain_id,
+    })
+}
+
+impl Depositor {
+    #[must_use]
+    pub fn account(&self) -> Address {
+        self.wallet.account()
+    }
+
+    /// Sends one call and waits for the chain to take it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ChainError::Refused`] when the call is rejected, replaced,
+    /// or never lands.
+    pub async fn send(&self, to: Address, calldata: Vec<u8>) -> Result<(), ChainError> {
+        let intent = TxIntent::call(
+            self.chain_id,
+            self.wallet.account(),
+            to,
+            U256::ZERO,
+            Bytes::from(calldata),
+        );
+        let sent = self
+            .wallet
+            .send(&intent)
+            .await
+            .map_err(|error| ChainError::Refused(error.to_string()))?;
+        let since = Instant::now();
+        loop {
+            match self
+                .wallet
+                .status(sent.id)
+                .await
+                .map_err(|_| ChainError::Unavailable)?
+            {
+                Some(TxStatus::Confirmed { .. }) => return Ok(()),
+                Some(TxStatus::Failed { reason }) => return Err(ChainError::Refused(reason)),
+                Some(TxStatus::Replaced | TxStatus::Dropped) => {
+                    return Err(ChainError::Refused("the call never landed".into()));
+                }
+                _ if since.elapsed() > PATIENCE => {
+                    return Err(ChainError::Refused("the call did not land in time".into()));
+                }
+                _ => tokio::time::sleep(POLL).await,
+            }
+        }
     }
 }

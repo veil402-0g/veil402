@@ -53,3 +53,18 @@ pub struct Reconciled {
     /// copy of what makes the note spendable.
     pub stale: usize,
 }
+
+/// What a settlement left behind.
+///
+/// Three answers rather than a count, because a caller waiting on its change
+/// has to tell "not published yet" from "there is none".
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Recovered {
+    /// The chain has not published this settlement yet.
+    Pending,
+    /// Nothing came back: the note was spent to its last unit, or the seller
+    /// took a note and the amount stayed private.
+    Nothing,
+    /// What came back, written down and waiting for the index to place it.
+    Change(Field),
+}

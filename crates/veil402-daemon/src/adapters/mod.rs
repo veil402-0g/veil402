@@ -7,7 +7,7 @@ mod prove;
 mod remote;
 mod store;
 
-pub use broadcast::{PoolBroadcaster, open as broadcaster};
+pub use broadcast::{Depositor, PoolBroadcaster, depositor, open as broadcaster};
 pub use chain::{ChainSource, Window};
 pub use http::{Api, router};
 pub use prove::LocalProver;

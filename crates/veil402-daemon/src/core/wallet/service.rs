@@ -5,7 +5,7 @@ use veil402_sdk::{
     Field, MerklePath, Note, Owner, Secret, SessionKeys, Send, Spend, Transaction,
 };
 
-use super::{ChainFacts, Held, Minted, NoteStore, Reconciled};
+use super::{ChainFacts, Held, Minted, NoteStore, Reconciled, Recovered};
 use crate::core::StoreError;
 
 /// A note still unplaced after this long means its transaction never landed.
@@ -312,24 +312,24 @@ impl WalletService {
         nullifier: Field,
         change_seed: &Secret,
         now: u64,
-    ) -> Result<usize, WalletError> {
-        let (Some(spent), Some(note)) = (
-            self.chain.settlement(nullifier).await?,
-            self.notes.by_nullifier(nullifier).await?,
-        ) else {
-            return Ok(0);
+    ) -> Result<Recovered, WalletError> {
+        let Some(note) = self.notes.by_nullifier(nullifier).await? else {
+            return Ok(Recovered::Nothing);
+        };
+        let Some(spent) = self.chain.settlement(nullifier).await? else {
+            return Ok(Recovered::Pending);
         };
         // A settlement to an address always pays something, so a zero means
         // the seller took a note instead and the amount stayed private.
         // Deriving against it would mint commitments the chain never saw.
         if spent == 0 {
-            return Ok(0);
+            return Ok(Recovered::Nothing);
         }
         let minted = outputs(&note, spent, change_seed)
             .map_err(|_| WalletError::Owner)?;
-        let placed = minted.len();
+        let change = minted.first().map(|note| note.commitment);
         self.notes.remember(&minted, now).await?;
-        Ok(placed)
+        Ok(change.map_or(Recovered::Nothing, Recovered::Change))
     }
 
     /// Catches the notes up with the chain: places the ones the index has

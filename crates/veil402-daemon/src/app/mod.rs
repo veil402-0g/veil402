@@ -12,12 +12,13 @@ use std::{
 
 use alloy::{
     hex,
-    primitives::Address,
+    primitives::{Address, U256},
     providers::{Provider, ProviderBuilder},
+    sol,
 };
 use thiserror::Error;
 use tokio::time::sleep;
-use veil402_sdk::{Config as Proving, Owner, Secret, Veil, evm::PoolClient};
+use veil402_sdk::{Config as Proving, Field, Note, Owner, Secret, Veil, evm::PoolClient};
 
 use crate::{
     adapters::{self, Api, ChainSource, LocalProver, RemoteEnclave, SqliteStore, Window},
@@ -26,7 +27,7 @@ use crate::{
         agent::AgentService,
         envelope::{ChainError, EnclaveError, EnvelopeError, EnvelopeService, Terms},
         index::{IndexError, IndexService},
-        wallet::{WalletError, WalletService},
+        wallet::{Minted, WalletError, WalletService},
     },
 };
 
@@ -39,6 +40,18 @@ const LISTEN: &str = "127.0.0.1:8402";
 /// What a call is assumed to produce when its request names no limit.
 /// Only the reservation rests on it; the bill is whatever arrives.
 const CALL_CAP: u32 = 8_192;
+
+/// Most either process will pay per unit of gas.
+///
+/// A cap rather than a price: the oracle decides what a call costs, and this
+/// only stops a spike from draining the key that pays for them. The
+/// library's default is an Ethereum number, and Hedera prices gas to a
+/// dollar target — about a thousand gwei — so that default refuses every
+/// transaction on it.
+const MAX_FEE_GWEI: u128 = 20_000;
+
+/// Gwei, in wei.
+const GWEI: u128 = 1_000_000_000;
 
 /// Where the transaction engine's own durable state lives. Separate from the
 /// index: it is the engine's, and it rebroadcasts from it on its own.
@@ -62,6 +75,17 @@ pub struct Retry {
     pub attempts: u32,
 }
 
+/// An endpoint's host, without the path or query a key usually hides in.
+fn host(endpoint: &str) -> String {
+    endpoint
+        .split_once("//")
+        .map_or(endpoint, |(_, rest)| rest)
+        .split(['/', '?'])
+        .next()
+        .unwrap_or_default()
+        .to_owned()
+}
+
 /// Where the index and the notes live.
 fn database() -> String {
     env::var("VEIL_DATABASE").unwrap_or_else(|_| DATABASE.to_owned())
@@ -76,6 +100,105 @@ pub async fn agents() -> Result<AgentService, StartError> {
     Ok(AgentService::new(Arc::new(
         SqliteStore::open(&database()).await?,
     )))
+}
+
+sol! {
+    #[sol(rpc)]
+    interface IToken {
+        function approve(address spender, uint256 value) external returns (bool);
+        function allowance(address owner, address spender) external view returns (uint256);
+    }
+}
+
+/// Shields `amount` into the pool, under this daemon's own key.
+///
+/// Nothing reads a note back off the chain, so the wallet is told about the
+/// one this just made. Lose the keys and the balance goes with them.
+///
+/// # Errors
+///
+/// Returns [`StartError`] when the chain refuses either call, or the note
+/// cannot be written down.
+pub async fn deposit(amount: u64) -> Result<Field, StartError> {
+    let config = Config::from_env()?;
+    let provider = ProviderBuilder::new()
+        .connect(&config.rpc)
+        .await
+        .map_err(|_| StartError::Chain(host(&config.rpc)))?;
+    let chain_id = provider
+        .get_chain_id()
+        .await
+        .map_err(|_| StartError::Chain(host(&config.rpc)))?;
+    let pool = PoolClient::new(config.pool, config.token, config.verifier, chain_id)
+        .map_err(|_| StartError::Pool(config.pool))?;
+    let sender = adapters::depositor(
+        &config.rpc,
+        &config.signer,
+        [config.pool, config.token],
+        &config.wallet_state.with_extension("deposit.redb"),
+        config.fee_cap,
+    )
+    .await?;
+    let token = IToken::new(config.token, &provider);
+    let refused = |error: &dyn std::fmt::Display| StartError::Deposit(error.to_string());
+
+    // Approved once and left standing. The pool is the only spender this key
+    // ever names, and an allowance per deposit is a transaction per deposit
+    // for a permission that does not change.
+    let allowed = token
+        .allowance(sender.account(), config.pool)
+        .call()
+        .await
+        .map_err(|error| refused(&error))?;
+    if allowed < U256::from(amount) {
+        sender
+            .send(
+                config.token,
+                token
+                    .approve(config.pool, U256::MAX)
+                    .calldata()
+                    .to_vec(),
+            )
+            .await?;
+    }
+
+    let note = Note {
+        value: amount,
+        asset: pool.asset(),
+        random: Secret::random().map_err(|_| StartError::Deposit("no randomness".into()))?,
+    };
+    let commitment = note
+        .commitment(&config.owner)
+        .map_err(|error| refused(&error))?;
+    sender
+        .send(
+            config.pool,
+            pool.shield(
+                note.public_key(&config.owner).map_err(|error| refused(&error))?,
+                amount,
+                b"deposit",
+            )
+            .map_err(|error| refused(&error))?,
+        )
+        .await?;
+
+    let store = Arc::new(SqliteStore::open(&config.database).await?);
+    let random = Secret::from_bytes(note.random.to_bytes())
+        .map_err(|_| StartError::Deposit("the note will not re-encode".into()))?;
+    WalletService::new(store.clone(), store, config.owner)
+        .remember(
+            &[Minted {
+                commitment,
+                value: amount,
+                asset: pool.asset(),
+                random,
+                seed: None,
+            }],
+            now(),
+        )
+        .await
+        .map_err(|error| refused(&error))?;
+    Ok(commitment)
 }
 
 /// Seconds since the epoch, which is the clock holds and staleness use.
@@ -124,6 +247,8 @@ pub struct Config {
     pub listen: SocketAddr,
     /// Output a call is assumed to produce when it names no limit.
     pub cap: u32,
+    /// Most this daemon will pay per unit of gas, in wei.
+    pub fee_cap: u128,
     /// Keys the notes belong to. Losing them loses the balance.
     pub owner: Owner,
     /// How far one pass reads.
@@ -187,6 +312,7 @@ impl Config {
             lock_for: parsed("VEIL_ENVELOPE_WINDOW", 600)?,
             listen: parsed("VEIL_LISTEN", LISTEN.parse().map_err(|_| ConfigError::Invalid("VEIL_LISTEN"))?)?,
             cap: parsed("VEIL_CALL_CAP", CALL_CAP)?,
+            fee_cap: parsed("VEIL_MAX_FEE_GWEI", MAX_FEE_GWEI)? * GWEI,
             owner: Owner {
                 spend: key("VEIL_SPEND_KEY")?,
                 view: key("VEIL_VIEW_KEY")?,
@@ -194,6 +320,7 @@ impl Config {
             window: Window {
                 chunk: parsed("VEIL_CHUNK", CHUNK)?,
                 confirmations: parsed("VEIL_CONFIRMATIONS", 0)?,
+                from: parsed("VEIL_POOL_BLOCK", 0)?,
             },
             retry: Retry {
                 interval: Duration::from_secs(parsed("VEIL_INTERVAL", 5)?),
@@ -217,8 +344,13 @@ pub enum StartError {
     Config(#[from] ConfigError),
     #[error("the index store could not be opened")]
     Store(#[from] StoreError),
+    /// Named by its host only. An endpoint URL commonly carries the key
+    /// that authenticates it, and an error goes to logs, crash reports and
+    /// whatever is reading the terminal.
     #[error("the chain endpoint at {0} could not be reached")]
     Chain(String),
+    #[error("the deposit did not land: {0}")]
+    Deposit(String),
     #[error(transparent)]
     Index(#[from] IndexError),
 }
@@ -292,17 +424,18 @@ impl Daemon {
                 &config.wallet_state,
                 store.clone(),
                 config.window.confirmations,
+                config.fee_cap,
             )
             .await?,
         );
         let provider = ProviderBuilder::new()
             .connect(&config.rpc)
             .await
-            .map_err(|_| StartError::Chain(config.rpc.clone()))?;
+            .map_err(|_| StartError::Chain(host(&config.rpc)))?;
         let chain_id = provider
             .get_chain_id()
             .await
-            .map_err(|_| StartError::Chain(config.rpc.clone()))?;
+            .map_err(|_| StartError::Chain(host(&config.rpc)))?;
         let source = Arc::new(ChainSource::new(provider, config.pool, config.window));
         let index = Arc::new(IndexService::load(source, store.clone()).await?);
 

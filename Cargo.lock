@@ -7401,6 +7401,7 @@ dependencies = [
  "async-trait",
  "axum",
  "borsh",
+ "dotenvy",
  "futures-util",
  "http-body-util",
  "redb 2.6.4",

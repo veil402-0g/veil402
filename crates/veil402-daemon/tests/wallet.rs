@@ -11,7 +11,7 @@ use veil402_daemon::{
     core::{
         index::{Batch, Commitment, IndexStore, Locked, Nullified, Settled},
         envelope::SubmissionStore,
-        wallet::{Held, Minted, NoteStore, WalletError, WalletService, choose},
+        wallet::{Held, Minted, NoteStore, Recovered, WalletError, WalletService, choose},
     },
 };
 use veil402_sdk::{Field, Owner, Secret, SessionKeys};
@@ -371,7 +371,10 @@ async fn settled_change_is_recovered_from_the_chain_alone() -> Fallible {
     let nullifier = SessionKeys::from_seed(&session)?.owner.nullifier(0)?;
 
     settled(&store, nullifier, 300).await?;
-    assert_eq!(wallet.recover(nullifier, &change, 0).await?, 1);
+    assert!(matches!(
+        wallet.recover(nullifier, &change, 0).await?,
+        Recovered::Change(_)
+    ));
 
     // The whole remainder, seeded, so the next envelope opens on it without
     // a reseed. Nothing is carved off for the wallet's own key: there is no
@@ -410,7 +413,10 @@ async fn a_private_settlement_recovers_nothing() -> Fallible {
     let nullifier = SessionKeys::from_seed(&session)?.owner.nullifier(0)?;
 
     settled(&store, nullifier, 0).await?;
-    assert_eq!(wallet.recover(nullifier, &Secret::random()?, 0).await?, 0);
+    assert_eq!(
+        wallet.recover(nullifier, &Secret::random()?, 0).await?,
+        Recovered::Nothing
+    );
     assert!(store.unplaced().await?.is_empty(), "nothing was invented");
     Ok(())
 }

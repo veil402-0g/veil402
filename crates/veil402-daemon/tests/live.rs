@@ -98,6 +98,7 @@ async fn spends_the_second_note() -> Result<(), Box<dyn StdError>> {
         provider.clone(),
         pool_address,
         Window {
+            from: var("POOL_BLOCK").ok().and_then(|at| at.parse().ok()).unwrap_or(0),
             chunk: NonZeroU64::new(1_000).ok_or("chunk")?,
             confirmations: 0,
         },
@@ -277,30 +278,31 @@ async fn an_envelope_rolls_into_the_next() -> Result<(), Box<dyn StdError>> {
     let envelopes = daemon.envelopes().ok_or("no envelope service")?.clone();
     caught_up(&daemon, commitment).await?;
 
-    // ---- open: splits the cold note, locks, hands the session over -------
+    // ---- open: reserves the cold note, locks, hands the session over -----
     let first = envelopes.open(seller, CEILING, 600).await?;
-    assert_eq!(first.ceiling, CEILING, "the note's value is the ceiling");
+    assert_eq!(first.ceiling, DEPOSIT, "the note's value is the ceiling");
     println!("opened           ceiling {}, deadline {}", first.ceiling, first.deadline);
 
     // ---- meter, then settle ----------------------------------------------
+    // A seller is paid into the same account every run, so what one
+    // settlement moved is the difference rather than the balance.
+    let held = IToken::new(token_address, &provider).balanceOf(seller).call().await?;
     let owed = metered(&envelopes, first.nullifier).await?;
     envelopes.settle(first.nullifier, false).await?;
 
-    let token = IToken::new(token_address, &provider);
-    assert_eq!(token.balanceOf(seller).call().await?, U256::from(owed));
-    assert!(
-        IPoolView::new(pool_address, &provider)
-            .nullifierSpent(U256::from_be_bytes(first.nullifier.to_bytes()))
-            .call()
-            .await?,
-        "the settlement did not spend the nullifier"
+    settled(&provider, pool_address, first.nullifier).await?;
+    assert_eq!(
+        IToken::new(token_address, &provider).balanceOf(seller).call().await? - held,
+        U256::from(owed),
+        "the settlement paid the seller something other than what it owed"
     );
 
     // ---- the claim: the next envelope needs no split ---------------------
     let second = envelopes.open(seller, TARGET, 600).await?;
     assert_ne!(second.nullifier, first.nullifier);
     assert_eq!(
-        second.ceiling, TARGET,
+        second.ceiling,
+        DEPOSIT - owed,
         "the settlement minted the next envelope's note already seeded"
     );
     println!("rolled over      into {} without a split", second.ceiling);
@@ -328,6 +330,30 @@ alloy::sol! {
 
 /// A note the index has not placed has no nullifier, and a reservation needs
 /// one — so the daemon has to be caught up before it can serve anything.
+/// Waits for a settlement to land.
+///
+/// Submitting and landing are different moments: the daemon hands the call
+/// to its engine and carries on, and a chain that mines on its own clock
+/// takes a block or two. The nullifier is the unambiguous signal — a
+/// balance is shared with every run before this one.
+async fn settled(
+    provider: impl Provider,
+    pool: Address,
+    nullifier: veil402_sdk::Field,
+) -> Result<(), Box<dyn StdError>> {
+    for _ in 0..60 {
+        if IPoolView::new(pool, &provider)
+            .nullifierSpent(U256::from_be_bytes(nullifier.to_bytes()))
+            .call()
+            .await?
+        {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    Err("the settlement never spent the nullifier".into())
+}
+
 async fn caught_up(daemon: &Daemon, commitment: veil402_sdk::Field) -> Result<(), Box<dyn StdError>> {
     for _ in 0..80 {
         if daemon.wallet().by_commitment(commitment).await?.is_some() {
@@ -366,6 +392,7 @@ async fn daemon(
     state: &Path,
 ) -> Result<Daemon, Box<dyn StdError>> {
     let daemon = Daemon::start(Config {
+        fee_cap: 20_000_000_000_000,
         listen: "127.0.0.1:0".parse()?,
         cap: 1_024,
         rpc: var("RPC_URL")?,
@@ -383,6 +410,7 @@ async fn daemon(
             artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
         owner,
         window: Window {
+            from: var("POOL_BLOCK").ok().and_then(|at| at.parse().ok()).unwrap_or(0),
             chunk: NonZeroU64::new(1_000).ok_or("chunk")?,
             confirmations: 0,
         },
@@ -411,6 +439,7 @@ async fn serve(
     let escrows = Arc::new(veil402_gateway::adapters::connect(&var("RPC_URL")?, pool.address()).await?);
     let service = veil402_gateway::app::assemble(
         &veil402_gateway::app::Config {
+            fee_cap: 20_000_000_000_000,
             pool: *pool,
             root,
         worker: worker()?,

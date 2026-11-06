@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use alloy::primitives::Address;
 use thiserror::Error;
@@ -21,7 +24,7 @@ use super::{
 use crate::core::{
     StoreError,
     index::{IndexError, IndexService},
-    wallet::{Held, WalletError, WalletService},
+    wallet::{Held, Recovered, WalletError, WalletService},
 };
 
 /// How long before a deadline an envelope must stop serving and settle.
@@ -30,8 +33,9 @@ use crate::core::{
 /// beyond the deadline, which is the tail rather than the budget.
 const BUFFER: u64 = 90;
 
-/// How long a lock may take to land before the attempt is abandoned.
-const PATIENCE: u64 = 120;
+/// How long a submission may take to land, and its change to be placed,
+/// before the attempt is abandoned.
+const PATIENCE: Duration = Duration::from_mins(2);
 
 /// Gap between asking whether something has landed. Waiting is the normal
 /// case, and asking as fast as the loop will go only loads the endpoint that
@@ -211,7 +215,7 @@ impl EnvelopeService {
                     .lock(&session, agreement.signer, &agreement.lock),
             )
             .await?;
-        if let Err(refused) = self.landed(envelope.nullifier, now).await {
+        if let Err(refused) = self.landed(envelope.nullifier).await {
             // A lock the chain rejected will never hold this note, so the
             // next session can have it now rather than after the hold lapses.
             if !matches!(refused, EnvelopeError::Abandoned) {
@@ -296,7 +300,14 @@ impl EnvelopeService {
             return Ok(newest);
         }
         if let Some(nullifier) = known {
-            self.settle(nullifier, false).await?;
+            // An envelope the enclave never took has nothing to settle: its
+            // lock did not land, so no escrow stands and no change is owed.
+            // The registry remembers it either way, because a lock whose
+            // fate is unknown must keep its change seed.
+            match self.settle(nullifier, false).await {
+                Ok(()) | Err(EnvelopeError::Enclave(EnclaveError::Unknown)) => {}
+                Err(refused) => return Err(refused),
+            }
         }
         Ok(self
             .open(self.terms.seller, self.terms.session, self.terms.window)
@@ -322,12 +333,52 @@ impl EnvelopeService {
         self.broadcast
             .submit(settlement.key, settlement.calldata)
             .await?;
+        self.returned(nullifier, &change_seed, settlement.key).await
+    }
 
+    /// Waits for a settlement's change to come back spendable.
+    ///
+    /// Asking for a settlement is asking for its change: the next envelope
+    /// opens on it, and nothing can be reserved before the index has placed
+    /// it. A caller that returned earlier would only be handing its own
+    /// race to whoever called it.
+    ///
+    /// Polled against the store rather than the endpoint. The sync loop is
+    /// what reads blocks; a second poller beside it would ask the same
+    /// question more often and learn nothing sooner.
+    async fn returned(
+        &self,
+        nullifier: Field,
+        change_seed: &Secret,
+        key: Field,
+    ) -> Result<(), EnvelopeError> {
         let now = self.broadcast.timestamp().await?;
-        self.wallet
-            .recover(nullifier, &change_seed, now)
-            .await?;
-        Ok(())
+        let since = Instant::now();
+        let mut change = None;
+        loop {
+            match self.broadcast.landed(key).await? {
+                Some(Landed::Failed(reason)) => return Err(ChainError::Refused(reason).into()),
+                Some(Landed::Dropped) => return Err(EnvelopeError::Abandoned),
+                _ => {}
+            }
+            if change.is_none() {
+                match self.wallet.recover(nullifier, change_seed, now).await? {
+                    Recovered::Pending => {}
+                    Recovered::Nothing => return Ok(()),
+                    Recovered::Change(commitment) => change = Some(commitment),
+                }
+            }
+            if let Some(commitment) = change {
+                self.wallet.reconcile(now).await?;
+                if self.wallet.by_commitment(commitment).await?.is_some() {
+                    return Ok(());
+                }
+            }
+            if since.elapsed() > PATIENCE {
+                return Err(EnvelopeError::Abandoned);
+            }
+            sleep(POLL).await;
+        }
     }
 
     /// Writes down the change of a settlement we did not make.
@@ -380,22 +431,25 @@ impl EnvelopeService {
         self.broadcast
             .submit(reseeded.session, prepared.calldata)
             .await?;
-        self.landed(reseeded.session, now).await?;
-        self.placed(reseeded.session, now).await
+        self.landed(reseeded.session).await?;
+        self.placed(reseeded.session).await
     }
 
     /// Waits for the index to place a note the chain has already accepted.
     ///
     /// Landing and being indexed are different moments: the sync loop reads a
     /// block after it is mined, and no path can be built before it has.
-    async fn placed(&self, commitment: Field, since: u64) -> Result<Held, EnvelopeError> {
+    async fn placed(&self, commitment: Field) -> Result<Held, EnvelopeError> {
+        // One reading, held for the wait: a timeout is a stopwatch, and the
+        // chain's clock is only load-bearing where a deadline is.
+        let now = self.broadcast.timestamp().await?;
+        let since = Instant::now();
         loop {
-            let now = self.broadcast.timestamp().await?;
             self.wallet.reconcile(now).await?;
             if let Some(note) = self.wallet.by_commitment(commitment).await? {
                 return Ok(note);
             }
-            if now > since.saturating_add(PATIENCE) {
+            if since.elapsed() > PATIENCE {
                 return Err(EnvelopeError::Abandoned);
             }
             sleep(POLL).await;
@@ -407,7 +461,8 @@ impl EnvelopeService {
     /// The lifecycle is advanced by the sync loop, so this only reads; a call
     /// that is replaced or dropped never landed, and whatever assumed it did
     /// has to be abandoned rather than retried onto a different note.
-    async fn landed(&self, key: Field, since: u64) -> Result<(), EnvelopeError> {
+    async fn landed(&self, key: Field) -> Result<(), EnvelopeError> {
+        let since = Instant::now();
         loop {
             match self.broadcast.landed(key).await? {
                 Some(Landed::Confirmed { .. }) => return Ok(()),
@@ -415,9 +470,7 @@ impl EnvelopeService {
                     return Err(ChainError::Refused(reason).into());
                 }
                 Some(Landed::Dropped) => return Err(EnvelopeError::Abandoned),
-                None if self.broadcast.timestamp().await? > since.saturating_add(PATIENCE) => {
-                    return Err(EnvelopeError::Abandoned);
-                }
+                None if since.elapsed() > PATIENCE => return Err(EnvelopeError::Abandoned),
                 None => sleep(POLL).await,
             }
         }

@@ -46,6 +46,11 @@ pub struct Window {
     /// Blocks held back from the head. Hedera reaches finality without
     /// reorgs, so zero is correct there.
     pub confirmations: u64,
+    /// Block the pool was deployed in. A pool emits nothing before it
+    /// existed, and on a chain that is already millions of blocks deep,
+    /// walking up to it is tens of thousands of queries that can only
+    /// return nothing.
+    pub from: u64,
 }
 
 /// Reads the pool's events through an EVM endpoint.
@@ -163,7 +168,7 @@ impl<P: Provider + Send + Sync> CommitmentSource for ChainSource<P> {
     async fn since(&self, block: u64) -> Result<Batch, ChainError> {
         let head = self.head().await?;
         let mut batch = Batch::default();
-        let mut from = block.saturating_add(1);
+        let mut from = block.saturating_add(1).max(self.window.from);
 
         while from <= head && batch.len() < BATCH {
             let to = from
