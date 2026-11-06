@@ -89,7 +89,7 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
               <span
                 className={s.s019}
               >
-                PREVIEW
+                {v.sourceLabel}
               </span>
               <div
                 className={s.s020}
@@ -108,7 +108,36 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                 >
                   Fresh install
                 </button>
+                <button
+                  className={s.s022}
+                  onClick={v.showLive}
+                  style={{ '--d0': v.liveBg, '--d1': v.liveFg } as CSSVars}
+                >
+                  Live
+                </button>
               </div>
+              {v.needsToken && (
+                <form
+                  className={s.connect}
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    v.connect()
+                  }}
+                >
+                  <input
+                    className={s.connectField}
+                    type="password"
+                    value={v.tokenDraft}
+                    onChange={v.setTokenDraft}
+                    placeholder="VEIL_CONSOLE_TOKEN"
+                    aria-label="Operator token"
+                  />
+                  <button className={s.connectGo} type="submit">
+                    Connect
+                  </button>
+                  {v.offline && <span className={s.connectError}>{v.offline}</span>}
+                </form>
+              )}
             </div>
           </div>
           <section

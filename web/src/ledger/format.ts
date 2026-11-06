@@ -1,7 +1,13 @@
 /** Formatting helpers shared by the console's view model. */
 
 export function money(n: number): string {
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  // One call buys a fraction of a cent, so two decimals would show every
+  // settlement as nothing. Amounts that small keep enough digits to read.
+  const places = n !== 0 && Math.abs(n) < 0.01 ? 6 : 2
+  return n.toLocaleString('en-US', {
+    minimumFractionDigits: places,
+    maximumFractionDigits: places,
+  })
 }
 
 /** 1_250_000 -> "1.25M", 3_400 -> "3.4K". */

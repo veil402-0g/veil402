@@ -2,6 +2,7 @@ import {
   createElement,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -24,6 +25,8 @@ import {
   type Totals,
 } from '../ledger/model'
 import { useViewTransition } from '../transition/context'
+import { ApiError, client, storeToken, storedToken, type Bootstrap } from '../api/client'
+import { CADENCE, fold, snapshot } from '../ledger/live'
 
 /** Treemap grid for the pool-composition dot field. */
 const DOT_ROWS = 6
@@ -49,6 +52,9 @@ const TOAST_MS = 3400
 
 type Scope = 'tx' | 'agent' | 'range'
 
+/** Where the ledger comes from. Two of these are simulations. */
+type Source = 'demo' | 'fresh' | 'live'
+
 interface Toast {
   title: string
   sub: string
@@ -62,6 +68,14 @@ interface Form {
   mBudget: string
   mEndpoints: string[]
   mError: string
+}
+
+/** Turns a failure into something an operator can act on. */
+function explain(error: unknown): string {
+  if (error instanceof ApiError) {
+    return error.unauthorised ? 'that token was refused' : error.message
+  }
+  return 'the daemon is not answering on this address'
 }
 
 /** Parses "5,000" and other loosely-typed money input. */
@@ -94,9 +108,12 @@ export function useConsoleBindings({
   const [now, setNow] = useState(() => Date.now())
   // A ref, not state: the interval must not restart on every tick.
   const tick = useRef(0)
-  const [mode, setMode] = useState<'demo' | 'fresh'>(
-    startState === 'Fresh install' ? 'fresh' : 'demo',
-  )
+  const [mode, setMode] = useState<Source>(startState === 'Fresh install' ? 'fresh' : 'demo')
+  const [token, setToken] = useState(() => storedToken())
+  const [tokenDraft, setTokenDraft] = useState(() => storedToken())
+  const [config, setConfig] = useState<Bootstrap | null>(null)
+  /** What stopped the daemon answering, in words the operator can act on. */
+  const [offline, setOffline] = useState('')
 
   const [scope, setScope] = useState<Scope>('tx')
   const [proving, setProving] = useState(false)
@@ -131,24 +148,83 @@ export function useConsoleBindings({
 
   useEffect(() => () => window.clearTimeout(toastTimer.current), [])
 
+  const live = mode === 'live'
+  const api = useMemo(() => (live && token ? client(token) : null), [live, token])
+
   useEffect(() => {
     const id = window.setInterval(() => {
       setNow(Date.now())
       tick.current += 1
-      if (liveFeed) setLedger((l) => advance(l, tick.current))
+      // A real ledger advances because the daemon says so, never because a
+      // second passed.
+      if (liveFeed && !live) setLedger((l) => advance(l, tick.current))
     }, 1000)
     return () => window.clearInterval(id)
-  }, [liveFeed])
+  }, [liveFeed, live])
+
+  // The daemon's own addresses, limits and catalogue: read once, because a
+  // console built against one deployment and pointed at another should say
+  // so rather than quietly draw the wrong chain.
+  useEffect(() => {
+    if (!api) return
+    let dropped = false
+    api
+      .config()
+      .then((read) => {
+        if (dropped) return
+        setConfig(read)
+        setOffline('')
+      })
+      .catch((error: unknown) => {
+        if (!dropped) setOffline(explain(error))
+      })
+    return () => {
+      dropped = true
+    }
+  }, [api])
+
+  useEffect(() => {
+    if (!api || !config) return
+    let dropped = false
+    const poll = () => {
+      snapshot(api)
+        .then((taken) => {
+          if (dropped) return
+          setLedger((l) => fold(l, taken, config))
+          setOffline('')
+        })
+        .catch((error: unknown) => {
+          if (!dropped) setOffline(explain(error))
+        })
+    }
+    poll()
+    const id = window.setInterval(poll, CADENCE.activity)
+    return () => {
+      dropped = true
+      window.clearInterval(id)
+    }
+  }, [api, config])
 
   useEffect(() => {
     const id = window.setTimeout(() => setRangeIn(true), 350)
     return () => window.clearTimeout(id)
   }, [])
 
-  const showMode = useCallback((next: 'demo' | 'fresh') => {
+  /** Keeps the token where a reload can find it, and retries with it. */
+  const connect = useCallback(() => {
+    const trimmed = tokenDraft.trim()
+    storeToken(trimmed)
+    setToken(trimmed)
+    setOffline(trimmed ? '' : 'paste the daemon\u2019s console token')
+  }, [tokenDraft])
+
+  const showMode = useCallback((next: Source) => {
     setMode(next)
     setToast(null)
-    setLedger(next === 'fresh' ? seedEmpty() : seedDemo())
+    setOffline('')
+    // A live console starts empty and fills from the daemon; a simulated one
+    // starts from its seed.
+    setLedger(next === 'demo' ? seedDemo() : seedEmpty())
   }, [])
 
   const T: Totals = totals(ledger)
@@ -311,13 +387,15 @@ export function useConsoleBindings({
 
     const TICKS = 50
     const spentTicks = Math.round(Math.min(pct, 1) * TICKS)
-    const escrowTicks = revoked
-      ? 0
-      : Math.max(held > 0 ? 1 : 0, Math.round(Math.min(held / a.budget, 1) * TICKS))
+    const escrowTicks =
+      revoked || a.budget === null
+        ? 0
+        : Math.max(held > 0 ? 1 : 0, Math.round(Math.min(held / a.budget, 1) * TICKS))
 
     const runway = () => {
       if (revoked) return '—'
       if (a.status === 'paused') return 'paused'
+      if (a.budget === null) return 'uncapped'
       const rate = a.spent / Math.max(1, a.txs / 12)
       const days = Math.max(a.budget - a.spent - held, 0) / Math.max(rate, 1)
       return days < 1 ? '< 1 day runway' : `≈ ${Math.round(days)}d runway`
@@ -327,11 +405,15 @@ export function useConsoleBindings({
       id: a.id,
       name: a.name,
       purpose: a.purpose,
-      budgetF: money(a.budget),
+      budgetF: a.budget === null ? 'uncapped' : money(a.budget),
       spentF: money(a.spent),
       pctF: `${Math.round(pct * 100)}%`,
       spentW: `${Math.min(pct * 100, 100)}%`,
-      escW: `${revoked ? 0 : Math.min((held / a.budget) * 100, 100 - Math.min(pct * 100, 100))}%`,
+      escW: `${
+        revoked || a.budget === null
+          ? 0
+          : Math.min((held / a.budget) * 100, 100 - Math.min(pct * 100, 100))
+      }%`,
       barColor: revoked ? '#c4c8d4' : hot ? '#ff4d1a' : '#1230d6',
       statusLabel,
       statusColor,
@@ -340,6 +422,13 @@ export function useConsoleBindings({
       canRevoke: !revoked,
       isRevoked: revoked,
       revoke: () => {
+        if (api) {
+          api
+            .revoke(a.id)
+            .then(() => notify(`Mandate ${a.id} revoked · ${a.name}`, 'the key no longer opens', '#ff4d1a'))
+            .catch((error: unknown) => notify('Revoke refused', explain(error), '#ff4d1a'))
+          return
+        }
         setLedger((l) => revoke(l, a.id))
         notify(
           `Mandate ${a.id} revoked · ${a.name}`,
@@ -355,7 +444,11 @@ export function useConsoleBindings({
         if (i < spentTicks + escrowTicks) return { bg: '#1230d6', h: '100%' }
         return { bg: '#d0d2d8', h: `${major ? 46 : 24}%` }
       }),
-      leftF: revoked ? 'mandate nullified' : `${money(Math.max(a.budget - a.spent - held, 0))} left`,
+      leftF: revoked
+        ? 'mandate nullified'
+        : a.budget === null
+          ? 'no ceiling'
+          : `${money(Math.max(a.budget - a.spent - held, 0))} left`,
       runway: runway(),
       runColor: pct >= 0.95 && !revoked ? '#ff4d1a' : '#8b8e97',
       ...avatar(a.name, revoked),
@@ -529,7 +622,7 @@ export function useConsoleBindings({
     const revoked = a.status === 'revoked'
     const hot = pct >= 0.95 && !revoked
     const sp = Math.min(pct, 1) * 100
-    const es = revoked ? 0 : Math.min((held / a.budget) * 100, 100 - sp)
+    const es = revoked || a.budget === null ? 0 : Math.min((held / a.budget) * 100, 100 - sp)
 
     let sBg = '#0d0e12'
     let sBorder = '0'
@@ -578,7 +671,10 @@ export function useConsoleBindings({
     const pct = a.budget ? a.spent / a.budget : 0
 
     const daily = a.spent / 20
-    const projected = dead ? pct : Math.min(RANGE_CEILING, (a.spent + held + daily * 8) / a.budget)
+    const projected =
+      dead || a.budget === null
+        ? pct
+        : Math.min(RANGE_CEILING, (a.spent + held + daily * 8) / a.budget)
     const lo = Math.min(pct, RANGE_CEILING)
     const hi = Math.max(projected, lo + 0.02)
 
@@ -623,7 +719,7 @@ export function useConsoleBindings({
       barBg,
       todayF: `${Math.round(pct * 100)}%`,
       spentF: money(a.spent),
-      budF: money(a.budget),
+      budF: a.budget === null ? 'uncapped' : money(a.budget),
 
       spH: pctOfCeiling(lo),
       spC: dead ? '#e3e5ea' : '#b9c6f7',
@@ -725,6 +821,28 @@ export function useConsoleBindings({
       }))
       return
     }
+    if (api && config) {
+      // Pool units, not whole tokens: the daemon counts in the token's own
+      // smallest unit and the form collects dollars.
+      api
+        .issue({
+          label: name,
+          budget: Math.round(budget * 10 ** config.decimals),
+          models: form.mEndpoints.length ? form.mEndpoints : undefined,
+        })
+        .then((granted) => {
+          setMandateOpen(false)
+          setForm((f) => ({ ...f, mName: '', mError: '' }))
+          notify(
+            `Mandate ${granted.id} issued to ${name}`,
+            // The one moment it exists: it was never stored and cannot be
+            // shown again.
+            `key ${granted.key} — copy it now`,
+          )
+        })
+        .catch((error: unknown) => setForm((f) => ({ ...f, mError: explain(error) })))
+      return
+    }
     const id = `mnd_${randomHex(6)}`
     setMandateOpen(false)
     setForm((f) => ({ ...f, mName: '', mError: '' }))
@@ -759,8 +877,7 @@ export function useConsoleBindings({
     .reduce((t, f) => t + f.amount, 0)
   const [settledInt, settledDec] = money(sessionSpend).split('.') as [string, string]
   const [escInt, escDec] = money(T.escrow).split('.') as [string, string]
-  const budgetAll = ledger.agents.reduce((t, a) => t + a.budget, 0)
-  const isDemo = mode === 'demo'
+  const budgetAll = ledger.agents.reduce((t, a) => t + (a.budget ?? 0), 0)
 
   return {
     goHome: (e: MouseEvent) => {
@@ -776,7 +893,7 @@ export function useConsoleBindings({
     balOn: () => setHoverBalance(true),
     balOff: () => setHoverBalance(false),
     noteCount: ledger.notes,
-    anonSet: '12,408',
+    anonSet: ledger.leaves.toLocaleString(),
     lastDeposit: ledger.lastDeposit
       ? `↑ ${money(ledger.lastDeposit.amount)} · ${relative(now - ledger.lastDeposit.t)}`
       : 'no deposits yet',
@@ -940,12 +1057,24 @@ export function useConsoleBindings({
     }),
     confirmMandate,
 
-    demoBg: isDemo ? '100% 100%' : '0% 100%',
-    demoFg: isDemo ? '#fff' : '#6b6e78',
-    freshBg: isDemo ? '0% 100%' : '100% 100%',
-    freshFg: isDemo ? '#6b6e78' : '#fff',
+    demoBg: mode === 'demo' ? '100% 100%' : '0% 100%',
+    demoFg: mode === 'demo' ? '#fff' : '#6b6e78',
+    freshBg: mode === 'fresh' ? '100% 100%' : '0% 100%',
+    freshFg: mode === 'fresh' ? '#fff' : '#6b6e78',
+    liveBg: live ? '100% 100%' : '0% 100%',
+    liveFg: live ? '#fff' : '#6b6e78',
     showDemo: () => showMode('demo'),
     showFresh: () => showMode('fresh'),
+    showLive: () => showMode('live'),
+
+    live,
+    /** The token field only appears once live is asked for. */
+    needsToken: live && (!token || !!offline),
+    tokenDraft,
+    setTokenDraft: (e: ChangeEvent<HTMLInputElement>) => setTokenDraft(e.target.value),
+    connect,
+    offline,
+    sourceLabel: live ? (offline ? 'OFFLINE' : 'LIVE') : 'PREVIEW',
 
     toast,
   }

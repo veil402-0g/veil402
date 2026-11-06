@@ -42,7 +42,8 @@ export interface Agent {
   id: string
   name: string
   purpose: string
-  budget: number
+  /** `null` is uncapped: only the envelope's ceiling stops it. */
+  budget: number | null
   spent: number
   status: AgentStatus
   /** Last activity, epoch ms. */
@@ -87,6 +88,8 @@ export interface Ledger {
   selectedTx: string | null
   proofs: Proof[]
   notes: number
+  /** Commitments in the whole pool, which is the set a spend hides in. */
+  leaves: number
   auditAgent: string | null
   root: string | null
 }
@@ -205,6 +208,7 @@ export function seedDemo(): Ledger {
     selectedTx: 'tx_9302c9',
     proofs: [{ id: 'vp_077be697', label: 'research-03 · Q3 mandate history', t: now - 3 * 86400e3 }],
     notes: 39,
+    leaves: 12408,
     auditAgent: 'mnd_7Q2aK1',
     root: '0x464fc5…98a1',
   }
@@ -220,6 +224,7 @@ export function seedEmpty(): Ledger {
     selectedTx: null,
     proofs: [],
     notes: 0,
+    leaves: 0,
     auditAgent: null,
     root: null,
   }
@@ -274,7 +279,7 @@ export function advance(l: Ledger, tick: number): Ledger {
   if (next.sessions.length < 4 && idle.length && Math.random() < 0.6) {
     const a = pickAgent(idle)
     const escrow = [10, 25, 50][(Math.random() * 3) | 0]!
-    if (a.budget - a.spent >= escrow) {
+    if ((a.budget ?? Infinity) - a.spent >= escrow) {
       const session: Session = {
         id: `ses_${randomHex(6)}`,
         agentId: a.id,
@@ -323,7 +328,7 @@ export function revoke(l: Ledger, id: string): Ledger {
       makeTx({
         agent: agent.name,
         vendor: `Mandate ${agent.id}`,
-        amount: Math.max(agent.budget - agent.spent, 0),
+        amount: Math.max((agent.budget ?? 0) - agent.spent, 0),
         kind: 'revoke',
       }),
       ...next.feed,
@@ -342,11 +347,13 @@ export interface Totals {
 export function totals(l: Ledger): Totals {
   const spent = l.agents.reduce((t, a) => t + a.spent, 0)
   const escrow = l.sessions.reduce((t, x) => t + x.escrow, 0)
+  // An uncapped mandate reserves nothing: there is no figure to set aside,
+  // and treating it as infinite would swallow the whole pool.
   const mandated = l.agents
-    .filter((a) => a.status !== 'revoked')
+    .filter((a) => a.status !== 'revoked' && a.budget !== null)
     .reduce((t, a) => {
       const held = l.sessions.filter((x) => x.agentId === a.id).reduce((q, x) => q + x.escrow, 0)
-      return t + Math.max(a.budget - a.spent - held, 0)
+      return t + Math.max((a.budget ?? 0) - a.spent - held, 0)
     }, 0)
   const free = Math.max(l.balance - escrow - mandated, 0)
   return { spent, escrow, mandated, free, total: spent + escrow + mandated + free }
