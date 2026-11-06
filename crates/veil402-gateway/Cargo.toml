@@ -15,7 +15,7 @@ redb = "2"
 borsh = { version = "1", features = ["derive"] }
 # The parent lends its own role's credentials to the enclave; this is what
 # finds them, from IMDS or wherever else the host keeps them.
-aws-config = { version = "1", default-features = false, features = ["rt-tokio"] }
+aws-config = { version = "1", default-features = false, features = ["rt-tokio", "default-https-client"] }
 aws-credential-types = "1"
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }
