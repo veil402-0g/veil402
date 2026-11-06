@@ -8,9 +8,9 @@ use veil402_sdk::{
     wire::{AgreeBody, Challenge, MeteredBody, Offer, SettlementBody},
 };
 
-use alloy::primitives::{B256, keccak256};
+use alloy::primitives::{Address, B256, keccak256};
 
-use super::{Escrows, Metering, Meters, Opened, Prices, Replay, Resumes, Served};
+use super::{Escrows, Metering, Meters, Opened, Replay, Resumes, Served};
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum MeterError {
@@ -21,9 +21,6 @@ pub enum MeterError {
     /// Serving this call would take the envelope past what its note can pay.
     #[error("the envelope's ceiling is reached")]
     CeilingReached,
-    /// This gateway has nothing to sell.
-    #[error("no seller is offering anything here")]
-    Empty,
     /// The pool holds no reservation this session could settle against, or
     /// holds one for somebody else.
     #[error("no escrow backs this session: {0}")]
@@ -58,11 +55,13 @@ pub enum Serving {
 /// Prices what a buyer consumed and has it metered.
 pub struct MeteringService {
     meters: Arc<dyn Meters>,
-    prices: Arc<dyn Prices>,
     served: Arc<dyn Served>,
     sessions: Arc<dyn Resumes>,
     escrows: Arc<dyn Escrows>,
     pool: PoolClient,
+    /// Who the pool pays. One seller, so this is settled at boot rather
+    /// than chosen per call.
+    seller: Address,
     /// Measurements a buyer pins before it will pay. Empty until there is
     /// hardware to measure.
     pcrs: Vec<String>,
@@ -72,27 +71,29 @@ impl MeteringService {
     #[must_use]
     pub const fn new(
         meters: Arc<dyn Meters>,
-        prices: Arc<dyn Prices>,
         served: Arc<dyn Served>,
         sessions: Arc<dyn Resumes>,
         escrows: Arc<dyn Escrows>,
         pool: PoolClient,
+        seller: Address,
         pcrs: Vec<String>,
     ) -> Self {
         Self {
             meters,
-            prices,
             served,
             sessions,
             escrows,
             pool,
+            seller,
             pcrs,
         }
     }
 
-    #[must_use]
-    pub fn offers(&self) -> &[Offer] {
-        self.prices.offers()
+    /// # Errors
+    ///
+    /// Returns [`MeterError`] when the upstream cannot be read.
+    pub async fn offers(&self) -> Result<Vec<Offer>, MeterError> {
+        self.meters.catalogue().await
     }
 
     /// # Errors
@@ -159,9 +160,8 @@ impl MeteringService {
         sealed: &Sealed,
         attempt: &str,
     ) -> Result<Serving, MeterError> {
-        let offer = self.prices.cheapest().ok_or(MeterError::Empty)?;
         if !self.held(nullifier).await? {
-            return Ok(Serving::Owing(self.challenge(offer)));
+            return Ok(Serving::Owing(self.challenge()));
         }
         // Served already. There is nothing kept to hand back, and making it
         // again would buy the same work twice — so this is a refusal, not a
@@ -174,7 +174,7 @@ impl MeteringService {
             });
         }
         Ok(Serving::Streaming(
-            self.meters.record(nullifier, attempt, offer.rate, sealed).await?,
+            self.meters.record(nullifier, attempt, sealed).await?,
         ))
     }
 
@@ -262,13 +262,12 @@ impl MeteringService {
         Ok(true)
     }
 
-    fn challenge(&self, offer: &Offer) -> Challenge {
+    fn challenge(&self) -> Challenge {
         Challenge {
             scheme: "escrow".to_owned(),
             pool: self.pool.address(),
             chain_id: self.pool.chain_id(),
-            seller: offer.seller,
-            rate: offer.rate,
+            seller: self.seller,
             pcrs: self.pcrs.clone(),
         }
     }

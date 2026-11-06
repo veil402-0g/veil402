@@ -240,7 +240,7 @@ async fn an_envelope_records_its_change_seed_before_it_locks() -> Fallible {
 
     let envelope = fixture
         .service
-        .open("stub", seller(), CEILING, WINDOW)
+        .open(seller(), CEILING, WINDOW)
         .await?;
 
     assert_eq!(envelope.ceiling, CEILING, "the note's value is the ceiling");
@@ -265,7 +265,7 @@ async fn an_envelope_records_its_change_seed_before_it_locks() -> Fallible {
 async fn a_refused_lock_frees_the_note_again() -> Fallible {
     let fixture = fixture(Landed::Failed("AlreadyLocked".into())).await?;
 
-    assert!(fixture.service.open("stub", seller(), CEILING, WINDOW).await.is_err());
+    assert!(fixture.service.open(seller(), CEILING, WINDOW).await.is_err());
     assert_eq!(
         fixture.store.spendable(pool()?.asset(), 0).await?.len(),
         1,
@@ -280,7 +280,7 @@ async fn a_refused_lock_frees_the_note_again() -> Fallible {
 async fn a_window_past_the_pool_limit_never_reaches_the_chain() -> Fallible {
     let fixture = fixture(Landed::Confirmed { block: 2 }).await?;
 
-    assert!(fixture.service.open("stub", seller(), CEILING, 3_601).await.is_err());
+    assert!(fixture.service.open(seller(), CEILING, 3_601).await.is_err());
     assert!(fixture.chain.sent.lock().expect("sent").is_empty());
     Ok(())
 }

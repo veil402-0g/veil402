@@ -12,7 +12,7 @@ use veil402_sdk::{
 
 use super::{
     Agreement, Answered, Broadcaster, ChainError, Enclave, EnclaveError, Envelope, EnvelopeStore,
-    Landed, Phase, ProveError, Prover,
+    Landed, ProveError, Prover,
 };
 use crate::core::{
     StoreError,
@@ -132,7 +132,6 @@ impl EnvelopeService {
     /// does not land, or the enclave refuses the delegation.
     pub async fn open(
         &self,
-        model: &str,
         seller: Address,
         ceiling: u64,
         window: u64,
@@ -160,7 +159,7 @@ impl EnvelopeService {
         // Before the lock, not after: a crash in between would leave a note
         // reserved whose change nothing could ever identify.
         self.envelopes
-            .remember(envelope.nullifier, model, &change_seed)
+            .remember(envelope.nullifier, &change_seed)
             .await?;
 
         self.broadcast
@@ -200,33 +199,31 @@ impl EnvelopeService {
     /// the trouble was not the envelope.
     pub async fn dispatch(
         &self,
-        model: &str,
         prompt: &Prompt,
         attempt: &str,
     ) -> Result<Answered, EnvelopeError> {
-        let nullifier = match self.live(model).await? {
+        let nullifier = match self.live().await? {
             Some(nullifier) => nullifier,
-            None => self.next(model, None).await?,
+            None => self.next(None).await?,
         };
         match self.enclave.chat(nullifier, prompt, attempt).await {
             Ok(answered) => Ok(answered),
             // The envelope is spent, expiring, or gone. Replace it and ask
             // once more; a second failure was never about the envelope.
             Err(refused) if replaceable(&refused) => {
-                let nullifier = self.next(model, Some(nullifier)).await?;
+                let nullifier = self.next(Some(nullifier)).await?;
                 Ok(self.enclave.chat(nullifier, prompt, attempt).await?)
             }
             Err(refused) => Err(refused.into()),
         }
     }
 
-    /// The envelope serving a model, if one still can.
+    /// The envelope still serving, if one is.
     ///
     /// Derived rather than remembered: the registry says which nullifier was
-    /// last opened for the model, and the chain says whether it is still
-    /// worth anything.
-    async fn live(&self, model: &str) -> Result<Option<Field>, EnvelopeError> {
-        let Some(nullifier) = self.envelopes.newest(model).await? else {
+    /// opened last, and the chain says whether it is still worth anything.
+    async fn live(&self) -> Result<Option<Field>, EnvelopeError> {
+        let Some(nullifier) = self.envelopes.newest().await? else {
             return Ok(None);
         };
         if self.index.is_spent(nullifier).await? {
@@ -239,19 +236,15 @@ impl EnvelopeService {
         }
     }
 
-    /// Settles whatever was serving this model and opens the next envelope.
-    async fn next(
-        &self,
-        model: &str,
-        spent: Option<Field>,
-    ) -> Result<Field, EnvelopeError> {
+    /// Settles whatever was serving and opens the next envelope.
+    async fn next(&self, spent: Option<Field>) -> Result<Field, EnvelopeError> {
         if let Some(nullifier) = spent {
             // Settling frees the note and mints the next envelope's, so the
             // replacement needs no split.
             self.settle(nullifier, false).await?;
         }
         Ok(self
-            .open(model, self.terms.seller, self.terms.ceiling, self.terms.window)
+            .open(self.terms.seller, self.terms.ceiling, self.terms.window)
             .await?
             .nullifier)
     }
@@ -280,22 +273,6 @@ impl EnvelopeService {
             .recover(nullifier, &change_seed, self.terms.target, now)
             .await?;
         Ok(())
-    }
-
-    /// Where an envelope stands, read from the chain.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EnvelopeError`] when the index cannot be read.
-    pub async fn phase(&self, envelope: &Envelope, now: u64) -> Result<Phase, EnvelopeError> {
-        if self.index.is_spent(envelope.nullifier).await? {
-            return Ok(Phase::Settled);
-        }
-        match self.wallet.escrow(envelope.nullifier).await? {
-            None => Ok(Phase::Locking),
-            Some(deadline) if now.saturating_add(BUFFER) >= deadline => Ok(Phase::Expiring),
-            Some(_) => Ok(Phase::Open),
-        }
     }
 
     /// A note this envelope may delegate.

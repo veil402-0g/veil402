@@ -18,7 +18,7 @@ use veil402_sdk::{
     Field, Veil,
     evm::{PoolClient, Session},
     session::{EnclaveKey, Keyring, Outbound, Sealed},
-    wire::{AgreeBody, MeteredBody, Prompt, SettlementBody, encode},
+    wire::{AgreeBody, MeteredBody, Offer, Prompt, SettlementBody, encode},
 };
 
 use crate::core::{Accepted, Billed, Kept, MeterError, Metering, Meters, Opened, Replayed};
@@ -83,6 +83,28 @@ impl Meters for Enclave {
     }
 
 
+    /// What this enclave can buy, filtered to what it can buy privately and
+    /// priced the way this seller sells it.
+    ///
+    /// Anything attested only at the transport terminates TLS in an enclave
+    /// and then hands the prompt to a vendor that reads it, which is not the
+    /// thing being sold here.
+    async fn catalogue(&self) -> Result<Vec<Offer>, MeterError> {
+        Ok(self
+            .upstream
+            .catalogue()
+            .await
+            .map_err(declined)?
+            .into_iter()
+            .filter(|listing| listing.confidential)
+            .map(|listing| Offer {
+                model: listing.model,
+                prompt: listing.prompt.saturating_mul(self.markup),
+                completion: listing.completion.saturating_mul(self.markup),
+            })
+            .collect())
+    }
+
     fn agree(&self, session: &Session) -> Result<AgreeBody, MeterError> {
         let key = self.keyring.handover(session.nullifier);
         let announcement = self
@@ -119,7 +141,6 @@ impl Meters for Enclave {
         &self,
         nullifier: Field,
         attempt: &str,
-        rate: u64,
         sealed: &Sealed,
     ) -> Result<Opened, MeterError> {
         let prompt = opened(&self.keyring.handover(nullifier), sealed)?;
@@ -154,7 +175,6 @@ impl Meters for Enclave {
                 nullifier,
                 attempt: attempt.to_owned(),
                 markup: self.markup,
-                rate,
             }),
         })
     }
@@ -226,7 +246,6 @@ struct Relay {
     nullifier: Field,
     attempt: String,
     markup: u64,
-    rate: u64,
 }
 
 /// Seals each frame on its way past, and bills the call when it ends.
@@ -272,10 +291,7 @@ async fn bill(relay: &mut Relay, receipt: &Receipt) -> Result<Metering, MeterErr
     // call may cost; a capture above that is the seller paying the
     // difference, so one that fires is worth knowing about rather than
     // absorbing quietly.
-    let owed = receipt
-        .cost
-        .saturating_mul(relay.markup)
-        .saturating_mul(relay.rate);
+    let owed = receipt.cost.saturating_mul(relay.markup);
     let cost = owed.min(meter.headroom());
     if cost < owed {
         tracing::warn!(

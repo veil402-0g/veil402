@@ -16,7 +16,7 @@ use veil402_gateway::{
     app::{Config, assemble},
     core::MeteringService,
 };
-use veil402_sdk::wire::{CallBody, Offer, encode};
+use veil402_sdk::wire::{CallBody, encode};
 
 use support::{DEADLINE, ROOT, asking, backing, delegate, pool};
 
@@ -34,11 +34,7 @@ fn gateway(
             worker: "/nonexistent/worker".into(),
             artifacts: std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../prover/veil402-gnark/artifacts/transaction-v4"),
-            offers: vec![Offer {
-                model: "stub".to_owned(),
-                seller: alloy::primitives::Address::repeat_byte(0x5E),
-                rate: 1,
-            }],
+            seller: alloy::primitives::Address::repeat_byte(0x5E),
             state: state.keep().join("sessions.redb"),
             bind: "127.0.0.1:0".parse()?,
             rpc: "http://127.0.0.1:0".to_owned(),

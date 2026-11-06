@@ -47,7 +47,7 @@ pub fn router(service: Arc<MeteringService>) -> Router {
 }
 
 async fn catalogue(State(service): State<Arc<MeteringService>>) -> Response<Vec<Offer>> {
-    Response::ok(service.offers().to_vec())
+    service.offers().await.map_or_else(Into::into, Response::ok)
 }
 
 async fn agree(

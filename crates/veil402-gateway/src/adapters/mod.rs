@@ -8,5 +8,5 @@ pub mod http;
 
 pub use chain::{OnChain, connect};
 pub use enclave::Enclave;
-pub use memory::{Catalogue, Replays};
+pub use memory::Replays;
 pub use store::Sessions;

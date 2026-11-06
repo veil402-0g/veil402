@@ -81,8 +81,8 @@ async fn refusal(response: Response) -> EnclaveError {
     match reply.action {
         Some(Action::Retry) => EnclaveError::Unknown,
         // Paying is the daemon's own job, and it is already mid-way through
-        // doing it: a 402 here means the gateway lost the session.
-        Some(Action::Reshop | Action::Pay) => EnclaveError::CeilingReached,
+        // doing it: a 402 here means the envelope is spent or gone.
+        Some(Action::Pay) => EnclaveError::CeilingReached,
         _ => EnclaveError::Refused(said),
     }
 }

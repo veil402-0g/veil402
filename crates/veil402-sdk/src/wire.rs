@@ -75,25 +75,6 @@ impl CallBody {
     }
 }
 
-impl CompletionBody {
-    #[must_use]
-    pub fn new(sealed: &Sealed, metered: MeteredBody) -> Self {
-        Self {
-            encapsulated: encode(&sealed.encapsulated),
-            ciphertext: encode(&sealed.ciphertext),
-            metered,
-        }
-    }
-
-    /// # Errors
-    ///
-    /// Returns [`Error::Handover`] when the envelope is not hex of the right
-    /// shape.
-    pub fn sealed(&self) -> Result<Sealed, Error> {
-        sealed(&self.encapsulated, &self.ciphertext)
-    }
-}
-
 fn sealed(encapsulated: &str, ciphertext: &str) -> Result<Sealed, Error> {
     let key: [u8; 32] = bytes(encapsulated)?
         .try_into()
@@ -137,15 +118,6 @@ pub struct Prompt {
     pub reply_to: [u8; 32],
 }
 
-/// The answer, sealed back to the key the request named.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct CompletionBody {
-    pub encapsulated: String,
-    pub ciphertext: String,
-    /// Not sealed: the host has to bill it, and it already knows.
-    pub metered: MeteredBody,
-}
-
 /// What one metered call did to the envelope.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MeteredBody {
@@ -167,13 +139,16 @@ pub struct SettlementBody {
     pub calldata: String,
 }
 
-/// One model a seller will serve, and what it charges.
+/// One model this seller will serve, and what it charges for it.
+///
+/// Derived from what the enclave can buy rather than configured beside it:
+/// two lists of models that can disagree is one list too many.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Offer {
     pub model: String,
-    pub seller: Address,
-    /// Token units per unit consumed.
-    pub rate: u64,
+    /// Pool units per million tokens.
+    pub prompt: u64,
+    pub completion: u64,
 }
 
 /// What the caller should do next.
@@ -185,10 +160,8 @@ pub struct Offer {
 pub enum Action {
     /// Open an envelope; the reply carries what it would take.
     Pay,
-    /// The same seller, again.
+    /// The same request, again.
     Retry,
-    /// Another seller.
-    Reshop,
     /// Nothing will help; the agent's request fails.
     Fail,
 }
@@ -250,7 +223,6 @@ pub struct Challenge {
     pub pool: Address,
     pub chain_id: u64,
     pub seller: Address,
-    pub rate: u64,
     /// Enclave measurements a buyer must pin before paying.
     pub pcrs: Vec<String>,
 }

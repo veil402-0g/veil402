@@ -111,19 +111,6 @@ impl EnclaveKey {
         self.unseal(sealed, PROMPT)
     }
 
-    /// Seals an answer to the key the request named.
-    ///
-    /// Safe without an announcement: that key arrived inside a request only
-    /// the delegation's holder could have sealed, so it is already as
-    /// authenticated as the request itself.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Handover`] when encryption fails.
-    pub fn reply(reply_to: [u8; 32], payload: &[u8]) -> Result<Sealed, Error> {
-        seal(reply_to, REPLY, payload)
-    }
-
     /// Opens a sealed stream back to the key a request named.
     ///
     /// # Errors
@@ -266,16 +253,6 @@ impl Exchange {
         self.key.public()
     }
 
-    /// Opens the answer.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Handover`] when the answer was not sealed to this
-    /// channel, or has been altered.
-    pub fn receive(&self, sealed: &Sealed) -> Result<Vec<u8>, Error> {
-        self.key.unseal(sealed, REPLY)
-    }
-
     /// Opens the stream an answer arrives on.
     ///
     /// # Errors
@@ -391,11 +368,6 @@ impl Inbound {
     pub const fn done(&self) -> bool {
         self.done
     }
-}
-
-fn seal(public: [u8; 32], info: &[u8], payload: &[u8]) -> Result<Sealed, Error> {
-    let parsed = Public::from_bytes(&public).map_err(|_| Error::Handover("key is malformed"))?;
-    encrypt(&parsed, info, payload)
 }
 
 fn encrypt(public: &Public, info: &[u8], payload: &[u8]) -> Result<Sealed, Error> {

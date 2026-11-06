@@ -92,6 +92,13 @@ pub trait Meters: Send + Sync {
     /// name before this meter will serve against it.
     fn signer(&self) -> Address;
 
+    /// What this enclave can buy, priced as this seller sells it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MeterError`] when the upstream cannot be read.
+    async fn catalogue(&self) -> Result<Vec<Offer>, MeterError>;
+
     /// Agrees to meter a session, and names the key its delegation must be
     /// sealed to.
     ///
@@ -129,7 +136,6 @@ pub trait Meters: Send + Sync {
         &self,
         nullifier: Field,
         attempt: &str,
-        rate: u64,
         sealed: &Sealed,
     ) -> Result<Opened, MeterError>;
 
@@ -148,15 +154,6 @@ pub trait Meters: Send + Sync {
     ///
     /// Returns [`MeterError`] when the session is gone or the proof fails.
     async fn settle(&self, nullifier: Field, dust: bool) -> Result<SettlementBody, MeterError>;
-}
-
-/// What this gateway will serve, and for how much.
-pub trait Prices: Send + Sync {
-    fn offers(&self) -> &[Offer];
-
-    /// The seller a buyer is routed to. Cheapest wins; a buyer that wants
-    /// another one opens its envelope against that seller directly.
-    fn cheapest(&self) -> Option<&Offer>;
 }
 
 /// Which calls were already answered.

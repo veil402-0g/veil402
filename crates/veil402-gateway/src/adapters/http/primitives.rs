@@ -63,9 +63,9 @@ const fn verdict(error: &MeterError) -> (StatusCode, Action) {
         // still valid and the escrow still stands, so handing it over again
         // is the whole repair.
         MeterError::Unknown => (StatusCode::NOT_FOUND, Action::Retry),
-        MeterError::CeilingReached | MeterError::Empty => {
-            (StatusCode::CONFLICT, Action::Reshop)
-        }
+        // The envelope is spent. One seller means there is nowhere else to
+        // go, so the answer is the same as having none: open another.
+        MeterError::CeilingReached => (StatusCode::CONFLICT, Action::Pay),
         // Nothing backs this session, so another call will not help and
         // another seller cannot fix it: the buyer has to lock first.
         MeterError::Unreserved(_) => (StatusCode::PAYMENT_REQUIRED, Action::Pay),

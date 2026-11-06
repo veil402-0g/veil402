@@ -138,19 +138,15 @@ pub trait Enclave: Send + Sync {
 /// change a settlement mints can never be identified, let alone spent.
 #[async_trait]
 pub trait EnvelopeStore: Send + Sync {
-    async fn remember(
-        &self,
-        nullifier: Field,
-        model: &str,
-        change_seed: &Secret,
-    ) -> Result<(), StoreError>;
+    async fn remember(&self, nullifier: Field, change_seed: &Secret) -> Result<(), StoreError>;
 
     async fn change_seed(&self, nullifier: Field) -> Result<Option<Secret>, StoreError>;
 
-    /// The last envelope opened for a model.
+    /// The last envelope opened.
     ///
-    /// Only the model is kept: seller, deadline and ceiling are all on chain
-    /// against the nullifier, and a second copy of a fact the chain decides is
-    /// a copy that can disagree with it.
-    async fn newest(&self, model: &str) -> Result<Option<Field>, StoreError>;
+    /// One seller and one shared ceiling mean one envelope serves whatever
+    /// is asked of it, whichever model that turns out to be. Seller,
+    /// deadline and ceiling are all on chain against the nullifier, and a
+    /// second copy of a fact the chain decides is one that can disagree.
+    async fn newest(&self) -> Result<Option<Field>, StoreError>;
 }

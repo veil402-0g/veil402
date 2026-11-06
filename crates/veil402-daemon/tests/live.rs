@@ -29,7 +29,7 @@ use veil402_sdk::{
     Config as Proving, Note, Owner, Secret, Send, Spend, Transaction, Veil,
     evm::{PoolClient, Withdrawal},
     session::{Keyring, RootSeed},
-    wire::{Offer, Prompt},
+    wire::Prompt,
 };
 
 const DEPOSIT: u64 = 1_000;
@@ -279,7 +279,7 @@ async fn an_envelope_rolls_into_the_next() -> Result<(), Box<dyn StdError>> {
     caught_up(&daemon, commitment).await?;
 
     // ---- open: splits the cold note, locks, hands the session over -------
-    let first = envelopes.open(MODEL, seller, CEILING, 600).await?;
+    let first = envelopes.open(seller, CEILING, 600).await?;
     assert_eq!(first.ceiling, CEILING, "the note's value is the ceiling");
     println!("opened           ceiling {}, deadline {}", first.ceiling, first.deadline);
 
@@ -298,7 +298,7 @@ async fn an_envelope_rolls_into_the_next() -> Result<(), Box<dyn StdError>> {
     );
 
     // ---- the claim: the next envelope needs no split ---------------------
-    let second = envelopes.open(MODEL, seller, TARGET, 600).await?;
+    let second = envelopes.open(seller, TARGET, 600).await?;
     assert_ne!(second.nullifier, first.nullifier);
     assert_eq!(
         second.ceiling, TARGET,
@@ -415,13 +415,7 @@ async fn serve(
             root,
         worker: worker()?,
         artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
-            offers: vec![Offer {
-                model: "stub".to_owned(),
-                seller,
-                // One token unit per unit consumed, so a test counts in whole
-                // numbers.
-                rate: 1,
-            }],
+            seller,
             state: state.join("sessions.redb"),
             bind: "127.0.0.1:0".parse()?,
             rpc: var("RPC_URL")?,
@@ -457,7 +451,6 @@ async fn metered(
     for sequence in 0..3 {
         owed = envelopes
             .dispatch(
-                MODEL,
                 &Prompt {
                     body: format!(
                         r#"{{"model":"{MODEL}","messages":[{{"role":"user","content":"{}"}}]}}"#,

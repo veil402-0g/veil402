@@ -20,22 +20,6 @@ pub struct Envelope {
     pub ceiling: u64,
 }
 
-/// Where an envelope stands, derived from the chain rather than stored.
-///
-/// Storing it would mean two records of the same fact, and the chain's is the
-/// one that decides.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Phase {
-    /// The lock has been submitted but the pool has not recorded it.
-    Locking,
-    /// Reserved, and far enough from the deadline to keep serving.
-    Open,
-    /// Close enough to the deadline that settling has to start now.
-    Expiring,
-    /// The pool has spent the nullifier.
-    Settled,
-}
-
 /// What an enclave returns when it agrees to meter a session.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Agreement {

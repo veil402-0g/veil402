@@ -21,7 +21,7 @@ use veil402_gateway::{
 use veil402_sdk::{
     Field,
     evm::PoolClient,
-    wire::{Action, Challenge, Offer, Reply, encode},
+    wire::{Action, Challenge, Reply, encode},
 };
 
 type Fallible = Result<(), Box<dyn std::error::Error>>;
@@ -52,11 +52,7 @@ fn gateway() -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
             root: [3; 32],
             worker: PathBuf::from("/nonexistent/worker"),
             artifacts: artifacts(),
-            offers: vec![Offer {
-                model: "stub".to_owned(),
-                seller: seller(),
-                rate: 2,
-            }],
+            seller: seller(),
             bind: "127.0.0.1:0".parse()?,
             upstream: "http://127.0.0.1:0".to_owned(),
             upstream_key: "sk-test".to_owned(),
@@ -110,7 +106,6 @@ async fn a_call_without_an_envelope_is_challenged_to_pay() -> Fallible {
     let challenge = reply.result.ok_or("no challenge")?;
     assert_eq!(challenge.scheme, "escrow");
     assert_eq!(challenge.seller, seller());
-    assert_eq!(challenge.rate, 2, "the buyer is told the price before it pays");
     assert_eq!(challenge.chain_id, 296);
     Ok(())
 }

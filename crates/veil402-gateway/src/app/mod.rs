@@ -10,11 +10,10 @@ use veil402_sdk::{
     Config as Proving, Veil,
     evm::PoolClient,
     session::{Keyring, RootSeed},
-    wire::Offer,
 };
 
 use crate::{
-    adapters::{self, Catalogue, Enclave, Replays, Sessions, http::router},
+    adapters::{self, Enclave, Replays, Sessions, http::router},
     core::{Escrows, MeterError, MeteringService},
 };
 
@@ -51,7 +50,8 @@ pub struct Config {
     pub root: [u8; 32],
     pub worker: PathBuf,
     pub artifacts: PathBuf,
-    pub offers: Vec<Offer>,
+    /// Who the pool pays. One seller, so it is settled at boot.
+    pub seller: Address,
     /// Endpoint the pool is read through. Read-only: the gateway holds no
     /// key that moves anything.
     pub rpc: String,
@@ -112,11 +112,7 @@ impl Config {
             rpc: required("VEIL_RPC_URL")?,
             worker: PathBuf::from(required("VEIL_WORKER")?),
             artifacts: PathBuf::from(required("VEIL_ARTIFACTS")?),
-            offers: vec![Offer {
-                model: required("VEIL_MODEL")?,
-                seller: address("VEIL_SELLER")?,
-                rate: parsed("VEIL_RATE", 1)?,
-            }],
+            seller: address("VEIL_SELLER")?,
             state: PathBuf::from(
                 env::var("VEIL_GATEWAY_STATE").unwrap_or_else(|_| STATE.to_owned()),
             ),
@@ -174,11 +170,11 @@ pub fn assemble(
     tracing::info!(signer = %enclave.signer(), "the registry must vouch for this address");
     Ok(Arc::new(MeteringService::new(
         Arc::new(enclave),
-        Arc::new(Catalogue::new(config.offers.clone())),
         Arc::new(Replays::default()),
         Arc::new(Sessions::open(&config.state)?),
         escrows,
         config.pool,
+        config.seller,
         Vec::new(),
     )))
 }

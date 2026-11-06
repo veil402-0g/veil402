@@ -17,7 +17,6 @@ use veil402_sdk::{
     Field, Note, Secret, SessionKeys, Tree,
     evm::{PoolClient, Session},
     session::{Handover, Keyring, Recipient, RootSeed, Sealed},
-    wire::Offer,
 };
 
 type Fallible = Result<(), Box<dyn std::error::Error>>;
@@ -54,11 +53,7 @@ fn gateway(
             worker: "/nonexistent/worker".into(),
             artifacts: Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../prover/veil402-gnark/artifacts/transaction-v4"),
-            offers: vec![Offer {
-                model: "stub".to_owned(),
-                seller: seller(),
-                rate: 1,
-            }],
+            seller: seller(),
             state: state.join("sessions.redb"),
             bind: "127.0.0.1:0".parse()?,
             upstream: "http://127.0.0.1:0".to_owned(),

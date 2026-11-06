@@ -10,7 +10,7 @@ use veil402_gateway::{
     app::{Config, assemble},
     core::{Billed, MeterError, MeteringService, Serving},
 };
-use veil402_sdk::{Field, session::Sealed, wire::Offer};
+use veil402_sdk::{Field, session::Sealed};
 
 use support::{DEADLINE, ROOT, asking, backing, delegate, pool};
 
@@ -30,11 +30,7 @@ fn gateway(
             worker: "/nonexistent/worker".into(),
             artifacts: Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../prover/veil402-gnark/artifacts/transaction-v4"),
-            offers: vec![Offer {
-                model: "stub".to_owned(),
-                seller: Address::repeat_byte(0x5E),
-                rate: 1,
-            }],
+            seller: Address::repeat_byte(0x5E),
             state: state.join("sessions.redb"),
             bind: "127.0.0.1:0".parse()?,
             rpc: "http://127.0.0.1:0".to_owned(),
