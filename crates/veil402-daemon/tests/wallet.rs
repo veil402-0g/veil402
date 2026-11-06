@@ -11,6 +11,7 @@ use veil402_daemon::{
     core::{
         index::{Batch, Commitment, IndexStore, Locked, Nullified, Settled},
         envelope::SubmissionStore,
+        receipts::{Direction, Receipt, Receipts},
         wallet::{Held, Minted, NoteStore, Recovered, WalletError, WalletService, choose},
     },
 };
@@ -502,7 +503,7 @@ async fn a_wallet_finds_its_own_notes_with_no_record_of_them() -> Fallible {
     shielded(&store, 3, field(88), view,
         &Opening { value: 9_999, asset: ASSET.to_bytes(), secret: [9; 32], session: false }).await?;
 
-    assert_eq!(wallet.discover(0).await?, 2, "the wallet did not find its own notes");
+    assert_eq!(wallet.discover(0).await?.len(), 2, "the wallet did not find its own notes");
     wallet.reconcile(0).await?;
 
     let held: u64 = store
@@ -514,7 +515,35 @@ async fn a_wallet_finds_its_own_notes_with_no_record_of_them() -> Fallible {
     assert_eq!(held, 1_500, "the recovered notes do not add up");
 
     // Scanning again is idempotent, and costs nothing the second time.
-    assert_eq!(wallet.discover(0).await?, 0, "a note was found twice");
+    assert!(wallet.discover(0).await?.is_empty(), "a note was found twice");
+    Ok(())
+}
+
+/// Payments the chain does not name are kept so a console can show them.
+#[tokio::test]
+async fn receipts_are_kept_newest_first() -> Fallible {
+    let store = store().await?;
+    store
+        .record(&Receipt {
+            direction: Direction::Received,
+            amount: 500,
+            commitment: field(1),
+            at: 10,
+        })
+        .await?;
+    store
+        .record(&Receipt {
+            direction: Direction::Paid,
+            amount: 300,
+            commitment: field(2),
+            at: 20,
+        })
+        .await?;
+
+    let kept = store.receipts(10).await?;
+    assert_eq!(kept.len(), 2);
+    assert_eq!((kept[0].direction, kept[0].amount), (Direction::Paid, 300), "newest first");
+    assert_eq!(kept[1].direction, Direction::Received);
     Ok(())
 }
 

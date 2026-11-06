@@ -8,7 +8,8 @@ use veil402_sdk::{
 };
 
 use super::{
-    ChainFacts, Deposit, Held, Holdings, Minted, NoteStore, Reconciled, Recovered, Unopened,
+    ChainFacts, Deposit, Held, Holdings, Minted, NoteStore, Received, Reconciled, Recovered,
+    Unopened,
 };
 use crate::core::StoreError;
 
@@ -548,17 +549,20 @@ impl WalletService {
     /// # Errors
     ///
     /// Returns [`WalletError::Store`] when the store cannot be read.
-    pub async fn discover(&self, now: u64) -> Result<u32, WalletError> {
+    pub async fn discover(&self, now: u64) -> Result<Vec<Received>, WalletError> {
         let viewing = Viewing::new(&self.owner.view);
         let from = self.chain.scan_mark().await?;
         let unopened = self.chain.unopened(from, SCAN).await?;
-        let mut found = 0;
+        let mut found = Vec::new();
         let mut next = from;
         for leaf in &unopened {
             next = next.max(leaf.leaf_index.saturating_add(1));
             if let Some(minted) = self.opened(&viewing, leaf)? {
+                found.push(Received {
+                    value: minted.value,
+                    commitment: minted.commitment,
+                });
                 self.notes.remember(&[minted], now).await?;
-                found += 1;
             }
         }
         if next > from {
