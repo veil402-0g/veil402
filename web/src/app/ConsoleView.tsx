@@ -1851,17 +1851,42 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
             ) : null}
             {v.hasIssued ? (
               <div className={s.keyPanel}>
-                <span className={s.keyPanelHead}>
-                  API key for {v.issuedFor}
-                </span>
-                <code className={s.keyPanelValue}>{v.issuedKey}</code>
+                <div className={s.keyPanelMark}>
+                  <span className={s.keyPanelDot}>
+                    <svg className={s.trackTick} viewBox="0 0 16 16" aria-hidden="true">
+                      <path
+                        d="M3.6 8.5 6.6 11.5 12.4 5.2"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.1"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                  <span className={s.keyPanelText}>
+                    <span className={s.keyPanelWho}>{v.issuedFor}</span>
+                    <span className={s.keyPanelId}>{v.issuedId}</span>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className={s.keyReveal}
+                  data-shown={v.keyShown ? 'true' : undefined}
+                  onClick={v.revealKey}
+                  aria-label={v.keyShown ? 'API key' : 'Reveal the API key'}
+                >
+                  <code className={s.keyRevealValue}>{v.issuedKey}</code>
+                  <span className={s.keyRevealCover} aria-hidden="true">
+                    <span className={s.keyRevealWord}>Reveal</span>
+                  </span>
+                </button>
                 <span className={s.keyPanelNote}>
-                  The daemon keeps only a hash of this. Copy it now — nothing can show it
-                  again.
+                  Kept as a hash. Nothing can show it again.
                 </span>
                 <div className={s.keyPanelRow}>
                   <button className={s.s259} onClick={v.copyIssued}>
-                    Copy key
+                    {v.copyBtnLabel}
                   </button>
                   <button className={s.keyPanelDone} onClick={v.doneIssued}>
                     Done

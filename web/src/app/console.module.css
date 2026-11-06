@@ -2407,20 +2407,110 @@
   gap: 8px;
 }
 
-.keyPanelHead {
-  font: 500 11px 'JetBrains Mono',monospace;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: #6b6e78;
+/* The same mark the deposit's track ends on, so an issued mandate reads as
+   the same kind of result. */
+.keyPanelMark {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.keyPanelValue {
-  font: 500 12px 'JetBrains Mono',monospace;
-  word-break: break-all;
+.keyPanelDot {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #f4f6fd;
+  color: #1230d6;
+  box-shadow: inset 0 0 0 1px rgba(18,48,214,.16);
+}
+
+.keyPanelText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.keyPanelWho {
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  color: #0d0e12;
+}
+
+.keyPanelId {
+  font: 500 10px 'JetBrains Mono',monospace;
+  letter-spacing: .08em;
+  color: #1230d6;
+}
+
+/* Covered until it is asked for: the key is on screen once, and a console
+   being shared is the ordinary case rather than the exception. The cover
+   wipes off the way the deposit track fills. */
+.keyReveal {
+  position: relative;
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
   background: #f4f6fd;
   box-shadow: inset 0 0 0 1px rgba(18,48,214,.16);
-  padding: 10px 12px;
+}
+
+.keyReveal[data-shown='true'] {
+  cursor: default;
+}
+
+.keyRevealValue {
+  display: block;
+  padding: 12px 14px;
+  font: 500 12px 'JetBrains Mono',monospace;
+  letter-spacing: .02em;
+  line-height: 1.6;
+  word-break: break-all;
   color: #0d0e12;
+  filter: blur(7px);
+  opacity: .5;
+  transition: filter .45s ease .12s,opacity .45s ease .12s;
+}
+
+.keyReveal[data-shown='true'] .keyRevealValue {
+  filter: none;
+  opacity: 1;
+}
+
+.keyRevealCover {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background-image: radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);
+  background-size: 200% 200%;
+  clip-path: inset(0 0 0 0);
+  transition: clip-path .7s cubic-bezier(.65,0,.25,1);
+}
+
+.keyReveal[data-shown='true'] .keyRevealCover {
+  clip-path: inset(0 0 0 100%);
+}
+
+.keyRevealWord {
+  font: 500 11px 'JetBrains Mono',monospace;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .keyRevealCover,
+  .keyRevealValue {
+    transition: none;
+  }
 }
 
 .keyPanelNote {
@@ -2432,6 +2522,10 @@
 .keyPanelRow {
   display: flex;
   gap: 8px;
+}
+
+.keyPanelRow > .s259 {
+  flex: 1;
 }
 
 .keyPanelDone {

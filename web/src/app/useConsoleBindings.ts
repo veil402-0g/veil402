@@ -112,6 +112,12 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
   const [depositing, setDepositing] = useState<Progress | null>(null)
   /** The key a mandate was just issued with. The one moment it exists. */
   const [issued, setIssued] = useState<{ id: string; name: string; key: string } | null>(null)
+  /** Whether the key on screen has been taken, which is the only thing
+   * left to do with it. */
+  const [copied, setCopied] = useState(false)
+  /** A key is covered until it is asked for: it is on screen once, and a
+   * screen being shared is the ordinary case for a console. */
+  const [shown, setShown] = useState(false)
   /** Bumped when the keyring changes, so the rows re-read it. */
   const [keyring, setKeyring] = useState(0)
   /** What stopped the daemon answering, in words the operator can act on. */
@@ -828,6 +834,8 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
         .then((granted) => {
           remember(granted.id, granted.key)
           setKeyring((n) => n + 1)
+          setCopied(false)
+          setShown(false)
           setIssued({ id: granted.id, name, key: granted.key })
           void refresh()
           setForm((f) => ({ ...f, mName: '', mError: '' }))
@@ -1091,12 +1099,18 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
       setForm((f) => ({ ...f, mBudget: e.target.value })),
     mError: form.mError,
     issuedKey: issued?.key ?? '',
-    issuedFor: issued ? `${issued.name} · ${issued.id}` : '',
+    issuedFor: issued?.name ?? '',
+    issuedId: issued?.id ?? '',
+    // The same bargain the deposit's button makes: the thing you press says
+    // what happened, rather than saying "done".
+    copyBtnLabel: copied ? 'Key copied' : 'Copy key',
+    keyShown: shown,
+    revealKey: () => setShown(true),
     hasIssued: !!issued,
     copyIssued: () => {
       if (!issued) return
       void navigator.clipboard?.writeText(issued.key)
-      notify('Key copied', issued.id)
+      setCopied(true)
     },
     doneIssued: () => {
       setIssued(null)
