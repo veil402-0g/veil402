@@ -146,7 +146,7 @@ services:
       # 1.13 refuses to fetch from private addresses. The daemon is on this
       # compose network and resolves to one, so it has to be named here or
       # the provider cannot reach it at all.
-      LANGFLOW_SSRF_ALLOWED_HOSTS: daemon
+      LANGFLOW_SSRF_ALLOWED_HOSTS: daemon,agent-b
       LANGFLOW_HOST: 0.0.0.0
       LANGFLOW_PORT: "7860"
       OPENAI_COMPATIBLE_BASE_URL: http://daemon:8402/v1
