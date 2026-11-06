@@ -47,4 +47,8 @@ pub enum Error {
     /// A key could not be derived from the root seed.
     #[error("key derivation failed: {0}")]
     Derive(&'static str),
+
+    /// A payment address could not be parsed.
+    #[error("invalid payment address: {0}")]
+    Address(&'static str),
 }
