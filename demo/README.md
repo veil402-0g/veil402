@@ -75,6 +75,16 @@ served from, since `?api=` is a cross-origin call.
 ./demo/run-demo.sh "an escrow contract that releases USDC to a seller on buyer confirmation"
 ```
 
+Or **talk to your agent** — ask once, it does the rest (402, private pay, build, result).
+Start Agent B once (`STUB=1 node demo/agent-b.mjs` for instant builds, or without
+`STUB` for a real Arc Studio build + deploy), then:
+
+```bash
+node demo/agent-a.mjs
+# 🤖 I'm your build agent. Tell me what smart contract you need…
+# you> an ERC-20 called PayToken with an owner-only mint
+```
+
 Agent A's feed shows a **paid** row; Agent B's shows **received**; the pool on
 Hashscan shows only opaque commitments.
 
