@@ -161,6 +161,62 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
+  # --- the agent-to-agent payment demo -------------------------------
+  # Profiled, so nothing here exists unless COMPOSE_PROFILES names it. The
+  # stack that meters is untouched either way, and a demo that will not
+  # start cannot take it down.
+
+  # The payee. Same image and same pool as the daemon above, another wallet:
+  # .env.b renames its keys over the shared file. No healthcheck on purpose —
+  # the deploy's gate fails the whole stack on one sick service, and the demo
+  # is not worth that.
+  daemon-b:
+    <<: *rust
+    profiles: [demo]
+    image: 954903081032.dkr.ecr.eu-west-1.amazonaws.com/veil402-daemon:${TAG:-latest}
+    env_file:
+      - .env
+      - .env.b
+      - path: .env.local
+        required: false
+    environment:
+      VEIL_TICK: "60"
+      VEIL_LISTEN: 0.0.0.0:8402
+      VEIL_WORKER: /usr/local/bin/veil402-gnark
+      VEIL_ARTIFACTS: /opt/veil402/artifacts/transaction-v4
+      VEIL_DATABASE: sqlite:///state/veil402-b.db?mode=rwc
+      VEIL_WALLET_STATE: /state/veil402-b-wallet.redb
+      VEIL_GATEWAY_URL: http://gateway:8401
+      VEIL_RELAY_URL: http://relay:8403
+    volumes: [daemon-b-state:/state]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  # The seller. Stubbed: the real one shells out to arc-studio, which is not
+  # in this image and would reach the internet from a box that should not.
+  agent-b:
+    profiles: [demo]
+    image: 954903081032.dkr.ecr.eu-west-1.amazonaws.com/veil402-agent:${TAG:-latest}
+    restart: unless-stopped
+    networks: [veil]
+    environment:
+      AGENT_B_PORT: "8500"
+      DAEMON_B: http://daemon-b:8402/api/v1
+      STUB: "1"
+      PRICE: "500000"
+    depends_on: [daemon-b]
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
   console:
     image: 954903081032.dkr.ecr.eu-west-1.amazonaws.com/veil402-console:${TAG:-latest}
     restart: unless-stopped
@@ -181,6 +237,7 @@ networks:
 
 volumes:
   langflow-data:
+  daemon-b-state:
   daemon-state:
   gateway-state:
   relay-state:
