@@ -1,7 +1,10 @@
 use alloy::primitives::{Address, B256, Signature};
 use hpke::{
-    Deserializable, OpModeR, OpModeS, Serializable, aead::ChaCha20Poly1305, kdf::HkdfSha256,
-    kem::X25519HkdfSha256, single_shot_open, single_shot_seal,
+    Deserializable, OpModeR, OpModeS, Serializable,
+    aead::{AeadCtxR, AeadCtxS, ChaCha20Poly1305},
+    kdf::HkdfSha256,
+    kem::X25519HkdfSha256,
+    setup_receiver, setup_sender, single_shot_open, single_shot_seal,
 };
 
 use crate::{client::Error, evm::PoolClient};
@@ -9,6 +12,8 @@ use crate::{client::Error, evm::PoolClient};
 type Kem = X25519HkdfSha256;
 type Private = <Kem as hpke::Kem>::PrivateKey;
 type Public = <Kem as hpke::Kem>::PublicKey;
+type Sealing = AeadCtxS<ChaCha20Poly1305, HkdfSha256, Kem>;
+type Opening = AeadCtxR<ChaCha20Poly1305, HkdfSha256, Kem>;
 
 /// Binds the sealed envelope to the scheme it was written for.
 const INFO: &[u8] = b"veil402:handover:v1";
@@ -117,6 +122,31 @@ impl EnclaveKey {
     /// Returns [`Error::Handover`] when encryption fails.
     pub fn reply(reply_to: [u8; 32], payload: &[u8]) -> Result<Sealed, Error> {
         seal(reply_to, REPLY, payload)
+    }
+
+    /// Opens a sealed stream back to the key a request named.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Handover`] when the key is malformed.
+    pub fn reply_stream(reply_to: [u8; 32]) -> Result<Outbound, Error> {
+        Outbound::to(reply_to, REPLY)
+    }
+
+    fn opening(&self, head: [u8; 32], info: &[u8]) -> Result<Inbound, Error> {
+        let encapsulated = <Kem as hpke::Kem>::EncappedKey::from_bytes(&head)
+            .map_err(|_| Error::Handover("encapsulated key is malformed"))?;
+        let context = setup_receiver::<ChaCha20Poly1305, HkdfSha256, Kem>(
+            &OpModeR::Base,
+            &self.private,
+            &encapsulated,
+            info,
+        )
+        .map_err(|_| Error::Handover("stream does not open"))?;
+        Ok(Inbound {
+            context,
+            done: false,
+        })
     }
 
     /// Opens state this key sealed.
@@ -244,6 +274,110 @@ impl Exchange {
     /// channel, or has been altered.
     pub fn receive(&self, sealed: &Sealed) -> Result<Vec<u8>, Error> {
         self.key.unseal(sealed, REPLY)
+    }
+
+    /// Opens the stream an answer arrives on.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Handover`] when the head is malformed.
+    pub fn inbound(&self, head: [u8; 32]) -> Result<Inbound, Error> {
+        self.key.opening(head, REPLY)
+    }
+}
+
+/// Marks a frame as the last. Bound in the AAD rather than carried in the
+/// payload, so a relay that forges an ending breaks the tag.
+const fn boundary(last: bool) -> [u8; 1] {
+    [last as u8]
+}
+
+/// The sending half of a sealed stream: one context, many frames.
+///
+/// RFC 9180 gives each frame the next nonce in sequence, so one that is
+/// reordered, repeated or dropped will not open. What it does not give is an
+/// end — a relay that simply stops forwarding leaves a prefix that opens
+/// perfectly well. `last` is what closes that, the way STREAM does: the
+/// receiver is not finished until it has opened a frame saying so.
+pub struct Outbound {
+    context: Sealing,
+    encapsulated: [u8; 32],
+}
+
+impl Outbound {
+    /// Opens a stream to `recipient`. `info` names the scheme, as it does for
+    /// every other envelope here — ours, or an upstream's.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Handover`] when the key is malformed or no context
+    /// can be established.
+    pub fn to(recipient: [u8; 32], info: &[u8]) -> Result<Self, Error> {
+        let public =
+            Public::from_bytes(&recipient).map_err(|_| Error::Handover("key is malformed"))?;
+        let (encapsulated, context) =
+            setup_sender::<ChaCha20Poly1305, HkdfSha256, Kem>(&OpModeS::Base, &public, info)
+                .map_err(|_| Error::Handover("stream does not open"))?;
+        let bytes = encapsulated.to_bytes();
+        let mut head = [0_u8; 32];
+        head.copy_from_slice(&bytes);
+        Ok(Self {
+            context,
+            encapsulated: head,
+        })
+    }
+
+    /// The encapsulated key, which travels once ahead of the frames.
+    #[must_use]
+    pub const fn head(&self) -> [u8; 32] {
+        self.encapsulated
+    }
+
+    /// Seals one frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Handover`] when the frame does not seal, which for a
+    /// stream means its sequence is spent.
+    pub fn frame(&mut self, payload: &[u8], last: bool) -> Result<Vec<u8>, Error> {
+        self.context
+            .seal(payload, &boundary(last))
+            .map_err(|_| Error::Handover("frame does not seal"))
+    }
+}
+
+/// The receiving half. Frames open in the order they were sealed, or not at
+/// all.
+pub struct Inbound {
+    context: Opening,
+    done: bool,
+}
+
+impl Inbound {
+    /// Opens one frame. `last` is what the sender claimed on the wire; a
+    /// relay that changed it breaks the tag rather than the decoding.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Handover`] when the frame is out of order, altered,
+    /// or arrives after the stream has already ended.
+    pub fn frame(&mut self, sealed: &[u8], last: bool) -> Result<Vec<u8>, Error> {
+        if self.done {
+            return Err(Error::Handover("the stream has already ended"));
+        }
+        let payload = self
+            .context
+            .open(sealed, &boundary(last))
+            .map_err(|_| Error::Handover("frame does not open"))?;
+        self.done = last;
+        Ok(payload)
+    }
+
+    /// Whether the stream reached an end that was sealed as one. A stream
+    /// that stops without it was cut short, however well every frame opened.
+    #[must_use]
+    pub const fn done(&self) -> bool {
+        self.done
     }
 }
 
