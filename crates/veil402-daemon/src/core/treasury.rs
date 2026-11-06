@@ -198,6 +198,25 @@ impl TreasuryService {
             .wallet
             .seal(amount, self.pool.asset(), &note.random)
             .map_err(|error| refused(&error))?;
+
+        // Written down before the shield is sent, like every other mint: a
+        // crash in between would otherwise lose it, and the scan would reach
+        // the commitment before the deposit was recorded and read its own
+        // note back as a payment from nowhere.
+        let random = Secret::from_bytes(note.random.to_bytes()).map_err(|error| refused(&error))?;
+        self.wallet
+            .remember(
+                &[Minted {
+                    commitment,
+                    value: amount,
+                    asset: self.pool.asset(),
+                    random,
+                    seed: None,
+                }],
+                now,
+            )
+            .await?;
+
         self.funder
             .send(
                 self.pool.address(),
@@ -212,19 +231,6 @@ impl TreasuryService {
             .await?;
 
         self.set(Stage::Placing, None, None);
-        let random = Secret::from_bytes(note.random.to_bytes()).map_err(|error| refused(&error))?;
-        self.wallet
-            .remember(
-                &[Minted {
-                    commitment,
-                    value: amount,
-                    asset: self.pool.asset(),
-                    random,
-                    seed: None,
-                }],
-                now,
-            )
-            .await?;
         self.wallet
             .deposited(&Deposit {
                 commitment,
