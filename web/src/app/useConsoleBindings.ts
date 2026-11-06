@@ -16,6 +16,7 @@ import {
   avatar,
   seedEmpty,
   totals,
+  type Agent,
   type Ledger,
   type Totals,
 } from '../ledger/model'
@@ -29,12 +30,43 @@ const DOT_ROWS = 6
 const DOT_COLS = 72
 const DOT_N = DOT_ROWS * DOT_COLS
 
-/** The agent table pages rather than scrolls. */
+/** Each list pages rather than scrolls, so the panels keep their height. */
 const AGENTS_PER_PAGE = 7
+const FEED_PER_PAGE = 4
+const SESSIONS_PER_PAGE = 2
+
+/** A spend too small to round to a percent still happened. */
+function asPct(share: number): string {
+  if (share <= 0) return '0%'
+  return share < 0.005 ? '<1%' : `${Math.round(share * 100)}%`
+}
 
 /** The status orb: a flat two-stop disc, not a lit sphere. */
 function orb(dark: string, light: string): string {
   return `linear-gradient(150deg,${dark} 0%,${light} 100%)`
+}
+
+/** Slice a list to one page, with the controls that move between them. */
+function paginate<T>(rows: T[], per: number, page: number, go: (n: number) => void) {
+  const pages = Math.max(Math.ceil(rows.length / per), 1)
+  const at = Math.min(page, pages - 1)
+  const from = at * per
+  const shown = rows.slice(from, from + per)
+  return {
+    shown,
+    pager: rows.length > 0,
+    range: rows.length === 0 ? '' : `${from + 1}-${from + shown.length} of ${rows.length}`,
+    pageItems: pageWindow(at, pages).flatMap((n, i, all) => {
+      const item = { gap: false, label: String(n + 1), current: n === at, go: () => go(n) }
+      return i > 0 && n - all[i - 1]! > 1
+        ? [{ gap: true, label: '', current: false, go: () => {} }, item]
+        : [item]
+    }),
+    canPrev: at > 0,
+    canNext: at < pages - 1,
+    prev: () => go(Math.max(at - 1, 0)),
+    next: () => go(Math.min(at + 1, pages - 1)),
+  }
 }
 
 /** First, last and a window around the current page; the rest collapses. */
@@ -137,6 +169,8 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
 
   const [agentQuery, setAgentQuery] = useState('')
   const [agentPage, setAgentPage] = useState(0)
+  const [feedPage, setFeedPage] = useState(0)
+  const [sessionPage, setSessionPage] = useState(0)
   /** What stopped the daemon answering, in words the operator can act on. */
   const [offline, setOffline] = useState('')
 
@@ -354,7 +388,7 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
   const settlements = ledger.agents.reduce((t, a) => t + a.txs, 0)
 
   const stats = [
-    { label: 'Mandated', value: money(T.mandated), sub: `${liveMandates} live mandates`, color: '#8b8e97' },
+    { label: 'Mandated', value: money(T.promised), sub: `${liveMandates} live mandates`, color: '#8b8e97' },
     {
       label: 'In escrow',
       value: money(T.escrow),
@@ -385,12 +419,15 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
   const heldFor = (agentId: string) =>
     ledger.sessions.filter((x) => x.agentId === agentId).reduce((q, x) => q + x.escrow, 0)
 
-  // Live mandates first and widest allowance on top, because that is the
-  // order an operator scans in; the spent ones sink.
-  const rank = (status: string) => (status === 'active' ? 0 : status === 'paused' ? 1 : 2)
+  // What is spending now, then what could, then what cannot — and within
+  // each, the widest allowance first. That is the order an operator scans in.
+  const isMetering = (a: Agent) =>
+    a.status === 'active' && (heldFor(a.id) > 0 || now - a.last < 60e3)
+  const rank = (a: Agent) =>
+    a.status === 'revoked' ? 3 : a.status === 'paused' ? 2 : isMetering(a) ? 0 : 1
   const ceiling = (budget: number | null) => budget ?? Number.POSITIVE_INFINITY
   const ordered = [...ledger.agents].sort(
-    (a, b) => rank(a.status) - rank(b.status) || ceiling(b.budget) - ceiling(a.budget),
+    (a, b) => rank(a) - rank(b) || b.spent - a.spent || ceiling(b.budget) - ceiling(a.budget),
   )
 
   const needle = agentQuery.trim().toLowerCase()
@@ -442,17 +479,13 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
 
     const TICKS = 50
     const spentTicks = Math.round(Math.min(pct, 1) * TICKS)
-    const escrowTicks =
-      revoked || a.budget === null
-        ? 0
-        : Math.max(held > 0 ? 1 : 0, Math.round(Math.min(held / a.budget, 1) * TICKS))
 
     const runway = () => {
       if (revoked) return '—'
       if (a.status === 'paused') return 'paused'
       if (a.budget === null) return 'uncapped'
       const rate = a.spent / Math.max(1, a.txs / 12)
-      const days = Math.max(a.budget - a.spent - held, 0) / Math.max(rate, 1)
+      const days = Math.max(a.budget - a.spent, 0) / Math.max(rate, 1)
       return days < 1 ? '< 1 day runway' : `≈ ${Math.round(days)}d runway`
     }
 
@@ -462,13 +495,8 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
       purpose: a.purpose,
       budgetF: a.budget === null ? 'uncapped' : money(a.budget),
       spentF: money(a.spent),
-      pctF: `${Math.round(pct * 100)}%`,
+      pctF: asPct(pct),
       spentW: `${Math.min(pct * 100, 100)}%`,
-      escW: `${
-        revoked || a.budget === null
-          ? 0
-          : Math.min((held / a.budget) * 100, 100 - Math.min(pct * 100, 100))
-      }%`,
       barColor: revoked ? '#c4c8d4' : hot ? '#ff4d1a' : '#1230d6',
       statusLabel,
       statusInk,
@@ -515,23 +543,23 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
         if (i < spentTicks) {
           return { bg: revoked ? '#c4c6cc' : hot ? '#ff4d1a' : '#1230d6', h: `${major ? 100 : 78}%` }
         }
-        if (i < spentTicks + escrowTicks) return { bg: '#1230d6', h: '100%' }
         return { bg: '#d0d2d8', h: `${major ? 46 : 24}%` }
       }),
       leftF: revoked
         ? 'mandate nullified'
         : a.budget === null
           ? 'no ceiling'
-          : `${money(Math.max(a.budget - a.spent - held, 0))} left`,
+          : `${money(Math.max(a.budget - a.spent, 0))} left`,
       runway: runway(),
       runColor: pct >= 0.95 && !revoked ? '#ff4d1a' : '#8b8e97',
       ...avatar(a.name, revoked),
     }
   })
 
-  const nameOf = (id: string) => ledger.agents.find((a) => a.id === id)?.name ?? '?'
+  const nameOf = (id: string) => ledger.agents.find((a) => a.id === id)?.name ?? (id ? '?' : 'Envelope')
 
-  const sessionRows = ledger.sessions.map((x) => ({
+  const sessions = paginate(ledger.sessions, SESSIONS_PER_PAGE, sessionPage, setSessionPage)
+  const sessionRows = sessions.shown.map((x) => ({
     id: x.id,
     agent: nameOf(x.agentId),
     vendor: x.vendor,
@@ -539,22 +567,19 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     escrowF: money(x.escrow),
     tokens: compact(x.tokens),
     age: relative(now - x.started).replace(' ago', ''),
-    pctF: `${Math.round((x.metered / x.escrow) * 100)}%`,
-    fillW: `${Math.min(100, (x.metered / x.escrow) * 100).toFixed(1)}%`,
-    refundF: money(Math.max(x.escrow - x.metered, 0)),
-    // The refund figure fades out as the escrow is consumed.
-    refundOp: x.metered / x.escrow > 0.78 ? 0 : 1,
-    rate: compact(Math.round(x.tokens / Math.max(5, (now - x.started) / 1000))),
     ...avatar(nameOf(x.agentId), isRevoked(nameOf(x.agentId))),
   }))
 
-  const feedRows = ledger.feed.slice(0, 7).map((f) => ({
+  const feed = paginate(ledger.feed, FEED_PER_PAGE, feedPage, setFeedPage)
+  const feedRows = feed.shown.map((f) => ({
     clock: clock(f.t),
     agent: f.agent,
-    vendor: f.vendor,
+    vendor: f.vendor.startsWith('0x') ? shortHash(f.vendor.slice(2)) : f.vendor,
     kindLabel: KIND_LABEL[f.kind],
     rel: relative(now - f.t),
-    amountF: AMOUNT_SIGN[f.kind] + money(f.amount),
+    // Opening an envelope locks a note; it moves nothing out of the pool, so
+    // a figure here would only read as a spend that never happened.
+    amountF: f.kind === 'escrow' ? '' : AMOUNT_SIGN[f.kind] + money(f.amount),
     amtColor:
       f.kind === 'deposit'
         ? '#1230d6'
@@ -712,7 +737,7 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
 
     return {
       name: a.name,
-      pctF: `${Math.round(pct * 100)}%`,
+      pctF: asPct(pct),
       spentH: `${sp}%`,
       escH:
         es > 0 || (!revoked && held > 0)
@@ -735,7 +760,6 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
   const pctOfCeiling = (v: number) => `${((Math.min(v, RANGE_CEILING) / RANGE_CEILING) * 100).toFixed(2)}%`
 
   const rangeCols = paged.map((a, i) => {
-    const held = heldFor(a.id)
     const revoked = a.status === 'revoked'
     const paused = a.status === 'paused'
     const dead = revoked || paused
@@ -745,7 +769,7 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     const projected =
       dead || a.budget === null
         ? pct
-        : Math.min(RANGE_CEILING, (a.spent + held + daily * 8) / a.budget)
+        : Math.min(RANGE_CEILING, (a.spent + daily * 8) / a.budget)
     const lo = Math.min(pct, RANGE_CEILING)
     const hi = Math.max(projected, lo + 0.02)
 
@@ -807,7 +831,7 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
       name: a.name,
       cells,
       labTop: `${(RANGE_STEPS - 1 - projCell) * 14 - 1}px`,
-      projF: `${Math.round(projected * 100)}%`,
+      projF: asPct(projected),
       lc: dead ? '#8b8e97' : over ? '#ff4d1a' : '#1230d6',
 
       cx: `${((i * PLOT_GROUP + 4.5) / (paged.length * PLOT_GROUP || 1)) * 100}%`,
@@ -1004,6 +1028,13 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     stOff: () => setHoverStage(null),
     tlCols,
 
+    sessionPager: sessions.pager,
+    sessionRange: sessions.range,
+    sessionPageItems: sessions.pageItems,
+    canSessionPrev: sessions.canPrev,
+    canSessionNext: sessions.canNext,
+    sessionPrev: sessions.prev,
+    sessionNext: sessions.next,
     hasSessions: loading || ledger.sessions.length > 0,
     noSessions: !loading && ledger.sessions.length === 0,
     sessionRows,
@@ -1014,6 +1045,13 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     escInt,
     escDec,
 
+    feedPager: feed.pager,
+    feedRange: feed.range,
+    feedPageItems: feed.pageItems,
+    canFeedPrev: feed.canPrev,
+    canFeedNext: feed.canNext,
+    feedPrev: feed.prev,
+    feedNext: feed.next,
     hasFeed: loading || ledger.feed.length > 0,
     noFeed: !loading && ledger.feed.length === 0,
     feedRows,

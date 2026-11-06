@@ -66,6 +66,22 @@ function agent(mandate: Mandate, decimals: number): Agent {
  */
 function sessions(envelope: Envelope402 | null, decimals: number): Session[] {
   if (!envelope) return []
+  // The note is locked when the envelope opens, before any agent has drawn on
+  // it — which is exactly the window of an agent's first call. Reading the
+  // lock from the draws alone would show nothing held at that moment.
+  if (envelope.agents.length === 0) {
+    return [
+      {
+        id: `ses_${envelope.nullifier.slice(0, 6)}`,
+        agentId: '',
+        vendor: 'awaiting first call',
+        escrow: scaled(envelope.ceiling, decimals),
+        metered: 0,
+        tokens: 0,
+        started: millis(envelope.opened),
+      },
+    ]
+  }
   return envelope.agents.map((drawn) => ({
     id: `ses_${envelope.nullifier.slice(0, 6)}_${drawn.id.slice(0, 4)}`,
     agentId: drawn.id,
@@ -83,7 +99,9 @@ function event(entry: Event, decimals: number): Tx {
     commit: entry.commitment ?? '',
     nullifier: entry.nullifier ?? '',
     t: millis(entry.at),
-    agent: entry.label ?? (entry.kind === 'deposit' ? 'Treasury' : '—'),
+    // An escrow opens against the seller, not for any one agent, so it is the
+    // envelope that acts here.
+    agent: entry.label ?? (entry.kind === 'deposit' ? 'Treasury' : 'Envelope'),
     vendor: entry.vendor,
     amount: scaled(entry.amount, decimals),
     kind: entry.kind as TxKind,

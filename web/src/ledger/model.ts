@@ -99,24 +99,36 @@ export function seedEmpty(): Ledger {
 export interface Totals {
   spent: number
   escrow: number
+  /** What the unlocked balance has been promised to: the chart's share. */
   mandated: number
+  /** What every live mandate adds up to, which may exceed the pool. */
+  promised: number
   free: number
   total: number
 }
 
+/**
+ * Where the pool's balance sits right now.
+ *
+ * The lock and the mandates overlap — an agent's calls are paid out of the
+ * very note the envelope has locked — so the three shares are carved out of
+ * the balance in order rather than added up. They total the balance exactly,
+ * which is the figure the headline shows.
+ */
 export function totals(l: Ledger): Totals {
   const spent = l.agents.reduce((t, a) => t + a.spent, 0)
-  const escrow = l.sessions.reduce((t, x) => t + x.escrow, 0)
+  const escrow = Math.min(
+    l.sessions.reduce((t, x) => t + x.escrow, 0),
+    l.balance,
+  )
   // An uncapped mandate reserves nothing: there is no figure to set aside,
   // and treating it as infinite would swallow the whole pool.
-  const mandated = l.agents
+  const promised = l.agents
     .filter((a) => a.status !== 'revoked' && a.budget !== null)
-    .reduce((t, a) => {
-      const held = l.sessions.filter((x) => x.agentId === a.id).reduce((q, x) => q + x.escrow, 0)
-      return t + Math.max((a.budget ?? 0) - a.spent - held, 0)
-    }, 0)
-  const free = Math.max(l.balance - escrow - mandated, 0)
-  return { spent, escrow, mandated, free, total: spent + escrow + mandated + free }
+    .reduce((t, a) => t + Math.max((a.budget ?? 0) - a.spent, 0), 0)
+  const mandated = Math.min(promised, l.balance - escrow)
+  const free = l.balance - escrow - mandated
+  return { spent, escrow, mandated, promised, free, total: l.balance }
 }
 
 const AVATAR_POSITIONS = ['0% 0%', '100% 20%', '30% 100%', '80% 80%', '50% 40%', '10% 60%', '90% 0%']

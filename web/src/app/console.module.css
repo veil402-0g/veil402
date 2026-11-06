@@ -1726,10 +1726,14 @@
   color: #6b6e78;
 }
 
+/* A live log that grows would push every panel below it down the page, so
+   it holds one page and the rest is behind the pager. */
 .s170 {
   display: flex;
   flex-direction: column;
   border-top: 1px solid #e3e5ea;
+  height: 245px;
+  overflow: hidden;
 }
 
 .s171 {
@@ -1982,56 +1986,6 @@
 .s199 {
   font-size: 13px;
   color: #a3a6ae;
-}
-
-.s200 {
-  position: relative;
-  height: 6px;
-  border-radius: 3px;
-  background: #eef1ff;
-  margin: 0 8px 0 0;
-}
-
-.s201 {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: var(--d0);
-  border-radius: 3px;
-  background: linear-gradient(90deg,#8fb0f2,#2c63e6 70%,#1230d6);
-  transition: width .9s linear;
-}
-
-.s202 {
-  position: absolute;
-  top: 50%;
-  left: var(--d0);
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #fff;
-  border: 3px solid #1230d6;
-  box-sizing: border-box;
-  box-shadow: 0 2px 8px rgba(18,48,214,.3);
-  transform: translate(-50%,-50%);
-  transition: left .9s linear;
-}
-
-.s203 {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  font-size: 10px;
-  color: #8b8e97;
-}
-
-.s204 {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
 }
 
 

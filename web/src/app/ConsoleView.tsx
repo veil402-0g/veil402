@@ -1240,6 +1240,56 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                 </div>
                 </>
               ) : null}
+              {v.feedPager ? (
+                <div
+                  className={s.pager}
+                >
+                  <button
+                    className={s.pagerArrow}
+                    onClick={v.feedPrev}
+                    disabled={!v.canFeedPrev}
+                    aria-label="Previous page"
+                  >
+                    ‹
+                  </button>
+                  <div
+                    className={s.pagerPages}
+                  >
+                    {v.feedPageItems.map((p, i) => (
+                      <Fragment key={i}>
+                      {p.gap ? (
+                        <span
+                          className={s.pagerGap}
+                        >
+                          …
+                        </span>
+                      ) : (
+                        <button
+                          className={p.current ? s.pagerPageOn : s.pagerPage}
+                          onClick={p.go}
+                          aria-current={p.current}
+                        >
+                          {p.label}
+                        </button>
+                      )}
+                      </Fragment>
+                    ))}
+                  </div>
+                  <button
+                    className={s.pagerArrow}
+                    onClick={v.feedNext}
+                    disabled={!v.canFeedNext}
+                    aria-label="Next page"
+                  >
+                    ›
+                  </button>
+                  <span
+                    className={s.pagerCount}
+                  >
+                    {v.feedRange}
+                  </span>
+                </div>
+              ) : null}
             </div>
             <div
               className={s.s182}
@@ -1421,27 +1471,6 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                           </span>
                         </span>
                       </div>
-                      <div
-                        className={s.s200}
-                      >
-                        <div
-                          className={s.s201}
-                          style={{ '--d0': se.fillW } as CSSVars}
-                        />
-                        <span
-                          className={s.s202}
-                          style={{ '--d0': se.fillW } as CSSVars}
-                        />
-                      </div>
-                      <div
-                        className={s.s203}
-                      >
-                        <span
-                          className={s.s204}
-                        >
-                          {se.pctF} · {se.rate} tok/s · refund {se.refundF}
-                        </span>
-                      </div>
                     </div>
                     </Fragment>
                   ))}
@@ -1463,6 +1492,56 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                   </span>
                 </div>
                 </>
+              ) : null}
+              {v.sessionPager ? (
+                <div
+                  className={s.pager}
+                >
+                  <button
+                    className={s.pagerArrow}
+                    onClick={v.sessionPrev}
+                    disabled={!v.canSessionPrev}
+                    aria-label="Previous page"
+                  >
+                    ‹
+                  </button>
+                  <div
+                    className={s.pagerPages}
+                  >
+                    {v.sessionPageItems.map((p, i) => (
+                      <Fragment key={i}>
+                      {p.gap ? (
+                        <span
+                          className={s.pagerGap}
+                        >
+                          …
+                        </span>
+                      ) : (
+                        <button
+                          className={p.current ? s.pagerPageOn : s.pagerPage}
+                          onClick={p.go}
+                          aria-current={p.current}
+                        >
+                          {p.label}
+                        </button>
+                      )}
+                      </Fragment>
+                    ))}
+                  </div>
+                  <button
+                    className={s.pagerArrow}
+                    onClick={v.sessionNext}
+                    disabled={!v.canSessionNext}
+                    aria-label="Next page"
+                  >
+                    ›
+                  </button>
+                  <span
+                    className={s.pagerCount}
+                  >
+                    {v.sessionRange}
+                  </span>
+                </div>
               ) : null}
             </div>
           </section>
