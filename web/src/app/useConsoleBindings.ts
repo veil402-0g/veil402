@@ -377,6 +377,15 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
       opacity: revoked ? 0.5 : 1,
       canRevoke: !revoked,
       isRevoked: revoked,
+      canPause: !revoked && config?.features.pause === true,
+      pauseLabel: a.status === 'paused' ? 'Resume' : 'Pause',
+      togglePause: () => {
+        const paused = a.status !== 'paused'
+        api
+          .pause(a.id, paused)
+          .then(() => notify(`Mandate ${a.id} ${paused ? 'paused' : 'resumed'}`, a.name))
+          .catch((error: unknown) => notify('Refused', explain(error), '#ff4d1a'))
+      },
       revoke: () => {
         api
           .revoke(a.id)
@@ -471,6 +480,10 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
 
   const genProof = () => {
     if (!canProve) return
+    if (!config?.features.disclose) {
+      notify('Viewing proofs are not served yet', 'the daemon reports no disclosure endpoint', '#8b8e97')
+      return
+    }
     setProving(true)
     const label =
       scope === 'tx'
@@ -721,6 +734,15 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
   const confirmFund = () => {
     const amount = amountOf(form.fundAmount)
     if (!amount || form.funding) return
+    if (!config?.features.deposit) {
+      const command = `cargo run -p veil402-daemon -- deposit ${Math.round(
+        amount * 10 ** (config?.decimals ?? 6),
+      )}`
+      void navigator.clipboard?.writeText(command)
+      setFundOpen(false)
+      notify('Deposit runs from the command line', `${command} — copied`)
+      return
+    }
     setForm((f) => ({ ...f, funding: true }))
     window.setTimeout(() => {
       setForm((f) => ({ ...f, funding: false }))
@@ -940,7 +962,11 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     pickAuditAgent: (e: ChangeEvent<HTMLSelectElement>) =>
       setLedger((l) => ({ ...l, auditAgent: e.target.value })),
 
-    proofBtnLabel: proving ? 'Generating viewing proof…' : 'Generate viewing proof',
+    proofBtnLabel: proving
+      ? 'Generating viewing proof…'
+      : config?.features.disclose
+        ? 'Generate viewing proof'
+        : 'Viewing proof — not served yet',
     proofBtnOpacity: canProve || proving ? 1 : 0.5,
     genProof,
     hasProofs: ledger.proofs.length > 0,
@@ -973,7 +999,11 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
       label,
       pick: () => setForm((f) => ({ ...f, fundAmount: label })),
     })),
-    fundBtnLabel: form.funding ? 'Generating deposit proof…' : `Deposit ${form.fundAmount} USDC`,
+    fundBtnLabel: form.funding
+      ? 'Generating deposit proof…'
+      : config?.features.deposit
+        ? `Deposit ${form.fundAmount} USDC`
+        : 'Copy deposit command',
     confirmFund,
 
     mName: form.mName,

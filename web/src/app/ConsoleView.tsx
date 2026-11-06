@@ -192,11 +192,6 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                 >
                   Issue mandate
                 </button>
-                <button
-                  className={s.s044}
-                >
-                  Withdraw
-                </button>
               </div>
             </div>
             <div
@@ -790,6 +785,14 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                   >
                     {a.lastF}
                   </span>
+                  {a.canPause ? (
+                    <button
+                      className={s.s142}
+                      onClick={a.togglePause}
+                    >
+                      {a.pauseLabel}
+                    </button>
+                  ) : null}
                   {a.canRevoke ? (
                     <>
                     <button
