@@ -13,8 +13,8 @@ use veil402_sdk::{
 };
 
 use crate::{
-    adapters::{Catalogue, Enclave, Replays, Sessions, http::router},
-    core::{MeterError, MeteringService},
+    adapters::{self, Catalogue, Enclave, Replays, Sessions, http::router},
+    core::{Escrows, MeterError, MeteringService},
 };
 
 /// Where the gateway listens when nothing says otherwise.
@@ -43,6 +43,9 @@ pub struct Config {
     pub worker: PathBuf,
     pub artifacts: PathBuf,
     pub offers: Vec<Offer>,
+    /// Endpoint the pool is read through. Read-only: the gateway holds no
+    /// key that moves anything.
+    pub rpc: String,
     /// Where the host keeps what a restarted enclave needs. Opaque: every
     /// record in it is sealed by the enclave to itself.
     pub state: PathBuf,
@@ -85,6 +88,7 @@ impl Config {
                 .map_err(|_| ConfigError::Invalid("VEIL_ROOT_SEED"))?
                 .try_into()
                 .map_err(|_| ConfigError::Invalid("VEIL_ROOT_SEED"))?,
+            rpc: required("VEIL_RPC_URL")?,
             worker: PathBuf::from(required("VEIL_WORKER")?),
             artifacts: PathBuf::from(required("VEIL_ARTIFACTS")?),
             offers: vec![Offer {
@@ -120,7 +124,10 @@ pub enum StartError {
 /// # Errors
 ///
 /// Returns [`StartError`] when the artifacts or the root seed are unusable.
-pub fn assemble(config: &Config) -> Result<Arc<MeteringService>, StartError> {
+pub fn assemble(
+    config: &Config,
+    escrows: Arc<dyn Escrows>,
+) -> Result<Arc<MeteringService>, StartError> {
     let veil = Arc::new(
         Veil::open(Proving::new(
             config.worker.clone(),
@@ -139,6 +146,7 @@ pub fn assemble(config: &Config) -> Result<Arc<MeteringService>, StartError> {
         Arc::new(Catalogue::new(config.offers.clone())),
         Arc::new(Replays::default()),
         Arc::new(Sessions::open(&config.state)?),
+        escrows,
         config.pool,
         Vec::new(),
     )))
@@ -150,7 +158,8 @@ pub fn assemble(config: &Config) -> Result<Arc<MeteringService>, StartError> {
 ///
 /// Returns [`StartError::Bind`] when the address is unavailable.
 pub async fn serve(config: Config) -> Result<(), StartError> {
-    let service = assemble(&config)?;
+    let escrows = Arc::new(adapters::connect(&config.rpc, config.pool.address()).await?);
+    let service = assemble(&config, escrows)?;
     let listener = tokio::net::TcpListener::bind(config.bind)
         .await
         .map_err(|_| StartError::Bind(config.bind))?;

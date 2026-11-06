@@ -1,3 +1,4 @@
+use alloy::primitives::Address;
 use async_trait::async_trait;
 use veil402_sdk::{
     Field,
@@ -7,6 +8,44 @@ use veil402_sdk::{
 };
 
 use super::MeterError;
+
+/// What the host must check, now that the enclave has opened the delegation
+/// and can say what it claims.
+pub struct Accepted {
+    /// The tree the note is claimed to sit in. The enclave proved the path
+    /// reaches it; only a chain can say the pool ever did.
+    pub root: Field,
+}
+
+/// The pool's own record of a reservation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Escrow {
+    pub enclave: Address,
+    pub seller: Address,
+    pub deadline: u64,
+    pub settled: bool,
+}
+
+/// What the host reads from the chain on the enclave's behalf.
+///
+/// The enclave has no network by design, and this is the half of the check it
+/// therefore cannot make: whether the reservation it was handed is real.
+#[async_trait]
+pub trait Escrows: Send + Sync {
+    /// The reservation against a nullifier, if the pool holds one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MeterError`] when the chain cannot be read.
+    async fn escrow(&self, nullifier: Field) -> Result<Option<Escrow>, MeterError>;
+
+    /// Whether the pool has ever reached this root.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MeterError`] when the chain cannot be read.
+    async fn is_known_root(&self, root: Field) -> Result<bool, MeterError>;
+}
 
 /// A call the enclave had already answered before it restarted.
 pub struct Replayed {
@@ -27,6 +66,10 @@ pub struct Metering {
 /// there is hardware: that move must change one adapter and nothing else.
 #[async_trait]
 pub trait Meters: Send + Sync {
+    /// The address the registry must vouch for, and the one an escrow has to
+    /// name before this meter will serve against it.
+    fn signer(&self) -> Address;
+
     /// Agrees to meter a session, and names the key its delegation must be
     /// sealed to.
     ///
@@ -40,7 +83,10 @@ pub trait Meters: Send + Sync {
     ///
     /// Returns [`MeterError`] when the delegation does not open onto the
     /// escrow it names.
-    async fn accept(&self, sealed: &Sealed, session: Session) -> Result<(), MeterError>;
+    async fn accept(&self, sealed: &Sealed, session: Session) -> Result<Accepted, MeterError>;
+
+    /// Drops a session the host could not vouch for. It never happened.
+    async fn release(&self, nullifier: Field);
 
     /// Whether a session is live. A restart empties this, which is the one
     /// failure the daemon can repair by handing its delegation over again.

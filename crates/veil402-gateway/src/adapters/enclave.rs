@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::{
-    primitives::{B256, keccak256},
+    primitives::{Address, B256, keccak256},
     signers::{SignerSync, local::PrivateKeySigner},
 };
 use async_trait::async_trait;
@@ -14,7 +14,7 @@ use veil402_sdk::{
     wire::{AgreeBody, MeteredBody, SettlementBody, encode},
 };
 
-use crate::core::{Kept, MeterError, Metering, Meters, Replayed};
+use crate::core::{Accepted, Kept, MeterError, Metering, Meters, Replayed};
 
 fn refused(error: impl std::fmt::Display) -> MeterError {
     MeterError::Refused(error.to_string())
@@ -57,6 +57,11 @@ impl Enclave {
 
 #[async_trait]
 impl Meters for Enclave {
+    fn signer(&self) -> Address {
+        self.signer.address()
+    }
+
+
     fn agree(&self, session: &Session) -> Result<AgreeBody, MeterError> {
         let key = self.keyring.handover(session.nullifier);
         let announcement = self
@@ -77,11 +82,16 @@ impl Meters for Enclave {
     ///
     /// Returns [`MeterError::Refused`] when the envelope does not open, or opens
     /// onto another note.
-    async fn accept(&self, sealed: &Sealed, session: Session) -> Result<(), MeterError> {
+    async fn accept(&self, sealed: &Sealed, session: Session) -> Result<Accepted, MeterError> {
         let key = self.keyring.handover(session.nullifier);
         let meter = Meter::open(self.pool, &key, sealed, session).map_err(refused)?;
+        let accepted = Accepted { root: meter.root() };
         self.meters.write().await.insert(session.nullifier, meter);
-        Ok(())
+        Ok(accepted)
+    }
+
+    async fn release(&self, nullifier: Field) {
+        self.meters.write().await.remove(&nullifier);
     }
 
     async fn record(

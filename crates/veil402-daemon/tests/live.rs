@@ -378,8 +378,8 @@ async fn daemon(
         signer: var("PRIVATE_KEY")?,
         gateway: gateway.to_owned(),
         wallet_state: state.join("wallet.redb"),
-        worker: worker()?,
-        artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
+            worker: worker()?,
+            artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
         owner,
         target: TARGET,
         window: Window {
@@ -406,21 +406,28 @@ async fn serve(
     seller: Address,
     state: &Path,
 ) -> Result<String, Box<dyn StdError>> {
-    let service = veil402_gateway::app::assemble(&veil402_gateway::app::Config {
-        pool: *pool,
-        root,
+    // The real reader: M1 locks honestly, so the gateway's escrow check has a
+    // real escrow and a real root to find.
+    let escrows = Arc::new(veil402_gateway::adapters::connect(&var("RPC_URL")?, pool.address()).await?);
+    let service = veil402_gateway::app::assemble(
+        &veil402_gateway::app::Config {
+            pool: *pool,
+            root,
         worker: worker()?,
         artifacts: root_dir()?.join("prover/veil402-gnark/artifacts/transaction-v4"),
-        offers: vec![Offer {
-            model: "stub".to_owned(),
-            seller,
-            // One token unit per unit consumed, so a test counts in whole
-            // numbers.
-            rate: 1,
-        }],
-        state: state.join("sessions.redb"),
-        bind: "127.0.0.1:0".parse()?,
-    })?;
+            offers: vec![Offer {
+                model: "stub".to_owned(),
+                seller,
+                // One token unit per unit consumed, so a test counts in whole
+                // numbers.
+                rate: 1,
+            }],
+            state: state.join("sessions.redb"),
+            bind: "127.0.0.1:0".parse()?,
+            rpc: var("RPC_URL")?,
+        },
+        escrows,
+    )?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let served = format!("http://{}", listener.local_addr()?);
     let app = router(service);

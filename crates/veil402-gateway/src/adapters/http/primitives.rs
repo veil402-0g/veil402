@@ -66,6 +66,9 @@ const fn verdict(error: &MeterError) -> (StatusCode, Action) {
         MeterError::CeilingReached | MeterError::Empty => {
             (StatusCode::CONFLICT, Action::Reshop)
         }
+        // Nothing backs this session, so another call will not help and
+        // another seller cannot fix it: the buyer has to lock first.
+        MeterError::Unreserved(_) => (StatusCode::PAYMENT_REQUIRED, Action::Pay),
         MeterError::Refused(_) => (StatusCode::UNPROCESSABLE_ENTITY, Action::Fail),
     }
 }

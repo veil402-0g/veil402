@@ -1,5 +1,7 @@
 //! A restarted enclave picks its sessions back up, and the buyer never knows.
 
+mod support;
+
 use std::{path::Path, sync::Arc};
 
 use alloy::primitives::Address;
@@ -10,7 +12,7 @@ use veil402_gateway::{
 use veil402_sdk::{
     Field, Note, Secret, SessionKeys, Tree,
     evm::{PoolClient, Session},
-    session::{Handover, Recipient},
+    session::{Handover, Keyring, Recipient, RootSeed},
     wire::Offer,
 };
 
@@ -18,6 +20,7 @@ type Fallible = Result<(), Box<dyn std::error::Error>>;
 
 const ROOT: [u8; 32] = [7; 32];
 const VALUE: u64 = 1_000;
+const DEADLINE: u64 = 1_900_000_000;
 
 fn pool() -> Result<PoolClient, veil402_sdk::Error> {
     PoolClient::new(
@@ -30,21 +33,39 @@ fn pool() -> Result<PoolClient, veil402_sdk::Error> {
 
 /// A gateway over `state`. Building a second one on the same directory is a
 /// restart: new meters, nothing in memory, the same records on disk.
-fn gateway(state: &Path) -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
-    Ok(assemble(&Config {
-        pool: pool()?,
-        root: ROOT,
-        worker: "/nonexistent/worker".into(),
-        artifacts: Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../prover/veil402-gnark/artifacts/transaction-v4"),
-        offers: vec![Offer {
-            model: "stub".to_owned(),
-            seller: Address::repeat_byte(0x5E),
-            rate: 1,
-        }],
-        state: state.join("sessions.redb"),
-        bind: "127.0.0.1:0".parse()?,
-    })?)
+fn gateway(
+    state: &Path,
+    pool_state: Arc<support::Pool>,
+) -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
+    Ok(assemble(
+        &Config {
+            pool: pool()?,
+            root: ROOT,
+            worker: "/nonexistent/worker".into(),
+            artifacts: Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../prover/veil402-gnark/artifacts/transaction-v4"),
+            offers: vec![Offer {
+                model: "stub".to_owned(),
+                seller: Address::repeat_byte(0x5E),
+                rate: 1,
+            }],
+            state: state.join("sessions.redb"),
+            bind: "127.0.0.1:0".parse()?,
+            rpc: "http://127.0.0.1:0".to_owned(),
+        },
+        pool_state,
+    )?)
+}
+
+/// A pool backing the one session these tests open. The enclave's signer is
+/// derived from the root, so the escrow has to name the same address.
+fn backing(deadline: u64) -> Result<Arc<support::Pool>, Box<dyn std::error::Error>> {
+    let signer = Keyring::new(RootSeed::from_bytes(ROOT)).signer()?.address();
+    Ok(Arc::new(support::Pool::backing(
+        signer,
+        Address::repeat_byte(0x5E),
+        deadline,
+    )))
 }
 
 /// Hands a real delegation over, against a note that is really in a tree.
@@ -63,7 +84,7 @@ async fn delegate(service: &MeteringService) -> Result<Field, Box<dyn std::error
     let session = Session {
         nullifier: keys.owner.nullifier(leaf)?,
         seller: Address::repeat_byte(0x5E),
-        deadline: 1_900_000_000,
+        deadline: DEADLINE,
     };
 
     let agreed = service.agree(&session)?;
@@ -111,17 +132,18 @@ fn total(serving: &Serving) -> u64 {
 #[tokio::test]
 async fn a_restarted_gateway_keeps_counting() -> Fallible {
     let state = tempfile::tempdir()?;
+    let held = backing(DEADLINE)?;
     let nullifier;
 
     {
-        let service = gateway(state.path())?;
+        let service = gateway(state.path(), held.clone())?;
         nullifier = delegate(&service).await?;
         assert_eq!(total(&service.meter(nullifier, 40, "a").await?), 40);
         assert_eq!(total(&service.meter(nullifier, 110, "b").await?), 150);
     }
 
     // Everything in memory is gone. Only what the host kept remains.
-    let restarted = gateway(state.path())?;
+    let restarted = gateway(state.path(), held.clone())?;
     let after = restarted.meter(nullifier, 50, "c").await?;
 
     assert_eq!(total(&after), 200, "the restart did not reset the meter");
@@ -133,7 +155,8 @@ async fn a_restarted_gateway_keeps_counting() -> Fallible {
 #[tokio::test]
 async fn an_unknown_session_is_still_asked_to_pay() -> Fallible {
     let state = tempfile::tempdir()?;
-    let service = gateway(state.path())?;
+    let held = backing(DEADLINE)?;
+    let service = gateway(state.path(), held)?;
 
     assert!(matches!(
         service.meter(Field::from(9_u64), 10, "a").await?,
@@ -149,16 +172,17 @@ async fn an_unknown_session_is_still_asked_to_pay() -> Fallible {
 #[tokio::test]
 async fn a_retry_across_a_restart_is_not_billed_twice() -> Fallible {
     let state = tempfile::tempdir()?;
+    let held = backing(DEADLINE)?;
     let nullifier;
 
     {
-        let service = gateway(state.path())?;
+        let service = gateway(state.path(), held.clone())?;
         nullifier = delegate(&service).await?;
         assert_eq!(total(&service.meter(nullifier, 40, "req-1").await?), 40);
         assert_eq!(total(&service.meter(nullifier, 110, "req-2").await?), 150);
     }
 
-    let restarted = gateway(state.path())?;
+    let restarted = gateway(state.path(), held.clone())?;
     let again = restarted.meter(nullifier, 110, "req-2").await?;
 
     assert_eq!(total(&again), 150, "the retry was answered, not metered");
@@ -176,17 +200,18 @@ async fn a_retry_across_a_restart_is_not_billed_twice() -> Fallible {
 #[tokio::test]
 async fn a_call_the_host_never_recorded_is_counted_on_retry() -> Fallible {
     let state = tempfile::tempdir()?;
+    let held = backing(DEADLINE)?;
     let nullifier;
 
     {
-        let service = gateway(state.path())?;
+        let service = gateway(state.path(), held.clone())?;
         nullifier = delegate(&service).await?;
         assert_eq!(total(&service.meter(nullifier, 40, "req-1").await?), 40);
     }
 
     // The restart stands in for the crash: whatever was in memory and not on
     // disk is gone, and the client retries what it never got an answer to.
-    let restarted = gateway(state.path())?;
+    let restarted = gateway(state.path(), held.clone())?;
     assert_eq!(
         total(&restarted.meter(nullifier, 110, "req-2").await?),
         150,

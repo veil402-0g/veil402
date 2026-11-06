@@ -1,5 +1,7 @@
 //! The contract the daemon reads: what to pay, and what to do when refused.
 
+mod support;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -37,24 +39,28 @@ fn artifacts() -> std::path::PathBuf {
 /// is never started: nothing here proves anything.
 fn gateway() -> Result<Arc<MeteringService>, Box<dyn std::error::Error>> {
     let state = tempfile::tempdir()?;
-    Ok(assemble(&Config {
-        state: state.keep().join("sessions.redb"),
-        pool: PoolClient::new(
-            "0x42532488f967329e2B090dCf68396Ef0dd63de69".parse()?,
-            "0x0000000000000000000000000000000000000abc".parse()?,
-            "0x98e7E0cC3a12183Af743a9D33ca0Dfa0982197FC".parse()?,
-            296,
-        )?,
-        root: [3; 32],
-        worker: PathBuf::from("/nonexistent/worker"),
-        artifacts: artifacts(),
-        offers: vec![Offer {
-            model: "stub".to_owned(),
-            seller: seller(),
-            rate: 2,
-        }],
-        bind: "127.0.0.1:0".parse()?,
-    })?)
+    Ok(assemble(
+        &Config {
+            state: state.keep().join("sessions.redb"),
+            rpc: "http://127.0.0.1:0".to_owned(),
+            pool: PoolClient::new(
+                "0x42532488f967329e2B090dCf68396Ef0dd63de69".parse()?,
+                "0x0000000000000000000000000000000000000abc".parse()?,
+                "0x98e7E0cC3a12183Af743a9D33ca0Dfa0982197FC".parse()?,
+                296,
+            )?,
+            root: [3; 32],
+            worker: PathBuf::from("/nonexistent/worker"),
+            artifacts: artifacts(),
+            offers: vec![Offer {
+                model: "stub".to_owned(),
+                seller: seller(),
+                rate: 2,
+            }],
+            bind: "127.0.0.1:0".parse()?,
+        },
+        Arc::new(support::Pool::empty()),
+    )?)
 }
 
 async fn call(gateway: Arc<MeteringService>, path: &str, body: &str) -> (StatusCode, Vec<u8>) {

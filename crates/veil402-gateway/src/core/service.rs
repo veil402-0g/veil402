@@ -8,7 +8,7 @@ use veil402_sdk::{
     wire::{AgreeBody, Challenge, MeteredBody, Offer, SettlementBody},
 };
 
-use super::{Meters, Prices, Resumes, Served};
+use super::{Escrows, Meters, Prices, Resumes, Served};
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum MeterError {
@@ -22,6 +22,10 @@ pub enum MeterError {
     /// This gateway has nothing to sell.
     #[error("no seller is offering anything here")]
     Empty,
+    /// The pool holds no reservation this session could settle against, or
+    /// holds one for somebody else.
+    #[error("no escrow backs this session: {0}")]
+    Unreserved(&'static str),
     #[error("refused: {0}")]
     Refused(String),
 }
@@ -40,6 +44,7 @@ pub struct MeteringService {
     prices: Arc<dyn Prices>,
     served: Arc<dyn Served>,
     sessions: Arc<dyn Resumes>,
+    escrows: Arc<dyn Escrows>,
     pool: PoolClient,
     /// Measurements a buyer pins before it will pay. Empty until there is
     /// hardware to measure.
@@ -53,6 +58,7 @@ impl MeteringService {
         prices: Arc<dyn Prices>,
         served: Arc<dyn Served>,
         sessions: Arc<dyn Resumes>,
+        escrows: Arc<dyn Escrows>,
         pool: PoolClient,
         pcrs: Vec<String>,
     ) -> Self {
@@ -61,6 +67,7 @@ impl MeteringService {
             prices,
             served,
             sessions,
+            escrows,
             pool,
             pcrs,
         }
@@ -83,12 +90,39 @@ impl MeteringService {
     /// Returns [`MeterError::Refused`] when the delegation does not open, or
     /// opens onto another note.
     pub async fn accept(&self, sealed: &Sealed, session: Session) -> Result<(), MeterError> {
-        self.meters.accept(sealed, session).await?;
+        self.reserved(&session).await?;
+        let accepted = self.meters.accept(sealed, session).await?;
+        // The enclave proved the path reaches this root. Only a chain can say
+        // the pool ever did — and without that, a buyer serves itself for
+        // free out of a tree it invented.
+        if !self.escrows.is_known_root(accepted.root).await? {
+            self.meters.release(session.nullifier).await;
+            return Err(MeterError::Unreserved("the pool never reached that root"));
+        }
         // Kept before the first call, so a restart between the two still
         // finds a session rather than an empty log against nothing.
         self.sessions
             .opened(session.nullifier, sealed, session)
             .await
+    }
+
+    /// Checks the pool really holds this reservation, for us.
+    async fn reserved(&self, session: &Session) -> Result<(), MeterError> {
+        let escrow = self
+            .escrows
+            .escrow(session.nullifier)
+            .await?
+            .ok_or(MeterError::Unreserved("the pool holds no escrow"))?;
+        if escrow.enclave != self.meters.signer() {
+            return Err(MeterError::Unreserved("the escrow names another enclave"));
+        }
+        if escrow.seller != session.seller || escrow.deadline != session.deadline {
+            return Err(MeterError::Unreserved("the escrow names another session"));
+        }
+        if escrow.settled {
+            return Err(MeterError::Unreserved("the escrow is already settled"));
+        }
+        Ok(())
     }
 
     /// Prices units at the seller's rate and meters them.

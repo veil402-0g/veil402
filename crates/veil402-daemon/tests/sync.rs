@@ -60,7 +60,7 @@ async fn a_pass_that_succeeds_forgives_the_ones_before_it() -> Fallible {
     pause();
 
     assert!(
-        timeout(Duration::from_secs(600), daemon.run())
+        timeout(Duration::from_mins(10), daemon.run())
             .await
             .is_err(),
         "the loop gave up on an endpoint that keeps coming back"

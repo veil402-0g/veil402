@@ -7,7 +7,7 @@ license.workspace = true
 description = "Untrusted host for the Veil enclave: terminates 402, relays, settles"
 
 [dependencies]
-alloy = { version = "1", features = ["signers", "signer-local", "sol-types"] }
+alloy = { version = "1", features = ["contract", "provider-http", "signers", "signer-local", "sol-types"] }
 async-trait = "0.1"
 axum = "0.8"
 redb = "2"

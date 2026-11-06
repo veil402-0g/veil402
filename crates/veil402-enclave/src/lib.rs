@@ -101,6 +101,15 @@ impl Meter {
         &self.session
     }
 
+    /// The tree the delegation claims its note sits in.
+    ///
+    /// The path was checked against it here; whether the pool ever reached it
+    /// is a question only something with a chain can answer.
+    #[must_use]
+    pub const fn root(&self) -> veil402_sdk::Field {
+        self.handover.root
+    }
+
     /// What the reserved note holds, and so the most this session can cost.
     #[must_use]
     pub const fn ceiling(&self) -> u64 {
