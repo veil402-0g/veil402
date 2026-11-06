@@ -52,3 +52,6 @@ prover/veil402-gnark/veil402-gnark
 
 # aider leaves these beside the repo it edits
 .aider*
+
+# Harness scratch (worktrees, local state)
+.claude/

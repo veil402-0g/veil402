@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>body{margin:0;background:#f4f6fd}*{box-sizing:border-box}a{color:#1230d6;text-decoration:none}a:hover{color:#0d0e12;text-decoration:none}button{font-family:inherit;cursor:pointer}input,select{font-family:inherit}@keyframes vpulse{0%{box-shadow:0 0 0 0 rgba(255,77,26,.6)}70%{box-shadow:0 0 0 7px rgba(255,77,26,0)}100%{box-shadow:0 0 0 0 rgba(255,77,26,0)}}@keyframes vblink{50%{opacity:0}}@keyframes vping{0%{transform:scale(1);opacity:.6}80%,100%{transform:scale(2.8);opacity:0}}@keyframes vbgshift{0%{background-position:0% 0%}50%{background-position:100% 45%}100%{background-position:35% 100%}}@keyframes vin{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}</style>
+</helmet>
+<div style="min-height:100vh;background:#f4f6fd;color:#0d0e12;font-family:'Plus Jakarta Sans',Helvetica,sans-serif;font-variant-numeric:tabular-nums;display:flex;flex-direction:column;-webkit-font-smoothing:antialiased">
+
+<header style="position:sticky;top:0;z-index:60;display:flex;align-items:center;justify-content:space-between;gap:24px;height:60px;padding:0 max(clamp(20px,4vw,56px),calc((100% - 1328px) / 2));background:rgba(255,255,255,.78);backdrop-filter:blur(18px) saturate(1.6);-webkit-backdrop-filter:blur(18px) saturate(1.6);border-bottom:1px solid #e3e5ea">
+  <a href="Veil%20402%20Landing.dc.html" onClick="{{ goHome }}" aria-label="Back to Veil402 home" style="display:flex;align-items:center;gap:10px;color:#0d0e12;text-decoration:none" style-hover="opacity:.7;text-decoration:none;color:#0d0e12"><span aria-hidden="true" style="width:24px;height:24px;flex-shrink:0;border-radius:50%;background:#1230d6;display:flex;align-items:center;justify-content:center"><span style="width:30%;height:30%;background:#fff;display:block"></span></span><span style="font-size:17px;font-weight:600;letter-spacing:-0.04em">Veil402</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;color:#8b8e97;padding-left:10px;border-left:1px solid #e3e5ea">CONSOLE</span></a>
+  <div style="display:flex;align-items:stretch;height:40px;flex-shrink:0">
+    <button style="display:flex;align-items:center;gap:10px;padding:0 12px 0 6px;border:0;cursor:pointer;color:#0d0e12;background:transparent;cursor:default;transition:opacity .25s ease" style-hover="opacity:.75">
+      <span style="width:28px;height:28px;border-radius:50%;background:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.5);color:#fff;display:grid;place-items:center;font-size:10.5px;font-weight:600;letter-spacing:.02em">HW</span>
+      <span style="display:flex;flex-direction:column;align-items:flex-start;gap:3px;line-height:1"><span style="font-size:12.5px;font-weight:500;white-space:nowrap">Hashira Works</span><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.1em;color:#8b8e97;white-space:nowrap">TREASURY ADMIN</span></span>
+      
+    </button>
+  </div>
+</header>
+
+<div style="display:flex;flex-wrap:wrap;flex:1;align-items:stretch">
+
+<main style="flex:999 1 760px;min-width:0;background:#fff;display:flex;flex-direction:column">
+
+  <div style="display:flex;align-items:center;justify-content:flex-end;gap:16px;padding:22px 36px 0;flex-wrap:wrap">
+    
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font:500 10px 'JetBrains Mono',monospace;color:#8b8e97;letter-spacing:.1em">PREVIEW</span>
+      <div style="display:flex;padding:3px;gap:3px;background:rgba(255,255,255,.75);box-shadow:inset 0 0 0 1px rgba(18,48,214,.16)">
+        <button onClick="{{ showDemo }}" style="border:0;cursor:pointer;padding:9px 14px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;background-image:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-repeat:no-repeat;background-position:0 0;background-color:transparent;background-size:{{ demoBg }};color:{{ demoFg }};transition:background-size .5s cubic-bezier(.65,0,.25,1),color .2s ease .12s" style-hover="background-size:100% 100%;color:#fff">Operating</button>
+        <button onClick="{{ showFresh }}" style="border:0;cursor:pointer;padding:9px 14px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;background-image:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-repeat:no-repeat;background-position:0 0;background-color:transparent;background-size:{{ freshBg }};color:{{ freshFg }};transition:background-size .5s cubic-bezier(.65,0,.25,1),color .2s ease .12s" style-hover="background-size:100% 100%;color:#fff">Fresh install</button>
+      </div>
+    </div>
+  </div>
+
+  <section style="padding:26px 36px 8px;display:flex;flex-wrap:wrap;gap:36px;align-items:flex-end;justify-content:space-between">
+    <div style="display:flex;flex-direction:column;gap:22px;min-width:0">
+      <div style="display:flex;align-items:flex-end;gap:14px 28px;flex-wrap:wrap;padding-bottom:4px">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <h1 style="margin:0;font-size:26px;font-weight:400;letter-spacing:-0.025em;line-height:1">Shielded pool</h1>
+        </div>
+        <div style="display:flex;align-items:stretch;gap:18px">
+          <span style="display:flex;flex-direction:column;gap:5px"><span style="font-size:17px;font-weight:500;letter-spacing:-0.02em;line-height:1;font-variant-numeric:tabular-nums">{{ noteCount }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;color:#8b8e97">NOTES</span></span>
+          <span style="display:flex;flex-direction:column;gap:5px"><span style="font-size:17px;font-weight:500;letter-spacing:-0.02em;line-height:1;font-variant-numeric:tabular-nums;color:#1230d6">{{ anonSet }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;color:#8b8e97">ANONYMITY SET</span></span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:14px">
+        <div onMouseEnter="{{ balOn }}" onMouseLeave="{{ balOff }}" style="display:flex;align-items:baseline;font-weight:300;letter-spacing:-0.055em;line-height:.9;cursor:default;padding-bottom:.06em"><span style="font-size:128px;background-image:linear-gradient(100deg,#1230d6 0%,#2c63e6 30%,#4c86ee 55%,#d8b9a6 80%,#8fb0f2 100%),linear-gradient(#0d0e12,#0d0e12);background-repeat:no-repeat;background-position:0 0,0 0;background-size:{{ balG }},100% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;transition:background-size .8s cubic-bezier(.65,0,.25,1)">{{ balInt }}</span><span style="font-size:56px;background-image:linear-gradient(100deg,#1230d6 0%,#2c63e6 30%,#4c86ee 55%,#d8b9a6 80%,#8fb0f2 100%),linear-gradient(#a3a6ae,#a3a6ae);background-repeat:no-repeat;background-position:0 0,0 0;background-size:{{ balG }},100% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;transition:background-size .8s cubic-bezier(.65,0,.25,1)">.{{ balDec }}</span></div>
+        
+        <div style="display:flex;flex-direction:column;gap:6px;padding-top:12px">
+          <span style="font-size:13px;font-weight:500">USDC</span>
+          <span style="font:400 11px 'JetBrains Mono',monospace;color:#6b6e78;white-space:nowrap">{{ lastDeposit }}</span>
+        </div>
+      </div>
+      <p style="margin:0;font-size:12px;color:#6b6e78;max-width:420px;line-height:1.5;text-wrap:pretty">Balance is held as encrypted notes on Hedera. Only this organisation's viewing key can sum them — the chain sees commitments, not amounts.</p>
+      <div style="display:flex;gap:8px">
+        <button onClick="{{ openFund }}" style="border:0;background:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-size:100% 100%;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 0 0 0 #1230d6;transition:box-shadow .3s ease,filter .3s ease;padding:12px 20px;display:flex;align-items:center;gap:10px" style-hover="box-shadow:0 8px 24px -8px rgba(18,48,214,.55);filter:brightness(1.06)">Fund pool <span style="font-family:'JetBrains Mono',monospace">+</span></button>
+        <button onClick="{{ openMandate }}" style="border:0;background:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-repeat:no-repeat;background-position:0 0;background-size:0% 100%;background-color:rgba(255,255,255,.75);box-shadow:inset 0 0 0 1px rgba(18,48,214,.16);color:#0d0e12;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;transition:background-size .5s cubic-bezier(.65,0,.25,1),color .2s ease .12s,box-shadow .25s ease;padding:12px 18px" style-hover="background-size:100% 100%;color:#fff;box-shadow:inset 0 0 0 1px rgba(18,48,214,0)">Issue mandate</button>
+        <button style="border:0;background:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-repeat:no-repeat;background-position:0 0;background-size:0% 100%;background-color:rgba(255,255,255,.75);box-shadow:inset 0 0 0 1px rgba(18,48,214,.16);color:#0d0e12;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;transition:background-size .5s cubic-bezier(.65,0,.25,1),color .2s ease .12s,box-shadow .25s ease;padding:12px 18px" style-hover="background-size:100% 100%;color:#fff;box-shadow:inset 0 0 0 1px rgba(18,48,214,0)">Withdraw</button>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:1px;background:#e3e5ea;border-top:1px solid #e3e5ea;border-bottom:1px solid #e3e5ea;min-width:320px">
+      <sc-for list="{{ stats }}" as="st" hint-placeholder-count="4">
+        <div onMouseEnter="{{ st.enter }}" onMouseLeave="{{ statOff }}" style="position:relative;overflow:hidden;isolation:isolate;padding:16px 18px 18px;background:#fff;display:flex;flex-direction:column;gap:8px;cursor:default">
+          <span aria-hidden="true" style="position:absolute;inset:0;z-index:-1;background:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-size:160% 160%;animation:vbgshift 14s ease-in-out infinite alternate;clip-path:{{ st.clip }};transition:clip-path .55s cubic-bezier(.65,0,.25,1)"></span>
+          <span aria-hidden="true" style="position:absolute;left:0;bottom:0;height:2px;width:100%;background:#fff;transform:{{ st.bar }};transform-origin:left;transition:transform .6s cubic-bezier(.65,0,.25,1) .1s"></span>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:7px;font-size:12px;color:{{ st.labC }};transition:color .3s ease .12s"><span>{{ st.label }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#fff;opacity:{{ st.arO }};transform:{{ st.arT }};transition:opacity .3s ease .15s,transform .45s cubic-bezier(.2,.8,.2,1) .1s">↗</span></div>
+          <div style="font-size:24px;letter-spacing:-0.02em;color:{{ st.valC }};transition:color .3s ease .1s">{{ st.value }}</div>
+          <div style="font:400 10px 'JetBrains Mono',monospace;color:{{ st.subC }};transition:color .3s ease .16s">{{ st.sub }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="padding:18px 36px 30px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;gap:6px 16px;flex-wrap:wrap">
+      <span style="flex:1 1 320px;min-width:0;font-size:12px;line-height:1.5;color:#6b6e78;text-wrap:pretty">Each dot is {{ dotUnit }} of funded capital — where every unit currently sits.</span>
+      <span style="font:400 11px 'JetBrains Mono',monospace;color:#6b6e78">total funded {{ totalFunded }}</span>
+    </div>
+    <div style="position:relative;height:22px">
+      <sc-for list="{{ segs }}" as="sg" hint-placeholder-count="4">
+        <div onMouseEnter="{{ sg.enter }}" onMouseLeave="{{ dotOff }}" style="position:absolute;left:{{ sg.left }};top:0;display:{{ sg.display }};align-items:center;gap:6px;font-size:12px;white-space:nowrap;cursor:default;opacity:{{ sg.op }};transition:left .6s,opacity .35s ease"><span style="width:6px;height:6px;background:{{ sg.sq }};transition:background .35s ease"></span>{{ sg.label }} <span style="font-family:'JetBrains Mono',monospace;color:{{ sg.pc }};font-size:11px;transition:color .35s ease">{{ sg.pct }}</span></div>
+      </sc-for>
+    </div>
+    <div style="position:relative;padding:10px 0 12px">
+      <div onMouseLeave="{{ dotOff }}" style="display:grid;grid-template-columns:repeat(72,minmax(0,1fr));gap:3px">
+        <sc-for list="{{ dots }}" as="d" hint-placeholder-count="72">
+          <span onMouseEnter="{{ d.enter }}" style="aspect-ratio:1;border-radius:50%;background:{{ d.bg }};opacity:{{ d.op }};transform:{{ d.tf }};transition:{{ d.tr }}"></span>
+        </sc-for>
+      </div>
+      
+    </div>
+    <div style="height:1px;background:#e3e5ea"></div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px;font:400 10px 'JetBrains Mono',monospace;color:#6b6e78">
+      <sc-for list="{{ ticks }}" as="tk" hint-placeholder-count="11"><span>{{ tk.label }}</span></sc-for>
+    </div>
+  </section>
+
+  <section style="border-top:1px solid #e3e5ea;padding:34px 36px 38px">
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:flex-end;gap:14px 28px;flex-wrap:wrap"><h2 style="margin:0;font-size:26px;font-weight:400;letter-spacing:-0.025em;line-height:1">Agents</h2><div style="display:flex;align-items:stretch;gap:18px"><span style="display:flex;flex-direction:column;gap:5px"><span style="font-size:17px;font-weight:500;letter-spacing:-0.02em;line-height:1;font-variant-numeric:tabular-nums">{{ agentN }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;color:#8b8e97">MANDATES</span></span><span style="display:flex;flex-direction:column;gap:5px"><span style="font-size:17px;font-weight:500;letter-spacing:-0.02em;line-height:1;font-variant-numeric:tabular-nums;color:#1230d6">{{ agentA }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;color:#8b8e97">ACTIVE</span></span></div></div>
+        <span style="font-size:12px;color:#6b6e78;max-width:460px;line-height:1.5;text-wrap:pretty">Each agent spends from a private mandate.</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+        <sc-if value="{{ chartColumns }}" hint-placeholder-val="{{ false }}"><div style="display:flex;gap:14px;font-size:12px"><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;background:#1230d6"></span>Spent</span><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;background:#1230d6"></span>In escrow</span><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;background:#c9ccd3"></span>Remaining</span></div></sc-if>
+        <button onClick="{{ openMandate }}" style="border:0;background:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-repeat:no-repeat;background-position:0 0;background-size:0% 100%;background-color:rgba(255,255,255,.75);box-shadow:inset 0 0 0 1px rgba(18,48,214,.16);color:#0d0e12;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;transition:background-size .5s cubic-bezier(.65,0,.25,1),color .2s ease .12s,box-shadow .25s ease;padding:12px 18px" style-hover="background-size:100% 100%;color:#fff;box-shadow:inset 0 0 0 1px rgba(18,48,214,0)">+ Issue mandate</button>
+      </div>
+    </div>
+
+    <sc-if value="{{ hasAgents }}" hint-placeholder-val="{{ true }}">
+      <sc-if value="{{ chartRange }}" hint-placeholder-val="{{ true }}">
+      <div style="border-top:1px solid #e3e5ea;padding:22px 0 26px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:12px;line-height:1.5;color:#6b6e78">
+          <span>Each column is one mandate. The white line marks spend today; the column rises to projected spend at period end — 8 days left.</span>
+          <div style="display:flex;gap:18px;align-items:center;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;color:#6b6e78"><span style="display:flex;align-items:center;gap:7px"><span style="width:12px;height:2px;background:#4c86ee"></span>SPENT TODAY</span><span style="display:flex;align-items:center;gap:7px"><span style="width:10px;height:10px;border-radius:5px;background:linear-gradient(0deg,#4c86ee,#1230d6)"></span>PROJECTED</span><span style="display:flex;align-items:center;gap:7px"><span style="width:10px;height:10px;border-radius:5px;background:#ff4d1a"></span>OVER LIMIT</span></div>
+        </div>
+        <div onMouseLeave="{{ rangeOff }}" style="position:relative;height:372px;margin-top:8px">
+          <span aria-hidden="true" style="position:absolute;left:0;right:56px;bottom:200px;height:0;border-top:1px dashed rgba(18,48,214,.5)"></span>
+          <span style="position:absolute;right:0;bottom:200px;transform:translateY(50%);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;color:#1230d6;display:flex;flex-direction:column;align-items:flex-end;gap:2px;line-height:1"><span>LIMIT</span><span style="color:#8b8e97">100%</span></span>
+          <span style="position:absolute;right:0;bottom:250px;transform:translateY(50%);font-family:'JetBrains Mono',monospace;font-size:10px;color:#a3a6ae;line-height:1">125%</span>
+          <span style="position:absolute;right:0;bottom:0;font-family:'JetBrains Mono',monospace;font-size:10px;color:#a3a6ae;line-height:1">0</span>
+          <div style="position:absolute;left:0;right:64px;top:0;bottom:0">
+            <div style="position:absolute;left:0;right:0;bottom:0;height:250px;display:flex;align-items:flex-end;gap:6px">
+              <sc-for list="{{ rangeCols }}" as="r" hint-placeholder-count="6"><div onMouseEnter="{{ r.enter }}" style="position:relative;flex:1 1 0;min-width:0;height:100%;display:flex;align-items:flex-end;cursor:default">
+                <div style="position:relative;width:100%;height:{{ r.barH }};border-radius:10px 10px 0 0;overflow:hidden;transform:{{ r.grow }};transform-origin:bottom;transition:transform 1s cubic-bezier(.2,.8,.2,1) {{ r.dl }}">
+                  <span aria-hidden="true" style="position:absolute;inset:0;background:{{ r.barBg }};opacity:{{ r.barO }};transition:opacity .4s ease"></span>
+                  <span aria-hidden="true" style="position:absolute;left:0;right:0;bottom:{{ r.todayB }};height:2px;background:#fff"></span>
+                </div>
+              </div></sc-for>
+            </div>
+            <div style="position:absolute;left:0;right:0;top:0;display:flex;gap:6px;pointer-events:none">
+              <sc-for list="{{ rangeCols }}" as="r" hint-placeholder-count="0"><div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;pointer-events:none;opacity:{{ r.cO }};transform:{{ r.cT }};transition:opacity .6s ease {{ r.dl2 }},transform .7s cubic-bezier(.2,.8,.2,1) {{ r.dl2 }}">
+                <div onMouseEnter="{{ r.enter }}" style="pointer-events:auto;box-sizing:border-box;width:100%;height:54px;padding:7px 10px;display:flex;align-items:center;gap:8px;cursor:default;background-color:rgba(255,255,255,.85);background-image:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-repeat:no-repeat;background-position:0 0;background-size:{{ r.cFill }};box-shadow:inset 0 0 0 1px rgba(18,48,214,.16);transition:background-size .5s cubic-bezier(.65,0,.25,1)"><span aria-hidden="true" style="flex-shrink:0;width:20px;height:20px;border-radius:50%;background-image:{{ r.avBg }};background-size:220% 220%;background-position:{{ r.avPos }};box-shadow:inset 0 0 0 1px rgba(255,255,255,.6);color:#fff;display:grid;place-items:center;font-size:8px;font-weight:600">{{ r.ini }}</span><span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;line-height:1.2;letter-spacing:.02em;color:{{ r.cTx }};overflow-wrap:anywhere;transition:color .2s ease .12s">{{ r.name }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:10px;line-height:1;font-weight:500;color:{{ r.cPc }};transition:color .2s ease .12s">{{ r.projF }}</span></span></div>
+                <span aria-hidden="true" style="position:relative;width:1px;height:{{ r.conH }};background:rgba(18,48,214,.35)"><span style="position:absolute;left:-2px;bottom:-2px;width:5px;height:5px;border-radius:50%;background:#1230d6"></span></span>
+              </div></sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ chartColumns }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;gap:20px;align-items:stretch;padding:10px 0 24px;border-top:1px solid #e3e5ea">
+        <div style="flex:1;min-width:0;display:flex;gap:8px;overflow-x:auto;padding-top:22px">
+          <sc-for list="{{ agentCols }}" as="c" hint-placeholder-count="6">
+            <div style="flex:1 1 0;min-width:68px;display:flex;flex-direction:column;align-items:center;gap:12px;opacity:{{ c.op }};transition:opacity .4s">
+              <div style="position:relative;width:100%;height:220px">
+                <span style="position:absolute;left:50%;top:0;bottom:0;width:16px;border-radius:8px;background:#f4f6fd;transform:translateX(-50%)"></span>
+                <sc-for list="{{ c.ghosts }}" as="g" hint-placeholder-count="4"><span style="position:absolute;left:50%;bottom:{{ g.b }};width:16px;height:16px;border-radius:50%;background:#e3e5ea;transform:translate(-50%,50%);width:6px;height:6px"></span></sc-for>
+                <span style="position:absolute;left:50%;bottom:0;width:16px;height:{{ c.spentH }};border-radius:8px;background:{{ c.grad }};transform:translateX(-50%);transition:height .6s"></span>
+                <span style="position:absolute;left:50%;bottom:calc({{ c.spentH }} + 10px);width:16px;height:{{ c.escH }};border-radius:8px;background:#1230d6;transform:translateX(-50%);transition:bottom .6s,height .6s"></span>
+                <span style="position:absolute;left:50%;bottom:{{ c.spentH }};width:24px;height:24px;border-radius:50%;background:{{ c.head }};border:{{ c.headBorder }};box-sizing:border-box;transform:translate(-50%,50%);transition:bottom .6s"></span>
+              </div>
+              <span style="width:8px;height:8px;box-sizing:border-box;background:{{ c.sBg }};border:{{ c.sBorder }}"></span>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0;max-width:100%">
+                <span style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">{{ c.name }}</span>
+                <span style="font-size:10px;color:#8b8e97">{{ c.pctF }}</span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="flex:0 0 84px;display:flex;flex-direction:column;padding-top:22px;border-left:1px solid #eef0f4;padding-left:16px">
+          <div style="position:relative;height:220px">
+            <span style="position:absolute;left:0;bottom:100%;transform:translateY(50%);font-size:11px;color:#8b8e97">100%</span>
+            <span style="position:absolute;left:0;bottom:75%;transform:translateY(50%);font-size:11px;color:#8b8e97">75%</span>
+            <span style="position:absolute;left:0;bottom:50%;transform:translateY(50%);font-size:11px;color:#8b8e97">50%</span>
+            <span style="position:absolute;left:0;bottom:25%;transform:translateY(50%);font-size:11px;color:#8b8e97">25%</span>
+          </div>
+          <span style="margin-top:12px;font-size:28px;font-weight:300;letter-spacing:-0.04em;line-height:1">{{ spentPctAll }}<span style="font-size:14px;color:#a3a6ae">%</span></span>
+          <span style="font-size:10px;color:#8b8e97;margin-top:4px">budget used</span>
+        </div>
+      </div>
+    </sc-if>
+      <div style="display:grid;grid-template-columns:minmax(150px,1.4fr) 150px minmax(120px,1fr) 110px 84px 84px;gap:18px;padding:0 0 10px;border-bottom:1px solid #e3e5ea;font-size:11px;color:#6b6e78">
+        <span>Agent · mandate</span><span style="text-align:right">Spent / budget</span><span>Runway</span><span>Status</span><span>Last active</span><span></span>
+      </div>
+      <sc-for list="{{ agentRows }}" as="a" hint-placeholder-count="6">
+        <div style="position:relative;display:grid;grid-template-columns:minmax(150px,1.4fr) 150px minmax(120px,1fr) 110px 84px 84px;gap:18px;align-items:center;padding:15px 12px;margin:0 -12px;border-bottom:1px solid #eef0f4;opacity:{{ a.opacity }};background-image:linear-gradient(90deg,rgba(18,48,214,.07),rgba(143,176,242,.05) 60%,rgba(255,255,255,0));background-repeat:no-repeat;background-position:0 0;background-size:0% 100%;box-shadow:inset 0 0 0 0 #1230d6;transition:opacity .4s,background-size .55s cubic-bezier(.65,0,.25,1),box-shadow .3s ease" style-hover="background-size:100% 100%;box-shadow:inset 2px 0 0 0 #1230d6">
+          <div style="display:flex;align-items:center;gap:12px;min-width:0"><span aria-hidden="true" style="flex-shrink:0;width:34px;height:34px;border-radius:50%;background-image:{{ a.avBg }};background-size:220% 220%;background-position:{{ a.avPos }};box-shadow:inset 0 0 0 1px rgba(255,255,255,.5);color:#fff;display:grid;place-items:center;font-size:11.5px;font-weight:600;letter-spacing:.02em;opacity:{{ a.avO }}">{{ a.ini }}</span><div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+            <span style="font-size:15px;letter-spacing:-0.01em">{{ a.name }}</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.02em;color:#8b8e97;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.id }} · {{ a.purpose }}</span>
+          </div></div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+            <span style="font-size:18px;font-weight:300;letter-spacing:-0.02em">{{ a.spentF }}</span>
+            <span style="font-size:10px;color:#8b8e97">/ {{ a.budgetF }}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><span style="font-size:13px;color:{{ a.runColor }};white-space:nowrap">{{ a.runway }}</span><span style="font-size:10px;color:#8b8e97;white-space:nowrap">{{ a.leftF }}</span></div>
+          <span style="display:flex;align-items:center;gap:7px;font-size:13px;color:{{ a.statusColor }};white-space:nowrap"><span style="width:7px;height:7px;background:{{ a.statusColor }}"></span>{{ a.statusLabel }}</span>
+          <span style="font-size:11px;color:#6b6e78;white-space:nowrap">{{ a.lastF }}</span>
+          <sc-if value="{{ a.canRevoke }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ a.revoke }}" style="border:0;background:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-repeat:no-repeat;background-position:0 0;background-size:0% 100%;background-color:rgba(255,255,255,.75);box-shadow:inset 0 0 0 1px rgba(18,48,214,.16);color:#0d0e12;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;transition:background-size .5s cubic-bezier(.65,0,.25,1),color .2s ease .12s,box-shadow .25s ease;padding:9px 0;width:100%" style-hover="background-size:100% 100%;color:#fff;box-shadow:inset 0 0 0 1px rgba(18,48,214,0)">Revoke</button>
+          </sc-if>
+          <sc-if value="{{ a.isRevoked }}" hint-placeholder-val="{{ false }}"><span style="font-size:10px;color:#8b8e97;text-align:center">nullified</span></sc-if>
+        </div>
+      </sc-for>
+    </sc-if>
+
+    <sc-if value="{{ noAgents }}" hint-placeholder-val="{{ false }}">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));border-top:1px solid #e3e5ea">
+        <div style="padding:24px 24px 26px 0;display:flex;flex-direction:column;gap:12px;border-bottom:1px solid #eef0f4">
+          <span style="font-size:64px;font-weight:300;letter-spacing:-0.05em;line-height:.9;color:#1230d6">01</span>
+          <span style="font-size:17px">Fund the pool</span>
+          <span style="font-size:12px;color:#6b6e78;line-height:1.5;text-wrap:pretty">Deposit USDC from your Hedera treasury. It becomes a shielded note only your organisation can see.</span>
+          <button onClick="{{ openFund }}" style="border:0;background:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-size:100% 100%;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 0 0 0 #1230d6;transition:box-shadow .3s ease,filter .3s ease;align-self:flex-start;padding:10px 16px;margin-top:4px" style-hover="box-shadow:0 8px 24px -8px rgba(18,48,214,.55);filter:brightness(1.06)">{{ step1Label }}</button>
+        </div>
+        <div style="padding:24px 24px 26px 0;display:flex;flex-direction:column;gap:12px;border-bottom:1px solid #eef0f4;opacity:{{ step2Opacity }}">
+          <span style="font-size:64px;font-weight:300;letter-spacing:-0.05em;line-height:.9">02</span>
+          <span style="font-size:17px">Issue a mandate</span>
+          <span style="font-size:12px;color:#6b6e78;line-height:1.5;text-wrap:pretty">Give an agent a private, revocable allowance — budget, allowed endpoints, expiry.</span>
+          <button onClick="{{ openMandate }}" style="border:0;background:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-repeat:no-repeat;background-position:0 0;background-size:0% 100%;background-color:rgba(255,255,255,.75);box-shadow:inset 0 0 0 1px rgba(18,48,214,.16);color:#0d0e12;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;transition:background-size .5s cubic-bezier(.65,0,.25,1),color .2s ease .12s,box-shadow .25s ease;align-self:flex-start;padding:10px 16px;margin-top:4px" style-hover="background-size:100% 100%;color:#fff;box-shadow:inset 0 0 0 1px rgba(18,48,214,0)">Issue mandate</button>
+        </div>
+        <div style="padding:24px 0 26px;display:flex;flex-direction:column;gap:12px;border-bottom:1px solid #eef0f4;opacity:.45">
+          <span style="font-size:64px;font-weight:300;letter-spacing:-0.05em;line-height:.9">03</span>
+          <span style="font-size:17px">Point the agent at x402</span>
+          <div style="background:#f4f6fd;font:400 11px/1.7 'JetBrains Mono',monospace;padding:12px 14px">VEIL_MANDATE=mnd_••••••<br>X402_ENDPOINT=inference.0g.ai</div>
+        </div>
+      </div>
+    </sc-if>
+  </section>
+
+  <section style="border-top:1px solid #e3e5ea;display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr))">
+    <div style="padding:34px 36px 38px;border-right:1px solid #e3e5ea;display:flex;flex-direction:column;gap:18px;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><h2 style="margin:0;font-size:26px;font-weight:400;letter-spacing:-0.02em">Live spend</h2><span style="display:flex;align-items:center;gap:7px;font:500 11px 'JetBrains Mono',monospace;color:#1230d6;letter-spacing:.1em">{{ livePulse }}{{ liveLabel }}</span></div>
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="display:flex;align-items:baseline;font-weight:300;letter-spacing:-0.05em;line-height:.9"><span style="font-size:72px">{{ settledInt }}</span><span style="font-size:32px;color:#a3a6ae">.{{ settledDec }}</span></div>
+        <div style="display:flex;flex-direction:column;gap:5px;padding-top:8px"><span style="font-size:13px;font-weight:500">USDC</span><span style="font:400 11px 'JetBrains Mono',monospace;color:#6b6e78">settled this session</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+        <div style="display:grid;grid-template-columns:repeat(45,minmax(0,1fr));gap:3px;align-items:end">
+          <sc-for list="{{ tlCols }}" as="col" hint-placeholder-count="45"><div style="display:grid;gap:3px"><sc-for list="{{ col.dots }}" as="d" hint-placeholder-count="6"><span style="aspect-ratio:1;border-radius:50%;background:{{ d.bg }};transform:scale({{ d.s }});transition:background .5s,transform .5s"></span></sc-for></div></sc-for>
+        </div>
+        <div style="height:1px;background:#e3e5ea"></div>
+        <div style="display:flex;justify-content:space-between;font:400 10px 'JetBrains Mono',monospace;color:#6b6e78"><span>−15m</span><span>−10m</span><span>−5m</span><span>now</span></div>
+      </div>
+      <sc-if value="{{ hasFeed }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;flex-direction:column;border-top:1px solid #e3e5ea">
+          <sc-for list="{{ feedRows }}" as="f" hint-placeholder-count="7">
+            <div onClick="{{ f.select }}" style="display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:14px;align-items:center;padding:12px 8px;border-bottom:1px solid #eef0f4;background:{{ f.bg }};cursor:pointer;animation:vin .4s ease-out" style-hover="background:#f4f6fd">
+              <span style="font:400 10px 'JetBrains Mono',monospace;color:#8b8e97">{{ f.clock }}</span>
+              <div style="display:flex;align-items:center;gap:12px;min-width:0"><span aria-hidden="true" style="flex-shrink:0;width:30px;height:30px;border-radius:50%;background-image:{{ f.avBg }};background-size:220% 220%;background-position:{{ f.avPos }};box-shadow:inset 0 0 0 1px rgba(255,255,255,.5);color:#fff;display:grid;place-items:center;font-size:10px;font-weight:600;letter-spacing:.02em;opacity:{{ f.avO }}">{{ f.ini }}</span><div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+                <span style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.agent }}</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#6b6e78;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">→ {{ f.vendor }}</span>
+              </div></div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+                <span style="font-size:16px;font-weight:300;font-variant-numeric:tabular-nums;color:{{ f.amtColor }};white-space:nowrap">{{ f.amountF }}</span>
+                <span style="display:flex;align-items:center;gap:5px;font:400 10px 'JetBrains Mono',monospace;color:#8b8e97;white-space:nowrap"><span style="width:6px;height:6px;border-radius:50%;background:{{ f.amtColor }}"></span>{{ f.kindLabel }}</span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{ noFeed }}" hint-placeholder-val="{{ false }}">
+        <div style="border-top:1px solid #e3e5ea;padding:24px 0;display:flex;flex-direction:column;gap:8px"><span style="font-size:20px;font-weight:300">Waiting for first payment{{ cursor }}</span><span style="font-size:12px;color:#8b8e97">Spends appear the moment an agent settles an x402 session.</span></div>
+      </sc-if>
+    </div>
+
+    <div style="padding:34px 36px 38px;display:flex;flex-direction:column;gap:20px;min-width:0">
+      <div style="display:flex;justify-content:flex-start;align-items:flex-end;gap:14px 28px;flex-wrap:wrap"><h2 style="margin:0;font-size:26px;font-weight:400;letter-spacing:-0.025em;line-height:1">Escrowed sessions</h2><div style="display:flex;align-items:stretch;gap:18px"><span style="display:flex;flex-direction:column;gap:5px"><span style="font-size:17px;font-weight:500;letter-spacing:-0.02em;line-height:1;font-variant-numeric:tabular-nums">x402</span><span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;color:#8b8e97">PROTOCOL</span></span><span style="display:flex;flex-direction:column;gap:5px"><span style="font-size:17px;font-weight:500;letter-spacing:-0.02em;line-height:1;font-variant-numeric:tabular-nums;color:#1230d6">TEE</span><span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;color:#8b8e97">METERED IN</span></span></div></div>
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="display:flex;align-items:baseline;font-weight:300;letter-spacing:-0.05em;line-height:.9"><span style="font-size:72px">{{ escInt }}</span><span style="font-size:32px;color:#a3a6ae">.{{ escDec }}</span></div>
+        <div style="display:flex;flex-direction:column;gap:5px;padding-top:8px"><span style="font-size:13px;font-weight:500">USDC</span><span style="font-size:11px;color:#6b6e78">locked in {{ sessionCount }} {{ sessionWord }}</span></div>
+      </div>
+      <div style="display:flex;align-items:stretch;gap:1px;background:#e3e5ea;border:1px solid #e3e5ea">
+        <sc-for list="{{ stages }}" as="st" hint-placeholder-count="4">
+          <div onMouseEnter="{{ st.enter }}" onMouseLeave="{{ stOff }}" style="position:relative;flex:1 1 0;min-width:0;isolation:isolate;overflow:hidden;background:#fff;padding:14px 14px 16px;display:flex;flex-direction:column;gap:22px;cursor:default">
+            <span aria-hidden="true" style="position:absolute;inset:0;z-index:-1;background:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-size:160% 160%;clip-path:{{ st.clip }};transition:clip-path .55s cubic-bezier(.65,0,.25,1)"></span>
+            <span aria-hidden="true" style="position:absolute;left:0;top:0;height:2px;width:{{ st.prog }};background:#1230d6"></span>
+            <span style="display:flex;justify-content:space-between;align-items:center;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;color:{{ st.nc }};transition:color .3s ease .12s"><span>{{ st.n }}</span><span style="opacity:{{ st.arO }}">→</span></span>
+            <div style="display:flex;flex-direction:column;gap:6px;min-width:0"><span style="font-size:26px;font-weight:300;letter-spacing:-0.03em;line-height:1;color:{{ st.vc }};white-space:nowrap;transition:color .3s ease .1s">{{ st.value }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;line-height:1.35;letter-spacing:.06em;text-transform:uppercase;color:{{ st.lc }};transition:color .3s ease .16s">{{ st.label }}</span></div>
+          </div>
+        </sc-for>
+      </div>
+      <sc-if value="{{ hasSessions }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;flex-direction:column;border-top:1px solid #e3e5ea">
+          <sc-for list="{{ sessionRows }}" as="se" hint-placeholder-count="3">
+            <div style="padding:16px 0;border-bottom:1px solid #eef0f4;display:flex;flex-direction:column;gap:12px;animation:vin .4s ease-out">
+              <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
+                <div style="display:flex;align-items:center;gap:12px;min-width:0"><span aria-hidden="true" style="flex-shrink:0;width:30px;height:30px;border-radius:50%;background-image:{{ se.avBg }};background-size:220% 220%;background-position:{{ se.avPos }};box-shadow:inset 0 0 0 1px rgba(255,255,255,.5);color:#fff;display:grid;place-items:center;font-size:10px;font-weight:600;letter-spacing:.02em;opacity:{{ se.avO }}">{{ se.ini }}</span><div style="display:flex;flex-direction:column;gap:3px;min-width:0"><span style="font-size:14px">{{ se.agent }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#6b6e78;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">→ {{ se.vendor }}</span></div></div>
+                <span style="font-size:20px;font-weight:300;letter-spacing:-0.02em;white-space:nowrap;flex-shrink:0">{{ se.meteredF }} <span style="font-size:13px;color:#a3a6ae">/ {{ se.escrowF }}</span></span>
+              </div>
+              <div style="position:relative;height:6px;border-radius:3px;background:#eef1ff;margin:0 8px 0 0">
+                <div style="position:absolute;left:0;top:0;bottom:0;width:{{ se.fillW }};border-radius:3px;background:linear-gradient(90deg,#8fb0f2,#2c63e6 70%,#1230d6);transition:width .9s linear"></div>
+                <span style="position:absolute;top:50%;left:{{ se.fillW }};width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid #1230d6;box-sizing:border-box;box-shadow:0 2px 8px rgba(18,48,214,.3);transform:translate(-50%,-50%);transition:left .9s linear"></span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:10px;color:#8b8e97">
+                <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ se.pctF }} · {{ se.rate }} tok/s · refund {{ se.refundF }}</span>
+                <button onClick="{{ se.settle }}" style="border:0;cursor:pointer;padding:8px 12px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.08em;white-space:nowrap;color:#0d0e12;background-color:rgba(255,255,255,.75);background-image:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-repeat:no-repeat;background-position:0 0;background-size:0% 100%;box-shadow:inset 0 0 0 1px rgba(18,48,214,.16);transition:background-size .5s cubic-bezier(.65,0,.25,1),color .2s ease .12s" style-hover="background-size:100% 100%;color:#fff">CLOSE &amp; SETTLE ↗</button>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{ noSessions }}" hint-placeholder-val="{{ false }}">
+        <div style="border-top:1px solid #e3e5ea;padding-top:22px;display:flex;flex-direction:column;gap:10px"><div style="height:10px;border-radius:5px;background:#f4f6fd"></div><span style="font-size:12px;color:#8b8e97">No open sessions.</span></div>
+      </sc-if>
+    </div>
+  </section>
+
+  <section style="position:relative;isolation:isolate;overflow:hidden;color:#fff;padding:52px 36px 56px;display:flex;flex-direction:column;gap:40px">
+    <div aria-hidden="true" style="position:absolute;inset:0;z-index:-2;background:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-size:180% 180%;animation:vbgshift 18s ease-in-out infinite alternate"></div>
+    <div aria-hidden="true" style="position:absolute;inset:0;z-index:-1;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23t)'/%3E%3C/svg%3E&quot;);background-size:180px 180px;mix-blend-mode:overlay;opacity:.5"></div>
+    <div style="display:flex;flex-wrap:wrap;gap:44px;align-items:center">
+      <div style="flex:1 1 320px;min-width:0;display:flex;flex-direction:column;gap:18px">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;color:rgba(255,255,255,.88)">AUDIT · SELECTIVE DISCLOSURE</span>
+        <h2 style="margin:0;font-size:48px;font-weight:300;letter-spacing:-0.04em;line-height:1.02;text-wrap:balance">Prove exactly what's asked. Nothing more.</h2>
+        <span style="font-size:14px;color:#fff;line-height:1.55;max-width:420px;text-wrap:pretty">Hand an auditor a scoped viewing proof — one payment, one agent's history, or one period. They verify it against Hedera; the rest of the ledger stays sealed.</span>
+        <div style="display:flex;flex-direction:column;gap:4px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.06em;line-height:1.6;color:rgba(255,255,255,.88)"><span>POOL CONTRACT 0.0.4821930 · GROTH16</span><span>MERKLE ROOT {{ root }}</span></div>
+      </div>
+      <div style="flex:1.3 1 440px;min-width:0;display:flex;flex-direction:column;gap:16px">
+        <div style="display:flex;justify-content:space-between;gap:12px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;color:rgba(255,255,255,.88)">TWO VIEWS OF ONE PAYMENT</span><span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;color:rgba(255,255,255,.88)">SELECT IN FEED</span></div>
+        <div style="position:relative;display:flex;align-items:center;justify-content:center">
+          <div style="flex:0 1 300px;aspect-ratio:1;min-width:0;border-radius:50%;background:rgba(255,255,255,.14);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.5);display:flex;flex-direction:column;justify-content:center;gap:10px;padding:0 22% 0 12%;box-sizing:border-box">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;color:rgba(255,255,255,.88)">HEDERA SEES</span>
+            <sc-for list="{{ chainMini }}" as="r" hint-placeholder-count="3"><div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:11px;color:rgba(255,255,255,.88)">{{ r.k }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:12px;white-space:nowrap">{{ r.v }}</span></div></sc-for>
+          </div>
+          <div style="flex:0 1 300px;aspect-ratio:1;min-width:0;margin-left:-16%;border-radius:50%;background:#fff;color:#0d0e12;box-shadow:0 30px 60px -30px rgba(13,30,120,.55);display:flex;flex-direction:column;justify-content:center;gap:8px;padding:0 10% 0 24%;box-sizing:border-box">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;color:#1230d6">YOU SEE</span>
+            <span style="font-size:14px;font-weight:500">{{ selV.agent }}</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#6b6e78;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">→ {{ selV.vendor }}</span>
+            <span style="font-size:38px;font-weight:300;letter-spacing:-0.04em;line-height:1">{{ selV.amountF }}</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#6b6e78">{{ selV.meta }}</span>
+          </div>
+          <sc-if value="{{ hasSel }}" hint-placeholder-val="{{ true }}"><span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:999px;background:#1230d6;color:#fff;padding:7px 12px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;white-space:nowrap;box-shadow:0 0 0 4px rgba(255,255,255,.45)">PROOF ✓</span></sc-if>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:44px;border-top:1px solid rgba(255,255,255,.45);padding-top:30px">
+      <div style="flex:2 1 520px;min-width:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:28px">
+        <sc-for list="{{ scopeCards }}" as="sc" hint-placeholder-count="3">
+          <button onClick="{{ sc.pick }}" style="cursor:pointer;border:0;background:none;color:#fff;text-align:left;padding:0;display:flex;flex-direction:column;gap:12px;opacity:{{ sc.op }};transition:opacity .3s;min-width:0" style-hover="opacity:1">
+            <span style="display:block;height:64px;overflow:hidden;font-size:112px;font-weight:300;letter-spacing:-0.06em;line-height:1">{{ sc.num }}</span>
+            <span style="height:2px;background:{{ sc.bar }};transition:background .3s"></span>
+            <span style="font-size:17px">{{ sc.label }}</span>
+            <span style="font-size:12px;color:#fff;line-height:1.45">{{ sc.desc }}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:14px">
+        <sc-if value="{{ scopeAgent }}" hint-placeholder-val="{{ false }}">
+          <select value="{{ auditAgent }}" onChange="{{ pickAuditAgent }}" style="background:transparent;color:#fff;border:0;border-bottom:1px solid #fff;padding:8px 0;font-size:14px;outline:none">
+            <sc-for list="{{ agentOptions }}" as="o" hint-placeholder-count="3"><option value="{{ o.id }}" style="color:#0d0e12">{{ o.name }} · {{ o.id }}</option></sc-for>
+          </select>
+        </sc-if>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;color:rgba(255,255,255,.88)">IN SCOPE</span><span style="font-size:13px;line-height:1.45">{{ scopeIn }}</span>
+          <span style="margin-top:8px;display:block"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;color:rgba(255,255,255,.88)">STAYS SEALED</span></span><span style="font-size:13px;line-height:1.45">{{ scopeOut }}</span>
+        </div>
+        <button onClick="{{ genProof }}" style="cursor:pointer;border:0;padding:15px 18px;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;display:flex;justify-content:space-between;opacity:{{ proofBtnOpacity }};color:#1230d6;background-color:#fff;background-image:linear-gradient(#1230d6,#1230d6);background-repeat:no-repeat;background-position:0 100%;background-size:100% 0;transition:background-size .45s cubic-bezier(.65,0,.25,1),color .2s ease .12s" style-hover="background-size:100% 100%;color:#fff"><span>{{ proofBtnLabel }}</span><span>↗</span></button>
+        <sc-if value="{{ hasProofs }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column">
+            <sc-for list="{{ proofRows }}" as="p" hint-placeholder-count="2">
+              <div style="display:flex;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.3);animation:vin .4s ease-out"><div style="display:flex;flex-direction:column;gap:3px;min-width:0"><span style="font-size:13px">{{ p.label }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,.88)">{{ p.id }} · {{ p.rel }}</span></div><span style="cursor:pointer;align-self:center;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.08em;padding:7px 10px;white-space:nowrap;color:#fff;background:rgba(255,255,255,.14);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.5);transition:background .3s ease" style-hover="background:rgba(255,255,255,.3)">COPY LINK</span></div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </section>
+</main>
+</div>
+
+<sc-if value="{{ fundOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeModals }}" style="position:fixed;inset:0;background:rgba(18,48,214,.18);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:grid;place-items:center;z-index:80;padding:20px">
+    <div onClick="{{ stop }}" style="background:#fff;width:440px;max-width:100%;padding:28px;display:flex;flex-direction:column;gap:18px;box-shadow:0 40px 80px -30px rgba(13,30,120,.45);animation:vin .25s ease-out">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:22px;letter-spacing:-0.02em">Fund shielded pool</span><button onClick="{{ closeModals }}" style="cursor:pointer;border:0;width:32px;height:32px;display:grid;place-items:center;background:transparent;font-size:18px;color:#6b6e78;transition:background .25s ease,color .25s ease" style-hover="background:#eef1ff;color:#1230d6">×</button></div>
+      <div style="display:flex;align-items:baseline;gap:8px;border-bottom:1px solid #e3e5ea;padding-bottom:6px">
+        <input value="{{ fundAmount }}" onChange="{{ setFundAmount }}" inputmode="decimal" style="border:0;outline:none;font-size:48px;font-weight:300;letter-spacing:-0.04em;width:100%;min-width:0;padding:0"></input>
+        <span style="font-size:14px">USDC</span>
+      </div>
+      <div style="display:flex;gap:6px">
+        <sc-for list="{{ fundPresets }}" as="fp" hint-placeholder-count="3"><button onClick="{{ fp.pick }}" style="border:1px solid #e3e5ea;background:#fff;padding:7px 12px;font:500 11px 'JetBrains Mono',monospace" style-hover="border-color:#0d0e12">{{ fp.label }}</button></sc-for>
+      </div>
+      <div style="display:flex;flex-direction:column;font-size:12px">
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eef0f4"><span style="color:#6b6e78">From</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px">Treasury 0.0.1029384</span></div>
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eef0f4"><span style="color:#6b6e78">Creates</span><span>1 shielded note</span></div>
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eef0f4"><span style="color:#6b6e78">Visible on-chain</span><span>deposit only — later spends unlinkable</span></div>
+      </div>
+      <button onClick="{{ confirmFund }}" style="border:0;background:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-size:100% 100%;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 0 0 0 #1230d6;transition:box-shadow .3s ease,filter .3s ease;padding:14px" style-hover="box-shadow:0 8px 24px -8px rgba(18,48,214,.55);filter:brightness(1.06)">{{ fundBtnLabel }}</button>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ mandateOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeModals }}" style="position:fixed;inset:0;background:rgba(18,48,214,.18);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:grid;place-items:center;z-index:80;padding:20px">
+    <div onClick="{{ stop }}" style="background:#fff;width:460px;max-width:100%;padding:26px;display:flex;flex-direction:column;gap:16px;animation:vin .25s ease-out">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:22px;letter-spacing:-0.02em">Issue mandate</span><button onClick="{{ closeModals }}" style="cursor:pointer;border:0;width:32px;height:32px;display:grid;place-items:center;background:transparent;font-size:18px;color:#6b6e78;transition:background .25s ease,color .25s ease" style-hover="background:#eef1ff;color:#1230d6">×</button></div>
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:11px;color:#6b6e78">Agent name<input value="{{ mName }}" onChange="{{ setMName }}" style="border:0;border-bottom:1px solid #e3e5ea;outline:none;font-size:18px;padding:6px 0;color:#0d0e12;background:transparent;transition:border-color .25s ease" style-focus="border-bottom-color:#1230d6"></input></label>
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:11px;color:#6b6e78">Budget (USDC)<input value="{{ mBudget }}" onChange="{{ setMBudget }}" inputmode="decimal" style="border:0;border-bottom:1px solid #e3e5ea;outline:none;font-size:18px;padding:6px 0;color:#0d0e12;background:transparent;transition:border-color .25s ease" style-focus="border-bottom-color:#1230d6"></input></label>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:11px;color:#6b6e78">Allowed endpoints
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <sc-for list="{{ endpointChips }}" as="ep" hint-placeholder-count="4"><button onClick="{{ ep.toggle }}" style="border:1px solid {{ ep.border }};background:{{ ep.bg }};color:{{ ep.fg }};padding:6px 10px;font:500 11px 'JetBrains Mono',monospace">{{ ep.label }}</button></sc-for>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;padding:8px 0;border-top:1px solid #eef0f4;border-bottom:1px solid #eef0f4"><span style="color:#6b6e78">Unallocated in pool</span><span style="font-family:'JetBrains Mono',monospace">{{ freeF }}</span></div>
+      <sc-if value="{{ mError }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:#ff4d1a">{{ mError }}</span></sc-if>
+      <button onClick="{{ confirmMandate }}" style="border:0;background:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);background-size:100% 100%;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 0 0 0 #1230d6;transition:box-shadow .3s ease,filter .3s ease;padding:14px" style-hover="box-shadow:0 8px 24px -8px rgba(18,48,214,.55);filter:brightness(1.06)">Sign &amp; issue mandate</button>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%);box-shadow:0 20px 50px -20px rgba(13,30,120,.6);color:#fff;padding:14px 18px;display:flex;align-items:center;gap:14px;z-index:30;animation:vin .25s ease-out;box-shadow:0 12px 30px -10px rgba(0,0,0,.5)">
+    <span style="width:8px;height:8px;background:{{ toast.color }}"></span>
+    <div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:13px">{{ toast.title }}</span><span style="font:400 10px 'JetBrains Mono',monospace;color:#8b8e97">{{ toast.sub }}</span></div>
+  </div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;startState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Operating&quot;,&quot;Fresh install&quot;],&quot;default&quot;:&quot;Operating&quot;,&quot;tsType&quot;:&quot;'Operating'|'Fresh install'&quot;},&quot;liveFeed&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;agentChart&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Range&quot;,&quot;Columns&quot;],&quot;default&quot;:&quot;Range&quot;,&quot;tsType&quot;:&quot;'Range'|'Columns'&quot;}}">
+const VENDORS=['0G · llama-3.3-70b','0G · deepseek-r1','0G · qwen2.5-coder','0G · whisper-v3','0G · sdxl-turbo'];
+const hex=n=>{let s='';for(let i=0;i<n;i++)s+='0123456789abcdef'[Math.random()*16|0];return s;};
+const money=n=>n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const compact=n=>n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':String(Math.round(n));
+const short=h=>'0x'+h.slice(0,6)+'…'+h.slice(-4);
+const rel=ms=>{const s=Math.max(0,Math.round(ms/1000));if(s<5)return 'just now';if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';};
+const clock=t=>new Date(t).toTimeString().slice(0,8);
+const pick=a=>a[Math.random()*a.length|0];
+const KIND={settled:'settled',escrow:'escrow opened',deposit:'deposit',revoke:'mandate revoked',refund:'escrow refunded'};
+const mkTx=(o)=>Object.assign({id:'tx_'+hex(6),commit:hex(64),nullifier:hex(64),t:Date.now()},o);
+
+function seedDemo(){
+  const now=Date.now();
+  const agents=[
+    {id:'mnd_7Q2aK1',name:'research-03',purpose:'Literature review',budget:6000,spent:4287.85,status:'active',last:now-16e3,txs:214},
+    {id:'mnd_3fLx90',name:'support-triage',purpose:'Ticket routing',budget:2500,spent:2043.92,status:'active',last:now-2e3,txs:1190},
+    {id:'mnd_Zk81pe',name:'codegen-ci',purpose:'PR review & fixes',budget:10000,spent:3204.61,status:'active',last:now-12e3,txs:404},
+    {id:'mnd_c0R4mm',name:'pricing-scout',purpose:'Market scan',budget:1200,spent:1192.31,status:'active',last:now-3*60e3,txs:88},
+    {id:'mnd_Wq55tn',name:'legal-summarizer',purpose:'Contract digests',budget:3000,spent:412.00,status:'paused',last:now-5*3600e3,txs:31},
+    {id:'mnd_Hh02vb',name:'growth-outreach',purpose:'Lead enrichment',budget:1500,spent:1500,status:'revoked',last:now-2*86400e3,txs:640}
+  ];
+  const sessions=[{id:'ses_1c77d0',agentId:'mnd_7Q2aK1',vendor:VENDORS[0],escrow:25,metered:0.86,tokens:35100,started:now-5e3}];
+  const fx=(h,tail)=>h+hex(64-h.length-tail.length)+tail;
+  const head=[['research-03',0,25,'escrow',5],['support-triage',1,4.30,'settled',12],['codegen-ci',3,12.80,'settled',184],['research-03',1,26.31,'settled',188],['pricing-scout',3,4.48,'settled',200]];
+  const feed=head.map(([a,v,amt,k,age])=>mkTx({agent:a,vendor:VENDORS[v],amount:amt,kind:k,t:now-age*1000,tokens:Math.round(amt*41000)}));
+  feed.push(mkTx({id:'tx_9302c9',agent:'research-03',vendor:VENDORS[1],amount:12.84,kind:'settled',t:now-260e3,tokens:526000,commit:fx('f4cd5f','0443'),nullifier:fx('f91c44','0ff1')}));
+  const names=['research-03','support-triage','codegen-ci','pricing-scout'];
+  const older=[18.4,9.95,44.17,2.06,21.3,7.42,15.6,3.21,11.08,26.9,5.75,19.33,8.6,31.14,6.27,13.62,4.99,7.5];
+  let k=0;for(const amt of older){feed.push(mkTx({agent:names[k%4],vendor:VENDORS[k%5],amount:amt,kind:'settled',t:now-(320+k*55)*1000,tokens:Math.round(amt*41000)}));k++;}
+  const sumS=feed.filter(f=>f.kind==='settled').reduce((t,f)=>t+f.amount,0);
+  feed[feed.length-1].amount=+(feed[feed.length-1].amount+(350.62-sumS)).toFixed(2);
+  for(let q=0;q<15;q++)feed.push(mkTx({agent:names[q%4],vendor:VENDORS[(q+2)%5],amount:[25,10,50][q%3],kind:'escrow',t:now-(330+q*61)*1000,tokens:0}));
+  feed.sort((a,b)=>b.t-a.t);
+  feed.push(mkTx({agent:'Treasury',vendor:'Shielded pool',amount:5000,kind:'deposit',t:now-2*86400e3,tokens:0}));
+  return {lastDep:{amount:5000,t:now-2*86400e3},agents,sessions,feed,balance:48163.68,selTx:'tx_9302c9',proofs:[{id:'vp_077be697',label:'research-03 · Q3 mandate history',t:now-3*86400e3}],notes:39,auditAgent:'mnd_7Q2aK1',root:'0x464fc5…98a1'};
+}
+function seedEmpty(){return {lastDep:null,agents:[],sessions:[],feed:[],balance:0,selTx:null,proofs:[],notes:0,auditAgent:null,root:null};}
+
+const AVG="radial-gradient(60% 50% at 30% 30%,#2c63e6 0%,transparent 70%),radial-gradient(40% 30% at 88% 34%,#d8b9a6 0%,transparent 70%),radial-gradient(70% 45% at 40% 92%,#c3d3f6 0%,transparent 70%),linear-gradient(170deg,#3d74ea 0%,#4c86ee 45%,#8fb0f2 80%,#b6c9f4 100%)";const AVP=['0% 0%','100% 20%','30% 100%','80% 80%','50% 40%','10% 60%','90% 0%'];
+function avOf(name,dead){const n=String(name||'?');const parts=n.split(/[-_\s]+/).filter(p=>/[a-z]/i.test(p));const ini=((parts[0]||n)[0]+((parts[1]||'')[0]||(parts[0]||n)[1]||'')).toUpperCase();let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))%997;return {ini,avBg:dead?'linear-gradient(170deg,#8b8e97,#b4b7c0)':AVG,avPos:AVP[h%AVP.length],avO:1};}
+class Component extends DCLogic {
+  state=Object.assign({now:Date.now(),mode:'demo',scope:'tx',proving:false,fundOpen:false,mandateOpen:false,fundAmount:'5,000',funding:false,mName:'',mBudget:'2,000',mEndpoints:['llama-3.3-70b','deepseek-r1'],mError:'',toast:null,tick:0},seedDemo());
+  componentDidMount(){
+    if((this.props.startState??'Operating')==='Fresh install')this.setMode('fresh');
+    this.iv=setInterval(()=>this.tick(),1000);
+  }
+  componentDidUpdate(prev){if(prev.startState!==this.props.startState)this.setMode(this.props.startState==='Fresh install'?'fresh':'demo');}
+  componentWillUnmount(){clearInterval(this.iv);clearTimeout(this.tt);}
+  setMode(m){this.setState(Object.assign({mode:m,toast:null},m==='fresh'?seedEmpty():seedDemo()));}
+  toast(title,sub,color){clearTimeout(this.tt);this.setState({toast:{title,sub,color:color||'#1230d6'}});this.tt=setTimeout(()=>this.setState({toast:null}),3400);}
+  settleIn(s,sessId,kind){
+    const sess=s.sessions.find(x=>x.id===sessId);if(!sess)return s;
+    const ag=s.agents.find(a=>a.id===sess.agentId);
+    const amt=Math.round(sess.metered*100)/100;
+    const agents=s.agents.map(a=>a.id===sess.agentId?Object.assign({},a,{spent:a.spent+amt,last:Date.now(),txs:a.txs+1}):a);
+    const tx=mkTx({agent:ag?ag.name:'?',vendor:sess.vendor,amount:amt,kind:kind||'settled',tokens:sess.tokens});
+    return Object.assign({},s,{agents,sessions:s.sessions.filter(x=>x.id!==sessId),balance:s.balance-amt,feed:[tx].concat(s.feed).slice(0,40),notes:s.notes+1});
+  }
+  tick(){
+    const live=this.props.liveFeed!==false;
+    this.setState(s0=>{
+      let s=Object.assign({},s0,{now:Date.now(),tick:s0.tick+1});
+      if(!live)return s;
+      s.sessions=s.sessions.map(x=>{const d=x.escrow*(0.004+Math.random()*0.018);return Object.assign({},x,{metered:Math.min(x.escrow,x.metered+d),tokens:x.tokens+Math.round(d*41000)});});
+      const full=s.sessions.find(x=>x.metered>=x.escrow*0.985);
+      if(full)s=this.settleIn(s,full.id);
+      if(s.tick%4===0){
+        const active=s.agents.filter(a=>a.status==='active'&&!s.sessions.some(x=>x.agentId===a.id));
+        if(s.sessions.length<4&&active.length&&Math.random()<0.6){
+          const a=pick(active);const esc=pick([10,25,50]);
+          if(a.budget-a.spent>=esc){
+            const sess={id:'ses_'+hex(6),agentId:a.id,vendor:pick(VENDORS),escrow:esc,metered:0,tokens:0,started:Date.now()};
+            s.sessions=s.sessions.concat([sess]);
+            s.agents=s.agents.map(x=>x.id===a.id?Object.assign({},x,{last:Date.now()}):x);
+            s.feed=[mkTx({agent:a.name,vendor:sess.vendor,amount:esc,kind:'escrow',tokens:0})].concat(s.feed).slice(0,40);
+          }
+        } else if(s.sessions.length){
+          const top=s.sessions.slice().sort((a,b)=>b.metered/b.escrow-a.metered/a.escrow)[0];
+          if(top.metered/top.escrow>0.4)s=this.settleIn(s,top.id);
+        }
+      }
+      return s;
+    });
+  }
+  revoke(id){
+    const s0=this.state;const a=s0.agents.find(x=>x.id===id);if(!a)return;
+    let s=Object.assign({},s0);
+    s.sessions.filter(x=>x.agentId===id).forEach(x=>{s=this.settleIn(s,x.id,'refund');});
+    s.agents=s.agents.map(x=>x.id===id?Object.assign({},x,{status:'revoked',last:Date.now()}):x);
+    s.feed=[mkTx({agent:a.name,vendor:'Mandate '+a.id,amount:Math.max(a.budget-a.spent,0),kind:'revoke'})].concat(s.feed).slice(0,40);
+    this.setState(s);
+    this.toast('Mandate '+a.id+' revoked · '+a.name,'revocation nullifier posted · open escrow refunded · 0.6s','#ff4d1a');
+  }
+  num(v){return parseFloat(String(v).replace(/[^0-9.]/g,''))||0;}
+  totals(){
+    const s=this.state;
+    const spent=s.agents.reduce((t,a)=>t+a.spent,0);
+    const escrow=s.sessions.reduce((t,x)=>t+x.escrow,0);
+    const mandated=s.agents.filter(a=>a.status!=='revoked').reduce((t,a)=>{const e=s.sessions.filter(x=>x.agentId===a.id).reduce((q,x)=>q+x.escrow,0);return t+Math.max(a.budget-a.spent-e,0);},0);
+    const free=Math.max(s.balance-escrow-mandated,0);
+    return {spent,escrow,mandated,free,total:spent+escrow+mandated+free};
+  }
+  renderVals(){
+    const s=this.state,T=this.totals(),now=s.now;
+    const isDemo=s.mode==='demo';
+    const [bi,bd]=money(s.balance).split('.');
+    const ROWS=6,COLS=72,N=ROWS*COLS;
+    const cats=[['Spent',T.spent,'#0b1f9c',1],['In escrow',T.escrow,'#2c63e6',1],['Mandated',T.mandated,'#8fb0f2',.82],['Unallocated',T.free,'#dfe4f3',.45]];
+    const bounds=[];let acc=0;
+    cats.forEach(c=>{const n=T.total>0?Math.round(c[1]/T.total*N):0;bounds.push([acc,acc+n]);acc+=n;});
+    if(T.total>0)bounds[3][1]=N;
+    const dots=[];
+    for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+      const i=c*ROWS+r;let k=3;
+      if(T.total>0){for(let j=0;j<4;j++)if(i>=bounds[j][0]&&i<bounds[j][1]){k=j;break;}}
+      const cat=T.total>0?cats[k]:['',0,'#eef0f4',.4];
+      const H=s.dotH, on=T.total>0&&H===k, has=H!=null&&T.total>0;
+      const span=Math.max(bounds[k][1]-bounds[k][0],1), rel=(i-bounds[k][0])/span;
+      const hc=['#1230d6','#2c63e6','#4c86ee','#8fb0f2'][k];
+      const enter=()=>{ if(T.total>0&&this.state.dotH!==k) this.setState({dotH:k}); };
+      if(!has) dots.push({bg:cat[2],op:1,tf:'scale('+cat[3]+')',tr:'background .45s ease '+(c*4)+'ms,transform .5s cubic-bezier(.2,.8,.2,1) '+(c*4)+'ms,opacity .35s ease',enter});
+      else if(on) dots.push({bg:hc,op:1,tf:'scale(1.12)',tr:'background .35s ease '+Math.round(rel*260+r*18)+'ms,transform .55s cubic-bezier(.3,1.6,.5,1) '+Math.round(rel*260+r*18)+'ms,opacity .3s ease',enter});
+      else dots.push({bg:cat[2],op:.22,tf:'scale('+(cat[3]*.7).toFixed(2)+')',tr:'background .3s ease,transform .45s cubic-bezier(.65,0,.35,1) '+Math.round(Math.abs(c-COLS/2)*3)+'ms,opacity .4s ease '+Math.round(Math.abs(c-COLS/2)*3)+'ms',enter});
+    }
+    const segs=cats.map((c,j)=>{const w=T.total>0?(bounds[j][1]-bounds[j][0])/N:0;const left=T.total>0?Math.min(bounds[j][0]/N*100,88):j*25;const H=s.dotH,has=H!=null&&T.total>0,on=has&&H===j;return {enter:()=>{if(T.total>0&&this.state.dotH!==j)this.setState({dotH:j});},op:has&&!on?.35:1,sq:['#0b1f9c','#2c63e6','#8fb0f2','#c9d2ef'][j],pc:on?'#1230d6':'#6b6e78',label:c[0],pct:T.total>0?Math.round(w*100)+'%':'0%',left:left+'%',display:(T.total===0||w>0.035)?'flex':'none'};});
+    const ticks=Array.from({length:11},(_,i)=>({label:i===10?'100%':String(i*10),c:i===0||i===10?'transparent':'#cfd2d9'}));
+    const stats=[
+      {label:'Mandated',value:money(T.mandated),sub:s.agents.filter(a=>a.status!=='revoked').length+' live mandates',color:'#8b8e97',border:'0'},
+      {label:'In escrow',value:money(T.escrow),sub:s.sessions.length+(s.sessions.length===1?' metered session':' metered sessions'),color:'#1230d6',border:'0'},
+      {label:'Spent',value:money(T.spent),sub:s.agents.reduce((t,a)=>t+a.txs,0).toLocaleString()+' settlements',color:'#0d0e12',border:'0'},
+      {label:'Unallocated',value:money(T.free),sub:'available to mandate',color:'#d9dae0',border:'0'}
+    ];
+    const agentRows=s.agents.map(a=>{
+      const e=s.sessions.filter(x=>x.agentId===a.id).reduce((q,x)=>q+x.escrow,0);
+      const pct=a.budget?a.spent/a.budget:0;
+      let label='Active',color='#0d0e12';
+      if(a.status==='revoked'){label='Revoked';color='#ff4d1a';}
+      else if(a.status==='paused'){label='Paused';color='#8b8e97';}
+      else if(pct>=0.95){label='Near limit';color='#ff4d1a';}
+      else if(e>0||now-a.last<60e3){label='Metering';color='#1230d6';}
+      return {id:a.id,name:a.name,purpose:a.purpose,budgetF:money(a.budget),spentF:money(a.spent),pctF:Math.round(pct*100)+'%',
+        spentW:Math.min(pct*100,100)+'%',escW:(a.status==='revoked'?0:Math.min(e/a.budget*100,100-Math.min(pct*100,100)))+'%',
+        barColor:a.status==='revoked'?'#c4c8d4':(pct>=0.95?'#ff4d1a':'#1230d6'),statusLabel:label,statusColor:color,
+        lastF:rel(now-a.last),opacity:a.status==='revoked'?.5:1,canRevoke:a.status!=='revoked',isRevoked:a.status==='revoked',revoke:()=>this.revoke(a.id),ticks:(()=>{const rv=a.status==='revoked',N=50,hot=pct>=0.95&&!rv;const k=Math.round(Math.min(pct,1)*N),ke=rv?0:Math.max(e>0?1:0,Math.round(Math.min(e/a.budget,1)*N));return Array.from({length:N},(_,i)=>{const major=i%10===0;if(i<k)return {bg:rv?'#c4c6cc':hot?'#ff4d1a':'#1230d6',h:(major?100:78)+'%'};if(i<k+ke)return {bg:'#1230d6',h:'100%'};return {bg:'#d0d2d8',h:(major?46:24)+'%'};});})(),
+        leftF:a.status==='revoked'?'mandate nullified':money(Math.max(a.budget-a.spent-e,0))+' left',
+        runway:(()=>{if(a.status==='revoked')return '—';if(a.status==='paused')return 'paused';const rate=a.spent/Math.max(1,a.txs/12);const d=Math.max(a.budget-a.spent-e,0)/Math.max(rate,1);return d<1?'< 1 day runway':'≈ '+Math.round(d)+'d runway';})(),
+        runColor:pct>=0.95&&a.status!=='revoked'?'#ff4d1a':'#8b8e97'};
+    });
+    const nm=id=>(s.agents.find(a=>a.id===id)||{}).name||'?';
+    const sessionRows=s.sessions.map(x=>{const f=Math.round(x.metered/x.escrow*40);return {id:x.id,agent:nm(x.agentId),vendor:x.vendor,meteredF:money(x.metered),escrowF:money(x.escrow),tokens:compact(x.tokens),age:rel(now-x.started).replace(' ago',''),
+      pctF:Math.round(x.metered/x.escrow*100)+'%',fillW:Math.min(100,x.metered/x.escrow*100).toFixed(1)+'%',refundF:money(Math.max(x.escrow-x.metered,0)),refundOp:x.metered/x.escrow>0.78?0:1,rate:compact(Math.round(x.tokens/Math.max(5,(now-x.started)/1000))),settle:()=>{this.setState(st=>this.settleIn(st,x.id));this.toast('Session '+x.id+' settled','enclave meter signed · '+money(x.metered)+' USDC · refund '+money(x.escrow-x.metered));}};});
+    const amtSign={settled:'−',escrow:'',deposit:'+',revoke:'',refund:'−'};
+    const feedRows=s.feed.slice(0,7).map(f=>({clock:clock(f.t),agent:f.agent,vendor:f.vendor,kindLabel:KIND[f.kind],rel:rel(now-f.t),amountF:amtSign[f.kind]+money(f.amount),
+      amtColor:f.kind==='deposit'?'#1230d6':f.kind==='escrow'?'#8b8e97':f.kind==='revoke'?'#ff4d1a':'#0d0e12',bg:f.id===s.selTx?'#eef1ff':'transparent',select:()=>this.setState({selTx:f.id})}));
+    const sessSpent=s.feed.filter(f=>f.kind==='settled'||f.kind==='refund').reduce((t,f)=>t+f.amount,0);
+    const sel=s.feed.find(f=>f.id===s.selTx);
+    const chainRows=sel?[
+      {k:'Commitment',v:short(sel.commit)},{k:'Nullifier',v:short(sel.nullifier)},{k:'Proof',v:'groth16 · verified ✓'},
+      {k:'Sender',v:sel.kind==='deposit'?'0.0.1029384':'hidden'},{k:'Amount',v:sel.kind==='deposit'?money(sel.amount):'hidden'},{k:'Purchase',v:'encrypted memo'}]:[];
+    const scopeDefs={tx:'Single tx',agent:'One agent',range:'Period'};
+    const auditAgent=s.agents.find(a=>a.id===s.auditAgent)||s.agents[0];
+    let scopeIn='—',scopeOut='—';const otherTx=s.agents.reduce((t,a)=>t+a.txs,0);
+    if(s.scope==='tx'){scopeIn=sel?(sel.id+' — '+sel.agent+' → '+sel.vendor+', '+money(sel.amount)+' USDC'):'Select a payment in the feed.';scopeOut=(otherTx||0).toLocaleString()+' other settlements, all balances, all other agents.';}
+    if(s.scope==='agent'){scopeIn=auditAgent?(auditAgent.name+' — '+auditAgent.txs+' settlements under '+auditAgent.id):'No agents yet.';scopeOut=Math.max(s.agents.length-1,0)+' other agents, pool balance, unallocated funds.';}
+    if(s.scope==='range'){scopeIn='All settlements, 1 Oct – 28 Oct 2026, aggregated per agent.';scopeOut='Everything outside the period; note openings and pool balance.';}
+    const canProve=!s.proving&&((s.scope==='tx'&&sel)||(s.scope==='agent'&&auditAgent)||(s.scope==='range'&&s.feed.length));
+    const T2=this.totals();
+    const _mz=money(sessSpent).split('.'),_ez=money(T.escrow).split('.');
+    const timeline=s.feed.filter(f=>now-f.t<900000&&f.kind!=='deposit').map(f=>{let hsh=0;for(const ch of f.id)hsh=(hsh*31+ch.charCodeAt(0))%997;const sz=Math.max(7,Math.min(26,5+Math.sqrt(f.amount)*2.6));const esc=f.kind==='escrow';return {left:(100-(now-f.t)/9000)+'%',top:(18+hsh%64)+'%',size:sz+'px',bg:esc?'transparent':f.kind==='revoke'?'#ff4d1a':f.id===s.selTx?'#1230d6':'#0d0e12',border:esc?'1px solid #1230d6':'0'};});
+    const TLC=45,TLR=6,TLB=20000;const tlCols=Array.from({length:TLC},(_,c)=>{const t1=now-(TLC-1-c)*TLB,t0=t1-TLB;const inB=s.feed.filter(f=>f.t>t0&&f.t<=t1);const sum=inB.filter(f=>f.kind==='settled'||f.kind==='refund').reduce((q,f)=>q+f.amount,0);const n=sum>0?Math.min(TLR,Math.ceil(sum/8)):0;const sel=inB.some(f=>f.id===s.selTx);const rv=inB.some(f=>f.kind==='revoke');const esc=inB.some(f=>f.kind==='escrow');return {sum,h:'0%',bg:sel?'linear-gradient(to top,rgba(18,48,214,.55),rgba(18,48,214,.12))':'linear-gradient(to top,rgba(44,99,230,.38),rgba(143,176,242,.08))',cap:sum>0?(sel?'#1230d6':'#4c86ee'):'transparent',mkBg:rv?'#ff4d1a':'#fff',mkBd:rv?'none':'inset 0 0 0 1.5px #1230d6',mkO:(esc||rv)?1:0,dots:Array.from({length:TLR},(_,r)=>{const fromBottom=TLR-1-r;if(fromBottom<n)return {bg:sel?'#1230d6':'#4c86ee',s:1};if(fromBottom===n&&rv)return {bg:'#ff4d1a',s:1};if(fromBottom===n&&esc&&n===0)return {bg:'#1230d6',s:.6};return {bg:'#e3e5ea',s:.4};})};});
+    {let cum=0;const cs=tlCols.map(x=>(cum+=x.sum));const mx=Math.max(1,cum);tlCols.forEach((x,i)=>{const v=cs[i]/mx;x.h=(cs[i]>0?Math.max(3,v*92):0).toFixed(1)+'%';x.cap=cs[i]>0?(x.sum>0?'#1230d6':'#8fb0f2'):'transparent';x.bg=x.sum>0?'linear-gradient(to top,rgba(44,99,230,.5),rgba(76,134,238,.2))':'linear-gradient(to top,rgba(44,99,230,.32),rgba(143,176,242,.1))';});}
+    const agentCols=s.agents.map(a=>{const e=s.sessions.filter(x=>x.agentId===a.id).reduce((q,x)=>q+x.escrow,0);const pct=a.budget?a.spent/a.budget:0;const rv=a.status==='revoked',hot=pct>=0.95&&!rv;const sp=Math.min(pct,1)*100;const es=rv?0:Math.min(e/a.budget*100,100-sp);
+      let sBg='#0d0e12',sFg='#fff',sBorder='0',sIcon='✓';
+      if(rv){sBg='#ff4d1a';sBorder='0';}else if(a.status==='paused'){sBg='#fff';sBorder='1px solid #8b8e97';}else if(hot){sBg='#ff4d1a';sIcon='!';}else if(e>0){sBg='#1230d6';sIcon='↻';}
+      return {name:a.name,pctF:Math.round(pct*100)+'%',spentH:sp+'%',escH:(es>0||(!rv&&e>0))?'min(calc('+es+'% + 18px), max(0px, calc('+(100-sp)+'% - 10px)))':'0px',grad:rv?'#d0d2d8':hot?'#ff4d1a':'#0d0e12',head:rv?'#fff':hot?'#ff4d1a':'#0d0e12',headBorder:rv?'2px solid #c9ccd3':'0',op:rv?.55:1,sBg,sFg,sBorder,sIcon,ghosts:[25,50,75,100].map(b=>({b:b+'%'}))};});
+    const budAll=s.agents.reduce((t,a)=>t+a.budget,0);
+    const openedN=s.feed.filter(f=>f.kind==='escrow').length+s.sessions.length,settledN=s.feed.filter(f=>f.kind==='settled').length,tokAll=s.sessions.reduce((t,x)=>t+x.tokens,0);
+    const stages=[
+      {n:'01',value:String(openedN),label:'402 quoted',h:'176px',bg:'#f4f6fd',fg:'#0d0e12',border:'0',arrow:'block'},
+      {n:'02',value:money(T.escrow),label:'escrow locked',h:'200px',bg:'#0d0e12',fg:'#fff',border:'0',arrow:'block'},
+      {n:'03',value:compact(tokAll),label:'tokens metered',h:'164px',bg:'#1230d6',fg:'#fff',border:'0',arrow:'block'},
+      {n:'04',value:String(settledN),label:'settled once',h:'188px',bg:'#fff',fg:'#0d0e12',border:'1px solid #0d0e12',arrow:'none'}];
+    stages.forEach((x,k)=>{const on=s.stH===k;x.enter=()=>this.setState({stH:k});x.clip=on?'inset(0 0 0 0)':'inset(100% 0 0 0)';x.prog=((k+1)/4*100)+'%';x.nc=on?'#fff':'#8b8e97';x.vc=on?'#fff':'#0d0e12';x.lc=on?'rgba(255,255,255,.85)':'#6b6e78';x.arO=k<3?1:0;});
+    const selF=s.feed.find(f=>f.id===s.selTx);
+    const extra2={stOff:()=>this.setState({stH:null}),agentCols,spentPctAll:budAll?Math.round(s.agents.reduce((t,a)=>t+a.spent,0)/budAll*100):0,stages,
+      chainMini:selF?[{k:'Commitment',v:short(selF.commit)},{k:'Nullifier',v:short(selF.nullifier)},{k:'Amount',v:selF.kind==='deposit'?money(selF.amount):'hidden'}]:[{k:'Commitment',v:'—'},{k:'Nullifier',v:'—'},{k:'Amount',v:'hidden'}],
+      selV:selF?{agent:selF.agent,vendor:selF.vendor,amountF:money(selF.amount),meta:selF.id+' · '+KIND[selF.kind]}:{agent:'No payment yet',vendor:'—',amountF:'0.00',meta:'select a payment in the feed'},
+      scopeCards:[['tx','01','Single payment','One settlement, verifiable on its own.'],['agent','02','One agent','Every spend under one mandate.'],['range','03','One period','All settlements in a date range.']].map(([k,num,label,desc])=>({num,label,desc,op:s.scope===k?1:.6,bar:s.scope===k?'#fff':'rgba(255,255,255,.35)',pick:()=>this.setState({scope:k})}))};
+    const SC=1.25;const rangeCols=s.agents.map(a=>{const e=s.sessions.filter(x=>x.agentId===a.id).reduce((q,x)=>q+x.escrow,0);const rv=a.status==='revoked',pz=a.status==='paused';const pct=a.budget?a.spent/a.budget:0;
+      const daily=a.spent/20;const proj=(rv||pz)?pct:Math.min(SC,(a.spent+e+daily*8)/a.budget);const lo=Math.min(pct,SC),hi=Math.max(proj,lo+0.02);
+      const capHi=Math.min(hi,1);const pc=v=>(v/SC*100).toFixed(2)+'%';
+      const STEP=0.0625,NR=20;const ti=Math.min(NR-1,Math.floor(lo/STEP+1e-9)),pi=(rv||pz)?ti:Math.min(NR-1,Math.max(ti,Math.ceil(hi/STEP-1e-9)-1));const over=pi>=16&&!rv&&!pz;
+      const cells=Array.from({length:NR},(_,k)=>{const i=NR-1-k;
+        if(i<ti)return {s:'6px',bg:rv||pz?'#e3e5ea':'#b9c6f7',bd:'0'};
+        if(i===ti)return {s:'12px',bg:'#fff',bd:'2px solid '+(rv?'#c4c8d4':pz?'#8b8e97':i>=16?'#ff4d1a':'#1230d6')};
+        if(i<=pi)return {s:'12px',bg:i>=16?'#ff4d1a':'#1230d6',bd:'0'};
+        return {s:'0px',bg:'transparent',bd:'0'};});
+      const HX=Math.max(hi,lo,.04),bh=Math.min(HX,SC)/SC;const barH=(bh*100).toFixed(2)+'%',barPx=Math.round(bh*250)+'px',todayB=(HX>0?Math.min(lo/HX,1)*100:0).toFixed(1)+'%';const ovr=!rv&&!pz&&hi>1;const barBg=(rv||pz)?'linear-gradient(to top,#d6d9e2,rgba(214,217,226,0))':ovr?'linear-gradient(to top,#2c63e6 0%,#4c86ee '+Math.round(100/HX)+'%,rgba(255,122,77,.55) '+Math.round(100/HX)+'%,rgba(255,122,77,0) 100%)':'linear-gradient(to top,#2c63e6 0%,#4c86ee 45%,rgba(143,176,242,.35) 85%,rgba(143,176,242,0) 100%)';const extraR={tagF:rv?'REVOKED':pz?'PAUSED':'TODAY '+Math.round(pct*100)+'%',todayW:Math.min(pct*100,100).toFixed(1)+'%',barH,barPx,todayB,barBg,todayF:Math.round(pct*100)+'%',spentF:money(a.spent),budF:money(a.budget)};
+      const P=v=>(Math.min(v,SC)/SC*100).toFixed(2)+'%',dead=rv||pz,pjTop=dead?lo:Math.min(hi,1),ovTop=dead?0:hi;return {...extraR,spH:P(lo),spC:dead?'#e3e5ea':'#b9c6f7',pjB:P(lo),pjH:dead||pjTop<=lo?'0%':'calc('+P(pjTop)+' - '+P(lo)+')',ovB:P(Math.max(lo,1)),ovH:(!dead&&ovTop>1)?'calc('+P(ovTop)+' - '+P(Math.max(lo,1))+')':'0%',mk:dead?'14px':'16px',mkC:rv?'#c4c8d4':pz?'#8b8e97':lo>=1?'#ff4d1a':'#1230d6',labB:P(Math.max(hi,lo)),name:a.name,op:rv?.5:1,cells,labTop:((NR-1-pi)*14-1)+'px',projF:Math.round(proj*100)+'%',lc:rv||pz?'#8b8e97':over?'#ff4d1a':'#1230d6'};});
+    const GW=9,plotCols=Math.max(1,rangeCols.length)*GW;const plotCells=[];
+    for(let r=0;r<20;r++)for(let c=0;c<plotCols;c++){const ai=Math.floor(c/GW);plotCells.push(c%GW===4&&rangeCols[ai]?rangeCols[ai].cells[r]:{s:'2px',bg:'#d3d9ee',bd:'0'});}
+    if(!this._ri){this._ri=1;setTimeout(()=>this.setState({rangeIn:1}),350);}
+    const RH=s.rangeH;rangeCols.forEach((r,i)=>{const on0=RH===i;r.cx=((i*GW+4.5)/plotCols*100)+'%';const inn=!!s.rangeIn;r.grow=inn?'scaleY(1)':'scaleY(0)';r.dl=(i*90)+'ms';r.dl2=(i*90+450)+'ms';r.dl3=(i*70+520)+'ms';r.mkS=inn?(on0?1.2:1):0;r.labO=inn?1:0;r.labBg='transparent';r.conH='max(0px, calc(310px - '+r.barPx+'))';const nC=rangeCols.length||1;r.cardL=(i/nC*100)+'%';r.cardW=(100/nC)+'%';r.cardB='calc('+r.barPx+' + 6px)';r.cFill=on0?'100% 100%':'0% 100%';r.cTx=on0?'#fff':'#0d0e12';r.cPc=on0?'#fff':r.lc;r.cO=inn?(RH!=null&&!on0?.5:1):0;r.cT=inn?'translateY(0)':'translateY(10px)';r.cSh=on0?'0 18px 40px -16px rgba(18,48,214,.45),inset 0 0 0 1px rgba(18,48,214,.25)':'0 1px 0 rgba(13,14,18,.02),inset 0 0 0 1px #e3e5ea';r.num=String(i+1).padStart(2,'0');r.barO=RH!=null&&!on0?.45:1;r.tO=inn?1:0;const on=RH===i,dim=RH!=null&&!on;r.enter=()=>{if(this.state.rangeH!==i)this.setState({rangeH:i});};r.left=((i*GW)/plotCols*100)+'%';r.w=(GW/plotCols*100)+'%';r.bandO=on?1:0;r.bandS=on?'scaleY(1)':'scaleY(.6)';r.op=dim?.35:(r.op);r.nc=on?'#1230d6':'#0d0e12';r.tk=on?'#1230d6':'#c9ccd3';});
+    const plotLabels=rangeCols.map((r,i)=>({left:((i*GW+4.5)/plotCols*100)+'%',top:r.labTop,t:r.projF,c:r.lc,op:RH!=null&&RH!==i?.3:1}));
+    const isRange=(this.props.agentChart??'Range')==='Range';const rangeOff=()=>{if(this.state.rangeH!=null)this.setState({rangeH:null});};
+    const extra={...extra2,rangeCols,rangeOff,plotCols,plotCells,plotLabels,chartRange:isRange,chartColumns:!isRange,tlCols,settledInt:_mz[0],settledDec:_mz[1],escInt:_ez[0],escDec:_ez[1],sessionCount:s.sessions.length,sessionWord:s.sessions.length===1?'session':'sessions',timeline,
+      agentChip:s.agents.length+' mandates · '+s.agents.filter(a=>a.status==='active').length+' active'};
+    const _st=n=>{const ag=s.agents.find(x=>x.name===n);return ag&&ag.status==='revoked';};
+    agentRows.forEach(x=>Object.assign(x,avOf(x.name,_st(x.name))));feedRows.forEach(x=>Object.assign(x,avOf(x.agent,_st(x.agent))));sessionRows.forEach(x=>Object.assign(x,avOf(x.agent,_st(x.agent))));rangeCols.forEach(x=>Object.assign(x,avOf(x.name,_st(x.name))));
+    return {balG:this.state.balH?'100% 100%':'0% 100%',balOn:()=>this.setState({balH:true}),balOff:()=>this.setState({balH:false}),goHome:(e)=>{ if(this.props.onHome){ e.preventDefault(); this.props.onHome(e.clientX, e.clientY); } },...extra,
+      pulse:React.createElement('span',{style:{width:7,height:7,borderRadius:'50%',background:'#1230d6',display:'inline-block'}}),
+      livePulse:React.createElement('span',{style:{width:7,height:7,borderRadius:'50%',background:'#1230d6',display:'inline-block',animation:this.props.liveFeed!==false?'vpulse 1.6s infinite':'none'}}),
+      cursor:React.createElement('span',{style:{animation:'vblink 1s steps(1) infinite',color:'#ff4d1a'}},'_'),
+      liveLabel:this.props.liveFeed!==false?'LIVE':'PAUSED',
+      demoBg:isDemo?'100% 100%':'0% 100%',demoFg:isDemo?'#fff':'#6b6e78',freshBg:isDemo?'0% 100%':'100% 100%',freshFg:isDemo?'#6b6e78':'#fff',
+      showDemo:()=>this.setMode('demo'),showFresh:()=>this.setMode('fresh'),
+      
+      balInt:bi,balDec:bd,noteCount:s.notes,anonSet:'12,408',
+      lastDeposit:(()=>{const d=s.lastDep;return d?'↑ '+money(d.amount)+' · '+rel(now-d.t):'no deposits yet';})(),
+      stats:stats.map((x,k)=>{const on=s.statH===k;return {...x,enter:()=>this.setState({statH:k}),clip:on?'inset(0 0 0 0)':'inset(100% 0 0 0)',bar:on?'scaleX(1)':'scaleX(0)',labC:on?'#fff':'#6b6e78',valC:on?'#fff':'#0d0e12',subC:on?'rgba(255,255,255,.85)':'#8b8e97',arO:on?1:0,arT:on?'translate(0,0)':'translate(-4px,4px)',sw:on?'0 0 0 1.5px #fff':'none'};}),statOff:()=>this.setState({statH:null}),dotOff:()=>{if(this.state.dotH!=null)this.setState({dotH:null});},dots,segs,ticks,dotUnit:T.total>0?money(T.total/N)+' USDC':'one unit',totalFunded:money(T.total),
+      agentSummary:s.agents.length?(s.agents.length+' mandates · '+s.agents.filter(a=>a.status==='active').length+' active · revocation is instant and final'):'No agents yet — three steps to the first private payment.',
+      agentN:s.agents.length,agentA:s.agents.filter(a=>a.status==='active').length,hasAgents:s.agents.length>0,noAgents:s.agents.length===0,agentRows,
+      step1Label:s.balance>0?'Funded ✓  Add more':'Fund pool',step2Opacity:s.balance>0?1:.45,
+      hasSessions:s.sessions.length>0,noSessions:s.sessions.length===0,sessionRows,emptyCells:Array.from({length:108},()=>({bg:'#d6d9df',s:.38})),escrowTotal:money(T.escrow),
+      hasFeed:s.feed.length>0,noFeed:s.feed.length===0,feedRows,spent24:money(sessSpent),
+      hasSel:!!sel,noSel:!sel,chainRows,sel:sel?{agent:sel.agent,vendor:sel.vendor,amountF:money(sel.amount),id:sel.id,kindLabel:KIND[sel.kind],clock:clock(sel.t)}:{},
+      scopes:Object.keys(scopeDefs).map(k=>({label:scopeDefs[k],bg:s.scope===k?'#fff':'transparent',fg:s.scope===k?'#1230d6':'#fff',pick:()=>this.setState({scope:k})})),
+      scopeAgent:s.scope==='agent'&&s.agents.length>0,auditAgent:auditAgent?auditAgent.id:'',agentOptions:s.agents.map(a=>({id:a.id,name:a.name})),
+      pickAuditAgent:e=>this.setState({auditAgent:e.target.value}),scopeIn,scopeOut,
+      proofBtnLabel:s.proving?'Generating viewing proof…':'Generate viewing proof',proofBtnOpacity:canProve||s.proving?1:.5,
+      genProof:()=>{if(!canProve)return;this.setState({proving:true});
+        const label=s.scope==='tx'?(sel.id+' · single payment'):s.scope==='agent'?(auditAgent.name+' · full mandate history'):'Oct 2026 · period report';
+        setTimeout(()=>{this.setState(st=>({proving:false,proofs:[{id:'vp_'+hex(8),label,t:Date.now()}].concat(st.proofs)}));this.toast('Viewing proof ready','scoped key + zk proof · verifier link copied');},1400);},
+      hasProofs:s.proofs.length>0,proofRows:s.proofs.slice(0,3).map(p=>({id:p.id,label:p.label,rel:rel(now-p.t)})),
+      root:s.root||short(hex(8)+String(s.notes*7919)+'a1'),
+      fundOpen:s.fundOpen,mandateOpen:s.mandateOpen,
+      openFund:()=>this.setState({fundOpen:true}),openMandate:()=>this.setState({mandateOpen:true,mError:''}),
+      closeModals:()=>this.setState({fundOpen:false,mandateOpen:false}),stop:e=>e.stopPropagation(),
+      fundAmount:s.fundAmount,setFundAmount:e=>this.setState({fundAmount:e.target.value}),
+      fundPresets:['1,000','5,000','25,000'].map(v=>({label:v,pick:()=>this.setState({fundAmount:v})})),
+      fundBtnLabel:s.funding?'Generating deposit proof…':'Deposit '+s.fundAmount+' USDC',
+      confirmFund:()=>{const amt=this.num(s.fundAmount);if(!amt||s.funding)return;this.setState({funding:true});
+        setTimeout(()=>{this.setState(st=>({funding:false,fundOpen:false,balance:st.balance+amt,notes:st.notes+1,lastDep:{amount:amt,t:Date.now()},feed:[mkTx({agent:'Treasury',vendor:'Shielded pool',amount:amt,kind:'deposit'})].concat(st.feed)}));this.toast('Pool funded · +'+money(amt)+' USDC','1 note committed · Hedera consensus 2.9s');},1100);},
+      mName:s.mName,setMName:e=>this.setState({mName:e.target.value}),mBudget:s.mBudget,setMBudget:e=>this.setState({mBudget:e.target.value}),
+      endpointChips:['llama-3.3-70b','deepseek-r1','qwen2.5-coder','whisper-v3','sdxl-turbo'].map(ep=>{const on=s.mEndpoints.includes(ep);return {label:ep,bg:on?'#0d0e12':'#fff',fg:on?'#fff':'#0d0e12',border:on?'#0d0e12':'#e3e5ea',
+        toggle:()=>this.setState(st=>({mEndpoints:on?st.mEndpoints.filter(x=>x!==ep):st.mEndpoints.concat([ep])}))};}),
+      freeF:money(T2.free)+' USDC',mError:s.mError,
+      confirmMandate:()=>{const b=this.num(s.mBudget);const name=(s.mName||'').trim()||'agent-'+hex(2);
+        if(!b){this.setState({mError:'Enter a budget.'});return;}
+        if(b>T2.free){this.setState({mError:'Budget exceeds unallocated funds ('+money(T2.free)+'). Fund the pool first.'});return;}
+        const id='mnd_'+hex(6);
+        this.setState(st=>({mandateOpen:false,mName:'',auditAgent:st.auditAgent||id,agents:st.agents.concat([{id,name,purpose:st.mEndpoints.length+' endpoints allowed',budget:b,spent:0,status:'active',last:Date.now(),txs:0}])}));
+        this.toast('Mandate '+id+' issued to '+name,'spending key derived · budget '+money(b)+' USDC · hidden on-chain');},
+      toast:s.toast
+    };
+  }
+}
+</script>
+</body>
+</html>
