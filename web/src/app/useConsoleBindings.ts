@@ -1056,6 +1056,9 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
         fillW: `${fill}%`,
         knobAt: `${fill}%`,
         knobOn: finished || active || broke,
+        // A step in flight has no percentage to report — the chain says
+        // only "not yet" — so it sweeps rather than claiming a figure.
+        running: active,
         tone: broke ? '#ff4d1a' : '#0d0e12',
         ink: finished || active ? '#fff' : broke ? '#ff4d1a' : '#8b8e97',
         op: finished || active || broke ? 1 : 0.45,

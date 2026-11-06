@@ -2534,3 +2534,53 @@
   padding: 8px 0 4px;
   word-break: break-word;
 }
+
+/* A running step cannot say how far along it is — the chain answers only
+   "not yet" — so it sweeps instead of holding a figure that means nothing. */
+@keyframes vlane {
+  0%, 100% { background-size: 30% 100%; }
+  50% { background-size: 78% 100%; }
+}
+
+@keyframes vlaneknob {
+  0%, 100% { left: 30%; }
+  50% { left: 78%; }
+}
+
+@keyframes vsheen {
+  0% { transform: translateX(-60%); }
+  100% { transform: translateX(260%); }
+}
+
+.step[data-run='true'] .stepFill {
+  animation: vlane 2.1s cubic-bezier(.65,0,.35,1) infinite;
+}
+
+.step[data-run='true'] .stepKnob {
+  animation: vlaneknob 2.1s cubic-bezier(.65,0,.35,1) infinite;
+  transition: none;
+}
+
+.stepSheen {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 38%;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(100deg,transparent,rgba(255,255,255,.42),transparent);
+  animation: vsheen 2.1s cubic-bezier(.4,0,.2,1) infinite;
+}
+
+.step[data-run='true'] .stepMark {
+  animation: vpulse 2.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step[data-run='true'] .stepFill,
+  .step[data-run='true'] .stepKnob,
+  .step[data-run='true'] .stepMark,
+  .stepSheen {
+    animation: none;
+  }
+}

@@ -1688,9 +1688,11 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                   <div
                     key={i}
                     className={s.step}
+                    data-run={st.running ? 'true' : undefined}
                     style={{ '--d0': st.op, '--d1': st.fillW, '--d2': st.ink } as CSSVars}
                   >
                     <span className={s.stepFill} />
+                    {st.running ? <span className={s.stepSheen} /> : null}
                     {st.knobOn ? <span className={s.stepKnob} /> : null}
                     <span className={s.stepLabel}>{st.label}</span>
                     <span className={s.stepMark} style={{ '--d0': st.tone } as CSSVars}>
