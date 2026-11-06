@@ -9,8 +9,23 @@ use std::sync::Arc;
 use alloy::primitives::B256;
 use veil402_daemon::{
     adapters::SqliteStore,
-    core::agent::{AgentError, AgentService},
+    core::agent::{AgentError, AgentService, Charge},
 };
+
+/// One call as the ledger files it. Only the digest and the cost matter to
+/// these tests; the rest is what proving it later would need.
+fn filed(attestation: B256, cost: u64, at: u64) -> Charge {
+    Charge {
+        attestation,
+        cost,
+        at,
+        nullifier: veil402_sdk::Field::from(0_u64),
+        delivered: None,
+        witness: None,
+        sequence: 0,
+        model: "stub".to_owned(),
+    }
+}
 
 type Fallible = Result<(), Box<dyn std::error::Error>>;
 
@@ -62,12 +77,7 @@ async fn a_revoked_key_stops_opening_without_losing_what_it_spent() -> Fallible 
     let issued = ledger.issue("aider", None, NOW).await?;
     let agent = ledger.authenticate(&issued.key).await?;
     ledger
-        .charge(
-            ledger.reserve(&agent, 100)?,
-            B256::repeat_byte(1),
-            90,
-            NOW,
-        )
+        .charge(ledger.reserve(&agent, 100)?, &filed(B256::repeat_byte(1), 90, NOW))
         .await?;
 
     assert!(ledger.revoke(&agent.id).await?);
@@ -103,7 +113,7 @@ async fn a_budget_bounds_what_is_in_flight_as_well_as_what_is_spent() -> Fallibl
     drop(first);
     let second = ledger.reserve(&agent, 600)?;
     ledger
-        .charge(second, B256::repeat_byte(2), 250, NOW)
+        .charge(second, &filed(B256::repeat_byte(2), 250, NOW))
         .await?;
 
     let agent = ledger.authenticate(&issued.key).await?;
@@ -136,10 +146,10 @@ async fn one_call_filed_twice_is_billed_once() -> Fallible {
     let attestation = B256::repeat_byte(7);
 
     ledger
-        .charge(ledger.reserve(&agent, 100)?, attestation, 80, NOW)
+        .charge(ledger.reserve(&agent, 100)?, &filed(attestation, 80, NOW))
         .await?;
     ledger
-        .charge(ledger.reserve(&agent, 100)?, attestation, 80, NOW + 5)
+        .charge(ledger.reserve(&agent, 100)?, &filed(attestation, 80, NOW + 5))
         .await?;
 
     let agent = ledger.authenticate(&issued.key).await?;

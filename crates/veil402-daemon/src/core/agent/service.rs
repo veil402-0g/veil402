@@ -5,12 +5,12 @@ use std::{
 
 use alloy::{
     hex,
-    primitives::{B256, keccak256},
+    primitives::keccak256,
 };
 use subtle::ConstantTimeEq;
 use thiserror::Error;
 
-use super::{Agent, AgentStore, Issued};
+use super::{Agent, AgentStore, Audit, Charge, Filed, Issued};
 use crate::core::StoreError;
 
 /// What an agent presents.
@@ -169,19 +169,19 @@ impl AgentService {
     /// # Errors
     ///
     /// Returns [`AgentError::Store`] when the ledger cannot be written.
-    pub async fn charge(
-        &self,
-        hold: Hold,
-        attestation: B256,
-        cost: u64,
-        now: u64,
-    ) -> Result<(), AgentError> {
+    pub async fn charge(&self, hold: Hold, charge: &Charge) -> Result<(), AgentError> {
         // Filed before the hold is dropped, so the window between the two
         // counts the call twice rather than not at all.
-        Ok(self
-            .agents
-            .charge(attestation, &hold.agent, cost, now)
-            .await?)
+        Ok(self.agents.charge(charge, &hold.agent).await?)
+    }
+
+    /// The calls an audit covers, newest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AgentError::Store`] when the ledger cannot be read.
+    pub async fn audit(&self, audit: &Audit) -> Result<Vec<Filed>, AgentError> {
+        Ok(self.agents.audit(audit).await?)
     }
 
     /// Every agent, newest first.

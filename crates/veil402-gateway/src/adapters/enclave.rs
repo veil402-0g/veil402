@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::{
-    primitives::{Address, B256, keccak256},
+    primitives::Address,
     signers::{SignerSync, local::PrivateKeySigner},
 };
 use async_trait::async_trait;
@@ -19,7 +19,10 @@ use veil402_sdk::{
     Field, Veil,
     evm::{PoolClient, Session},
     session::{EnclaveKey, Keyring, Outbound, Sealed},
-    wire::{AgreeBody, Delivered, MeteredBody, Offer, Prompt, SettlementBody, encode},
+    wire::{
+        AgreeBody, Delivered, MeteredBody, Offer, Prompt, SettlementBody, Witness, attestation,
+        encode,
+    },
 };
 
 use crate::core::{
@@ -349,7 +352,13 @@ async fn bill(relay: &mut Relay, receipt: &Receipt) -> Result<Metering, MeterErr
     // Folded before the terminator frame is sealed, which carries no answer
     // and could not be counted here without counting this bill.
     let delivered = core::mem::take(&mut relay.delivered).finish();
-    let attestation = witnessed(receipt, delivered);
+    let witness = Witness {
+        reference: receipt.reference.clone(),
+        prompt: receipt.tokens.prompt,
+        completion: receipt.tokens.completion,
+        provider: receipt.provider,
+    };
+    let attestation = attestation(delivered, cost, &witness);
     let sequence = meter.calls() as u64;
     let total = meter
         .record(Call { cost, attestation })
@@ -361,6 +370,8 @@ async fn bill(relay: &mut Relay, receipt: &Receipt) -> Result<Metering, MeterErr
             remaining: meter.ceiling().saturating_sub(total),
             attestation,
             delivered: Some(delivered),
+            witness: Some(witness),
+            sequence,
         },
         record: journal(&relay.key, sequence, &relay.attempt, total, attestation)
             .map_err(refused)?,
@@ -380,23 +391,6 @@ fn model(body: &[u8]) -> Result<String, MeterError> {
         .ok()
         .and_then(|request| Some(request.get("model")?.as_str()?.to_owned()))
         .ok_or(MeterError::Refused("the request names no model".into()))
-}
-
-/// Binds the upstream's own receipt, so what a settlement covers can be
-/// matched against what the provider says it served.
-fn witnessed(receipt: &Receipt, delivered: B256) -> B256 {
-    let mut bound = Vec::with_capacity(128);
-    // What the buyer received, so what settles commits to the answer and not
-    // only to what it was billed.
-    bound.extend_from_slice(delivered.as_slice());
-    bound.extend_from_slice(receipt.reference.as_bytes());
-    bound.extend_from_slice(&receipt.cost.to_be_bytes());
-    bound.extend_from_slice(&receipt.tokens.prompt.to_be_bytes());
-    bound.extend_from_slice(&receipt.tokens.completion.to_be_bytes());
-    if let Some(provider) = receipt.provider {
-        bound.extend_from_slice(provider.as_slice());
-    }
-    keccak256(bound)
 }
 
 /// An upstream refusal, as the question the gateway has to answer: can this

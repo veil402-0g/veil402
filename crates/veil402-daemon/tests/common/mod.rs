@@ -434,6 +434,10 @@ impl Enclave for Vouching {
             total: COST,
             remaining: CEILING - COST,
             attestation: alloy::primitives::B256::repeat_byte(0xA7),
+            delivered: None,
+            witness: None,
+            sequence: 0,
+            nullifier: Field::from(0_u64),
         })));
         Ok(futures_util::stream::iter(pieces).boxed())
     }

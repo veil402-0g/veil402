@@ -1,7 +1,7 @@
 use alloy::primitives::B256;
 use async_trait::async_trait;
 
-use super::{Agent, Registered};
+use super::{Agent, Audit, Charge, Filed, Registered};
 use crate::core::StoreError;
 
 /// Who may spend, and what they have spent.
@@ -24,11 +24,8 @@ pub trait AgentStore: Send + Sync {
     /// Idempotent on `attestation`, which is the enclave's own digest for
     /// the call: a retry, a restart, or a drain that outlived its reader
     /// files the same call again and is billed for it once.
-    async fn charge(
-        &self,
-        attestation: B256,
-        agent: &str,
-        cost: u64,
-        now: u64,
-    ) -> Result<(), StoreError>;
+    async fn charge(&self, charge: &Charge, agent: &str) -> Result<(), StoreError>;
+
+    /// The calls an audit covers, newest first.
+    async fn audit(&self, audit: &Audit) -> Result<Vec<Filed>, StoreError>;
 }

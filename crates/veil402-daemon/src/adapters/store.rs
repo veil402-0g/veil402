@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions, sqlite::SqliteRow};
 use veil402_sdk::{Field, Secret, StoredNode};
 
+use crate::core::agent::{Audit, Charge, Filed};
 use crate::core::{
     agent::{Agent, AgentStore, Registered},
     envelope::{EnvelopeStore, SubmissionStore},
@@ -106,7 +107,12 @@ impl SqliteStore {
                  attestation BLOB    PRIMARY KEY,
                  agent       TEXT    NOT NULL,
                  cost        INTEGER NOT NULL,
-                 at          INTEGER NOT NULL
+                 at          INTEGER NOT NULL,
+                 nullifier   BLOB,
+                 delivered   BLOB,
+                 witness     TEXT,
+                 sequence    INTEGER NOT NULL DEFAULT 0,
+                 model       TEXT
              );",
         )
         .execute(&pool)
@@ -633,21 +639,52 @@ impl AgentStore for SqliteStore {
         Ok(result.rows_affected() == 1)
     }
 
-    async fn charge(
-        &self,
-        attestation: B256,
-        agent: &str,
-        cost: u64,
-        now: u64,
-    ) -> Result<(), StoreError> {
+    /// Narrowed in SQL rather than in memory: an audit of one payment
+    /// should not read the whole ledger to find it.
+    async fn audit(&self, audit: &Audit) -> Result<Vec<Filed>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT c.attestation, c.agent, c.cost, c.at, c.nullifier, c.delivered,
+                    c.witness, c.sequence, c.model, a.label
+             FROM charges c JOIN agents a ON a.id = c.agent
+             WHERE (?1 IS NULL OR c.agent = ?1)
+               AND (?2 IS NULL OR c.at >= ?2)
+               AND (?3 IS NULL OR c.at <= ?3)
+               AND (?4 IS NULL OR c.attestation = ?4)
+             ORDER BY c.at DESC, c.sequence DESC",
+        )
+        .bind(audit.agent.as_deref())
+        .bind(audit.from.map(i64::try_from).transpose().map_err(|_| StoreError::Corrupt)?)
+        .bind(audit.to.map(i64::try_from).transpose().map_err(|_| StoreError::Corrupt)?)
+        .bind(audit.attestation.map(|digest| digest.to_vec()))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| StoreError::Unavailable)?;
+        rows.iter().map(filed).collect()
+    }
+
+    async fn charge(&self, charge: &Charge, agent: &str) -> Result<(), StoreError> {
+        let cost = charge.cost;
+        let now = charge.at;
         let mut transaction = self.pool.begin().await.map_err(|_| StoreError::Unavailable)?;
         let filed = sqlx::query(
-            "INSERT OR IGNORE INTO charges (attestation, agent, cost, at) VALUES (?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO charges
+             (attestation, agent, cost, at, nullifier, delivered, witness, sequence, model)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
-        .bind(attestation.to_vec())
+        .bind(charge.attestation.to_vec())
         .bind(agent)
         .bind(integer(cost)?)
         .bind(integer(now)?)
+        .bind(charge.nullifier.to_bytes().to_vec())
+        .bind(charge.delivered.map(|digest| digest.to_vec()))
+        .bind(
+            charge
+                .witness
+                .as_ref()
+                .and_then(|witness| serde_json::to_string(witness).ok()),
+        )
+        .bind(integer(charge.sequence)?)
+        .bind(charge.model.as_str())
         .execute(&mut *transaction)
         .await
         .map_err(|_| StoreError::Unavailable)?;
@@ -682,6 +719,40 @@ fn agent(row: &SqliteRow) -> Result<Agent, StoreError> {
         used: optional(row, "used")?,
         revoked: row.get::<i64, _>("revoked") != 0,
     })
+}
+
+fn filed(row: &SqliteRow) -> Result<Filed, StoreError> {
+    Ok(Filed {
+        agent: row.get("agent"),
+        label: row.get("label"),
+        charge: Charge {
+            attestation: B256::from_slice(&digest(row, "attestation")?),
+            cost: count(row, "cost")?,
+            at: count(row, "at")?,
+            nullifier: Field::from_bytes(
+                digest(row, "nullifier")?
+                    .try_into()
+                    .map_err(|_| StoreError::Corrupt)?,
+            )
+            .map_err(|_| StoreError::Corrupt)?,
+            delivered: row
+                .get::<Option<Vec<u8>>, _>("delivered")
+                .filter(|bytes| bytes.len() == 32)
+                .map(|bytes| B256::from_slice(&bytes)),
+            // A record written by an older build has none, which is a row
+            // that cannot be proved rather than one that is wrong.
+            witness: row
+                .get::<Option<String>, _>("witness")
+                .and_then(|json| serde_json::from_str(&json).ok()),
+            sequence: count(row, "sequence")?,
+            model: row.get::<Option<String>, _>("model").unwrap_or_default(),
+        },
+    })
+}
+
+fn digest(row: &SqliteRow, column: &str) -> Result<Vec<u8>, StoreError> {
+    let bytes: Vec<u8> = row.get(column);
+    (bytes.len() == 32).then_some(bytes).ok_or(StoreError::Corrupt)
 }
 
 fn optional(row: &SqliteRow, column: &str) -> Result<Option<u64>, StoreError> {

@@ -14,7 +14,7 @@ use common::{COST, Fallible, MODEL, serving};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
-use veil402_daemon::{adapters::router, core::envelope::EnclaveError};
+use veil402_daemon::{adapters::router, core::agent::Charge, core::envelope::EnclaveError};
 
 const NOW: u64 = 1_900_000_000;
 
@@ -300,5 +300,74 @@ async fn a_refusal_about_the_seller_is_not_told_in_the_seller_s_voice() -> Falli
     );
     let refusal: Value = serde_json::from_str(&body)?;
     assert_eq!(refusal["error"]["code"], "upstream_unavailable");
+    Ok(())
+}
+
+/// An audit shows what it was asked for and nothing beside it. Narrowing is
+/// the whole claim — an auditor handed one agent's history must not learn
+/// that another agent exists, let alone what it spent.
+#[tokio::test]
+async fn an_audit_shows_one_agent_and_leaves_the_rest_sealed() -> Fallible {
+    let fixture = serving(2).await?;
+    let mine = fixture.agents.issue("mine", None, NOW).await?;
+    let theirs = fixture.agents.issue("theirs", None, NOW).await?;
+
+    // One real call, so a row carries what a real one would, and one filed
+    // directly: the fixture holds a single note, and what is under test is
+    // the narrowing rather than the envelope.
+    let response = router(fixture.api()).oneshot(asking(&mine.key, false)).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let other = fixture.agents.authenticate(&theirs.key).await?;
+    let hold = fixture.agents.reserve(&other, COST)?;
+    fixture
+        .agents
+        .charge(
+            hold,
+            &Charge {
+                attestation: alloy::primitives::B256::repeat_byte(0xBB),
+                cost: COST,
+                at: NOW,
+                nullifier: veil402_sdk::Field::from(5_u64),
+                delivered: None,
+                witness: None,
+                sequence: 0,
+                model: MODEL.to_owned(),
+            },
+        )
+        .await?;
+
+    let everything: Value = serde_json::from_str(
+        &text(
+            router(fixture.api())
+                .oneshot(listing(&mine.key, "/v1/audit"))
+                .await?
+                .into_body(),
+        )
+        .await?,
+    )?;
+    assert_eq!(
+        everything["data"].as_array().expect("data").len(),
+        2,
+        "both calls were filed"
+    );
+
+    let narrowed: Value = serde_json::from_str(
+        &text(
+            router(fixture.api())
+                .oneshot(listing(&mine.key, &format!("/v1/audit?agent={}", theirs.agent.id)))
+                .await?
+                .into_body(),
+        )
+        .await?,
+    )?;
+    let rows = narrowed["data"].as_array().expect("data");
+    assert_eq!(rows.len(), 1, "the filter did not narrow");
+    assert_eq!(rows[0]["label"], "theirs");
+    assert_eq!(rows[0]["model"], MODEL, "the row names what was bought");
+    assert!(
+        rows[0]["proof"]["nullifier"].is_string(),
+        "a row without its envelope cannot be tied to a settlement"
+    );
     Ok(())
 }
