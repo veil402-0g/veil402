@@ -140,7 +140,7 @@ impl veil402_enclave::Upstream for Upstream {
             .map(|frame| Ok(veil402_enclave::Served::Frame(format!("part {frame}").into_bytes())))
             .collect();
         if self.breaks {
-            served.push(Err(veil402_enclave::UpstreamError::Unavailable));
+            served.push(Err(veil402_enclave::UpstreamError::Unavailable("test".into())));
         } else {
             served.push(Ok(veil402_enclave::Served::Done(veil402_enclave::Receipt {
                 cost,
