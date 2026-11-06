@@ -1725,6 +1725,13 @@ export function ConsoleView({ v }: { v: ConsoleBindings }) {
                 inputMode="decimal"
               />
             </label>
+            <div className={s.s253}>
+              {v.budgetPresets.map((bp, i) => (
+                <button key={i} className={s.s254} onClick={bp.pick}>
+                  {bp.label}
+                </button>
+              ))}
+            </div>
             <div
               className={s.s263}
             >

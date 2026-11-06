@@ -110,6 +110,15 @@ fn handle(bytes: &[u8]) -> Result<HandleId, ChainError> {
     serde_json::from_slice(bytes).map_err(|_| ChainError::Refused("unreadable handle".into()))
 }
 
+impl<P> PoolBroadcaster<P> {
+    /// The address this daemon's calls come from, and whose public balance
+    /// is what is left to shield.
+    #[must_use]
+    pub fn account(&self) -> Address {
+        self.wallet.account()
+    }
+}
+
 #[async_trait]
 impl<P: Provider + Send + Sync> Broadcaster for PoolBroadcaster<P> {
     async fn submit(&self, key: Field, calldata: Vec<u8>) -> Result<(), ChainError> {

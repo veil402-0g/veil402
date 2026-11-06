@@ -6,7 +6,10 @@ use alloy::primitives::Address;
 use serde::Serialize;
 
 use crate::core::{
-    agent::AgentService, envelope::EnvelopeService, index::IndexService, wallet::WalletService,
+    agent::AgentService,
+    envelope::EnvelopeService,
+    index::{Funding, IndexService},
+    wallet::WalletService,
 };
 
 /// Pool units are the token's own smallest unit, so one is a micro-USD and
@@ -80,5 +83,7 @@ pub struct Console {
     pub envelopes: Arc<EnvelopeService>,
     pub index: Arc<IndexService>,
     pub wallet: Arc<WalletService>,
+    /// What is left to shield, for a console offering to shield it.
+    pub funding: Arc<dyn Funding>,
     pub settings: Arc<Settings>,
 }

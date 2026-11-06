@@ -23,7 +23,8 @@ use veil402_sdk::{Config as Proving, Field, Note, Owner, Secret, Veil, evm::Pool
 
 use crate::{
     adapters::{
-        self, Api, ChainSource, Console, LocalProver, RemoteEnclave, Settings, SqliteStore, Window,
+        self, Api, ChainSource, Console, LocalProver, Purse, RemoteEnclave, Settings, SqliteStore,
+        Window,
     },
     core::{
         StoreError,
@@ -533,6 +534,7 @@ impl Daemon {
                     envelopes: envelopes.clone(),
                     index: index.clone(),
                     wallet: wallet.clone(),
+                    funding: Arc::new(Purse::new(provider, config.token, broadcast.account())),
                     settings: Arc::new(Settings::new(
                         chain_id,
                         config.pool,

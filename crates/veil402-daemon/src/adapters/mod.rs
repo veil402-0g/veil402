@@ -8,7 +8,7 @@ mod remote;
 mod store;
 
 pub use broadcast::{Depositor, PoolBroadcaster, depositor, open as broadcaster};
-pub use chain::{ChainSource, Window};
+pub use chain::{ChainSource, Purse, Window};
 pub use http::{Api, Console, Settings, router};
 pub use prove::LocalProver;
 pub use remote::RemoteEnclave;

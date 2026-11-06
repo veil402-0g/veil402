@@ -69,6 +69,16 @@ function explain(error: unknown): string {
     : 'the daemon is not answering on this address'
 }
 
+/** Fractions of what there is, which is more use than a figure typed here. */
+function shares(of: number): { label: string; amount: string }[] {
+  const cut = (part: number) => Math.floor(of * part * 1e6) / 1e6
+  return [
+    { label: '10%', amount: String(cut(0.1)) },
+    { label: '50%', amount: String(cut(0.5)) },
+    { label: 'MAX', amount: String(cut(1)) },
+  ]
+}
+
 /** Parses "5,000" and other loosely-typed money input. */
 function amountOf(v: string): number {
   return parseFloat(String(v).replace(/[^0-9.]/g, '')) || 0
@@ -778,13 +788,6 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
       setForm((f) => ({ ...f, mError: 'Enter a budget.' }))
       return
     }
-    if (budget > T.free) {
-      setForm((f) => ({
-        ...f,
-        mError: `Budget exceeds unallocated funds (${money(T.free)}). Fund the pool first.`,
-      }))
-      return
-    }
     if (config) {
       // Pool units, not whole tokens: the daemon counts in the token's own
       // smallest unit and the form collects dollars.
@@ -993,11 +996,16 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     stop: (e: MouseEvent) => e.stopPropagation(),
 
     fundAmount: form.fundAmount,
+    depositableF: `${money(ledger.depositable)} USDC`,
     setFundAmount: (e: ChangeEvent<HTMLInputElement>) =>
       setForm((f) => ({ ...f, fundAmount: e.target.value })),
-    fundPresets: ['1,000', '5,000', '25,000'].map((label) => ({
+    fundPresets: shares(ledger.depositable).map(({ label, amount }) => ({
       label,
-      pick: () => setForm((f) => ({ ...f, fundAmount: label })),
+      pick: () => setForm((f) => ({ ...f, fundAmount: amount })),
+    })),
+    budgetPresets: shares(T.free > 0 ? T.free : ledger.balance).map(({ label, amount }) => ({
+      label,
+      pick: () => setForm((f) => ({ ...f, mBudget: amount })),
     })),
     fundBtnLabel: form.funding
       ? 'Generating deposit proof…'
@@ -1012,7 +1020,12 @@ export function useConsoleBindings({ agentChart = 'Range' }: ConsoleOptions = {}
     setMBudget: (e: ChangeEvent<HTMLInputElement>) =>
       setForm((f) => ({ ...f, mBudget: e.target.value })),
     mError: form.mError,
-    freeF: `${money(T.free)} USDC`,
+    freeF:
+      T.free > 0
+        ? `${money(T.free)} USDC`
+        // What is still promised, against what is still there. Spent money
+        // has already left the pool and commits nothing.
+        : `0.00 USDC · over-committed by ${money(T.mandated + T.escrow - ledger.balance)}`,
     endpointChips: (config?.models ?? []).map((ep) => {
       const on = form.mEndpoints.includes(ep)
       return {

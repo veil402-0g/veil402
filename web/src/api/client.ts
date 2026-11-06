@@ -67,6 +67,8 @@ export interface Pool {
   leaves: number
   root: string
   synced: boolean
+  /** What the funding key still holds in the clear, in pool units. */
+  depositable: number | null
   last_deposit: { amount: number; at: number } | null
 }
 

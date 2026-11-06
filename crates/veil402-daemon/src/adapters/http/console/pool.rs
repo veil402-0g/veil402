@@ -26,6 +26,9 @@ pub struct Pool {
     /// Whether the local tree agrees with the pool's own root. Being behind
     /// is ordinary; being wrong is not.
     pub synced: bool,
+    /// What the funding key still holds in the clear, so a console can offer
+    /// to shield all of it. Absent when the chain would not say.
+    pub depositable: Option<u64>,
     pub last_deposit: Option<Deposited>,
 }
 
@@ -46,6 +49,7 @@ pub async fn pool(State(console): State<Console>) -> ApiResult<Pool> {
         leaves: console.index.leaves().await,
         root: wire::encode(&root.to_bytes()),
         synced: console.index.is_current().await.unwrap_or(false),
+        depositable: console.funding.depositable().await.ok(),
         last_deposit: console
             .wallet
             .last_deposit()

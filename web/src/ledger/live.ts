@@ -141,6 +141,7 @@ export function fold(previous: Ledger, taken: Snapshot, config: Bootstrap): Ledg
     proofs: previous.proofs,
     notes: taken.pool.notes,
     leaves: taken.pool.leaves,
+    depositable: scaled(taken.pool.depositable ?? 0, decimals),
     auditAgent:
       previous.auditAgent && agents.some((row) => row.id === previous.auditAgent)
         ? previous.auditAgent

@@ -18,7 +18,9 @@ pub use veil402_daemon::core::envelope::Landed;
 use veil402_daemon::core::{
     StoreError,
     envelope::{Broadcaster, ChainError as SendError},
-    index::{Batch, ChainError, Commitment, CommitmentSource, IndexStore, Locked, Nullified},
+    index::{
+        Batch, ChainError, Commitment, CommitmentSource, Funding, IndexStore, Locked, Nullified,
+    },
 };
 use futures_util::StreamExt;
 use veil402_sdk::{Field, StoredNode, Tree};
@@ -260,6 +262,16 @@ impl IndexStore for Memory {
 
     async fn escrows(&self, _: u32) -> Result<Vec<Locked>, StoreError> {
         Ok(Vec::new())
+    }
+}
+
+/// A key with nothing left to shield.
+pub struct Unfunded;
+
+#[async_trait]
+impl Funding for Unfunded {
+    async fn depositable(&self) -> Result<u64, ChainError> {
+        Ok(0)
     }
 }
 
@@ -526,6 +538,7 @@ impl Fixture {
             envelopes: self.service.clone(),
             index: self.index.clone(),
             wallet: self.wallet.clone(),
+            funding: Arc::new(Unfunded),
             settings: Arc::new(Settings::new(1, seller(), seller(), seller(), seller(), CEILING, WINDOW)),
         }
     }

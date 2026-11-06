@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use veil402_sdk::Field;
 
 use crate::core::index::{
-    Batch, ChainError, Commitment, CommitmentSource, Locked, Nullified, Settled,
+    Batch, ChainError, Commitment, CommitmentSource, Funding, Locked, Nullified, Settled,
 };
 
 sol! {
@@ -212,5 +212,43 @@ impl<P: Provider + Send + Sync> CommitmentSource for ChainSource<P> {
             .inspect_err(|error| tracing::warn!(%error, "currentRoot unavailable"))
             .map_err(|_| ChainError::Unavailable)?;
         field(root)
+    }
+}
+
+sol! {
+    #[sol(rpc)]
+    interface IFunds {
+        function balanceOf(address owner) external view returns (uint256);
+    }
+}
+
+/// Reads the public balance of the key that shields funds.
+pub struct Purse<P> {
+    provider: P,
+    token: Address,
+    owner: Address,
+}
+
+impl<P: Provider> Purse<P> {
+    pub const fn new(provider: P, token: Address, owner: Address) -> Self {
+        Self {
+            provider,
+            token,
+            owner,
+        }
+    }
+}
+
+#[async_trait]
+impl<P: Provider + Send + Sync> Funding for Purse<P> {
+    async fn depositable(&self) -> Result<u64, ChainError> {
+        let held = IFunds::new(self.token, &self.provider)
+            .balanceOf(self.owner)
+            .call()
+            .await
+            .map_err(|_| ChainError::Unavailable)?;
+        // A balance past what a note can hold is one the pool would refuse
+        // anyway; reporting the cap is truer than overflowing.
+        Ok(u64::try_from(held).unwrap_or(u64::MAX))
     }
 }

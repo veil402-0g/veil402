@@ -73,6 +73,8 @@ export interface Ledger {
   notes: number
   /** Commitments in the whole pool, which is the set a spend hides in. */
   leaves: number
+  /** What is left to shield, which is not the same as what is shielded. */
+  depositable: number
   auditAgent: string | null
   root: string | null
 }
@@ -88,6 +90,7 @@ export function seedEmpty(): Ledger {
     proofs: [],
     notes: 0,
     leaves: 0,
+    depositable: 0,
     auditAgent: null,
     root: null,
   }

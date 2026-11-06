@@ -31,6 +31,15 @@ pub trait CommitmentSource: Send + Sync {
     async fn root(&self) -> Result<Field, ChainError>;
 }
 
+/// What the key that pays for deposits still holds in the clear.
+///
+/// The shielded balance says what can be spent privately; this says what is
+/// left to shield.
+#[async_trait]
+pub trait Funding: Send + Sync {
+    async fn depositable(&self) -> Result<u64, ChainError>;
+}
+
 /// Holds the index across restarts. The chain only answers a fixed window, so
 /// losing this cannot be recovered by resyncing.
 #[async_trait]
