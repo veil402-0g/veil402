@@ -256,16 +256,148 @@ aider --model openai/<model>
 - Langflow: [playground/README.md](playground/README.md)
 - Agent-to-agent private payments: [demo/README.md](demo/README.md)
 
-## Hedera testnet deployment
+---
 
-| Contract | Address |
-|---|---|
-| Pool | `0xeEF91fE38Fa1a55B139eabCb673b90A9572b66e1` |
-| Verifier | `0x42532488f967329e2B090dCf68396Ef0dd63de69` |
-| EnclaveRegistry | `0xed8Afa86b16f17C22E8a73359ef93BbaC6Ad01DA` |
-| PoolToken | `0x7118aEAdd435700ee91544b81cCd8CeA678eF9AB` |
+## x402 on Hedera: the payment flow
+
+Veil402 is an **x402** payment rail for **AI agents** that settles on **Hedera
+testnet** (chain id 296). The seller's endpoint is **x402-protected**: a request
+without a live payment gets **HTTP 402 Payment Required** and a challenge saying
+what to pay. The buyer's daemon pays and retries **autonomously, with no human
+approval** — the human sets the spending rules once.
+
+The scheme is **`escrow`**, not `exact`: one payment opens a channel that
+covers a whole session of metered calls. We run **our own facilitator** — the
+gateway's settlement adapter verifies the enclave's meter and submits the
+settlement, and `crates/veil402-relay` broadcasts it.
+
+```
+agent ──POST /v1/chat/completions──▶ daemon (buyer)
+                                      │ GET  /v1/catalogue                  discover models and prices
+                                      │ POST /v1/sessions/{n}/chat ──▶ 402  challenge: scheme "escrow",
+                                      │                                     pool, chain 296, seller, enclave PCRs
+                                      │ POST /v1/sessions/agree             enclave co-signs the lock terms
+                                      │ Pool.lock(...) on Hedera ◀── relay  note reserved, no tokens move
+                                      │ POST /v1/sessions/{n}/chat ──▶ 200  metered off chain, sealed answer
+                                      ▼  … thousands of calls, zero transactions …
+                       gateway ──▶ Pool.settleToNote / settleToAddress on Hedera
+                                   one transaction per session, signed by the enclave
+```
+
+**Spending controls**, enforced before any money moves:
+
+- per-agent API keys (`veil402-daemon key new <label> --budget <units>`), stored
+  only as a hash;
+- a budget cap per key, a model allowlist per key, pause, resume and revoke from
+  the operator console;
+- an escrow ceiling per session: the locked note is the most a session can spend;
+- a lock deadline of at most one hour, after which the note returns to the buyer.
+
+**Agent-to-agent negotiation.** [`demo/`](demo/README.md) runs two autonomous
+agents over a private x402 handshake: Agent B answers `402 {invoiceId, price,
+payTo}`, Agent A pays B's `veil402:pay:v1` address through the shielded pool,
+and B confirms the payment before delivering.
+
+### Hedera testnet evidence
+
+| Step | Hedera transaction ID | HashScan |
+|---|---|---|
+| Groth16 proof verified on chain | `0.0.4507444-1793101034-630151893` | [view](https://hashscan.io/testnet/transaction/1793101038.217963439) |
+| Pool deployed | `0.0.4507444-1793179079-580803111` | [view](https://hashscan.io/testnet/transaction/1793179085.382657104) |
+| `shield` — deposit into the pool | `0.0.4507444-1793179103-539459791` | [view](https://hashscan.io/testnet/transaction/1793179111.478524104) |
+| `lock` — x402 escrow opened | `0.0.4507444-1793179112-645978943` | [view](https://hashscan.io/testnet/transaction/1793179120.598529104) |
+| `settleToAddress` — session settled | `0.0.4507444-1793179127-374412857` | [view](https://hashscan.io/testnet/transaction/1793179135.539354104) |
+
+| Contract | EVM address | Hedera ID |
+|---|---|---|
+| Pool | `0xeEF91fE38Fa1a55B139eabCb673b90A9572b66e1` | [`0.0.11206027`](https://hashscan.io/testnet/contract/0.0.11206027) |
+| Verifier | `0x42532488f967329e2B090dCf68396Ef0dd63de69` | [`0.0.11191610`](https://hashscan.io/testnet/contract/0.0.11191610) |
+| EnclaveRegistry | `0xed8Afa86b16f17C22E8a73359ef93BbaC6Ad01DA` | [`0.0.11206026`](https://hashscan.io/testnet/contract/0.0.11206026) |
+| PoolToken | `0x7118aEAdd435700ee91544b81cCd8CeA678eF9AB` | [`0.0.11206025`](https://hashscan.io/testnet/contract/0.0.11206025) |
 
 Measured gas: proof verification ~379k, `transact` ~997k, `lock` ~85k, settlement
 ~1.01M. Full record in [`contracts/deployments/296-testnet.json`](contracts/deployments/296-testnet.json).
 
 The pool is immutable: no proxy, no admin, no upgrade path.
+
+---
+
+## Built on 0G Private Computer
+
+Every inference Veil402 sells runs on **0G Private Computer**: the enclave calls
+0G's OpenAI-compatible router (`router-api.0g.ai/v1`), and each request executes
+inside a **TEE** on a 0G provider.
+
+- **0G is in the main user flow.** Every metered call is a 0G Private Computer
+  inference; there is no other upstream.
+- **Request IDs are kept.** 0G's `request_id` is recorded with every call, hashed
+  into that call's attestation, and rolled into the calls root the session
+  settles against. The console's audit view (`GET /api/v1/audit`) shows it per
+  call.
+- **The TEE signature is checked.** The enclave recovers the provider's signature
+  over the response and compares it with the TEE signer 0G publishes on chain.
+- **Providers are filtered.** Only `TeeML`-verified nodes with an acknowledged
+  signer are used.
+
+**What breaks without 0G:** the escrow has nothing to release against. Without
+0G's TEE attestation there is no proof the inference ran privately, so a session
+could not be settled without trusting the seller.
+
+---
+
+## CROPS
+
+Veil402's lead property is **Private**. The other three hold, and where they are
+partial we say so.
+
+### Control and dependencies
+
+- You run the buyer daemon yourself, generate your own keys (`veil402-daemon
+  keygen`) and prove locally. No account, no API key from anyone else.
+- The pool is an immutable contract with no owner, proxy or pause. Nobody can
+  freeze or seize a note.
+- If a seller vanishes, the escrowed note returns to you after its deadline plus
+  60 seconds. Withdrawing needs only your proof.
+- The relay is a separate binary (`crates/veil402-relay`) you can run yourself.
+- Dependencies we do not control: a Hedera JSON-RPC endpoint, the seller's
+  gateway and Nitro enclave, AWS KMS on the seller's side, and 0G Private
+  Computer. `EnclaveRegistry` has an owner who can register and revoke enclave
+  keys. It cannot touch funds, and revoking a key does not strand a live escrow.
+
+### License and buildability
+
+- Apache-2.0 ([`LICENSE`](LICENSE)).
+- Builds from source with `cargo build --workspace`, `go build` and `forge build`.
+  Contract dependencies are pinned by commit (`make deps`), proving artifacts are
+  pinned by version, and Foundry is pinned.
+- No trackers or analytics in the web client. Its only third-party request is
+  for typefaces from Google Fonts.
+
+### What third parties learn
+
+| Party | Learns | Does not learn |
+|---|---|---|
+| Chain observers | that some note was spent, locked or settled | buyer, seller's amount (`settleToNote`), balances, which deposit funded what |
+| Relay operator | the transactions it broadcasts, and your IP | your keys, amounts, which notes are yours |
+| Gateway host | ciphertext sizes and timing, and your IP | prompts or answers (HPKE-sealed to the enclave) |
+| Enclave (attested image) | the prompt, to run it | who you are on chain |
+| 0G provider | the prompt, inside its TEE | who sent it — the request comes from the enclave's account |
+| Seller | what the session cost | your identity or wallet |
+| JSON-RPC provider | your IP and the pool logs you sync | which notes are yours — the daemon reads every log, not yours alone |
+
+Trade-off stated: network-level metadata (your IP) is visible to the RPC
+provider, the relay and the gateway. Routing those through an anonymity network
+is the next step.
+
+### How keys and data are protected
+
+- Spending and viewing keys are generated locally and never leave the daemon.
+  Each session uses a fresh derived key, so sessions cannot be linked.
+- Agent API keys are stored only as a hash and printed once.
+- Proving runs locally. The prover worker never writes the witness to disk.
+- Prompts and answers are sealed with HPKE (RFC 9180). Note openings are sealed
+  to the recipient's viewing key.
+- The enclave's key is derived from AWS KMS against its image measurement and is
+  never stored anywhere.
+- One payment can be disclosed to one auditor without revealing any other
+  (`crates/veil402-sdk/src/protocol/disclosure.rs`).
